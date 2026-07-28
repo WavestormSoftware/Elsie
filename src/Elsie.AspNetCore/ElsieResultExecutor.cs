@@ -10,6 +10,12 @@ public sealed class ElsieResultExecutor : IElsieResultExecutor
         ArgumentNullException.ThrowIfNull(result);
 
         httpContext.Response.StatusCode = result.StatusCode;
+
+        foreach (var header in result.Headers)
+        {
+            httpContext.Response.Headers[header.Key] = header.Value;
+        }
+
         if (!string.IsNullOrEmpty(result.ContentType))
         {
             httpContext.Response.ContentType = result.ContentType;

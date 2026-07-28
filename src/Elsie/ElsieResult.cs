@@ -8,47 +8,82 @@ namespace Elsie;
 /// </summary>
 public sealed class ElsieResult
 {
+    private readonly Dictionary<string, string>? _headers;
+
     private ElsieResult(
         int statusCode,
         string? contentType,
         ReadOnlyMemory<byte>? body,
-        Func<Stream, CancellationToken, Task>? bodyWriter)
+        Func<Stream, CancellationToken, Task>? bodyWriter,
+        Dictionary<string, string>? headers)
     {
         StatusCode = statusCode;
         ContentType = contentType;
         Body = body;
         BodyWriter = bodyWriter;
+        _headers = headers;
     }
 
     public int StatusCode { get; }
     public string? ContentType { get; }
     public ReadOnlyMemory<byte>? Body { get; }
     public Func<Stream, CancellationToken, Task>? BodyWriter { get; }
+    public IReadOnlyDictionary<string, string> Headers =>
+        _headers ?? (IReadOnlyDictionary<string, string>)EmptyHeaders.Instance;
 
     public static ElsieResult Status(int statusCode) =>
-        new(statusCode, contentType: null, body: null, bodyWriter: null);
+        new(statusCode, contentType: null, body: null, bodyWriter: null, headers: null);
 
-    public static ElsieResult NoContent() => Status(StatusCodes.Status204NoContent);
+    public static ElsieResult NoContent() => Status(204);
 
-    public static ElsieResult Text(string text, int statusCode = StatusCodes.Status200OK, string contentType = "text/plain; charset=utf-8")
+    public static ElsieResult Text(string text, int statusCode = 200, string contentType = "text/plain; charset=utf-8")
     {
         ArgumentNullException.ThrowIfNull(text);
-        return new ElsieResult(statusCode, contentType, Encoding.UTF8.GetBytes(text), bodyWriter: null);
+        return new(statusCode, contentType, Encoding.UTF8.GetBytes(text), bodyWriter: null, headers: null);
     }
 
-    public static ElsieResult Bytes(ReadOnlyMemory<byte> bytes, string contentType, int statusCode = StatusCodes.Status200OK) =>
-        new(statusCode, contentType, bytes, bodyWriter: null);
+    public static ElsieResult Bytes(ReadOnlyMemory<byte> bytes, string contentType, int statusCode = 200) =>
+        new(statusCode, contentType, bytes, bodyWriter: null, headers: null);
 
-    public static ElsieResult Json<T>(T value, int statusCode = StatusCodes.Status200OK, JsonSerializerOptions? options = null)
+    public static ElsieResult Json<T>(T value, int statusCode = 200, JsonSerializerOptions? options = null)
     {
         var payload = JsonSerializer.SerializeToUtf8Bytes(value, options ?? ElsieJson.DefaultOptions);
-        return new ElsieResult(statusCode, "application/json; charset=utf-8", payload, bodyWriter: null);
+        return new(statusCode, "application/json; charset=utf-8", payload, bodyWriter: null, headers: null);
     }
 
-    public static ElsieResult Stream(Func<Stream, CancellationToken, Task> writer, string contentType, int statusCode = StatusCodes.Status200OK)
+    public static ElsieResult Stream(Func<Stream, CancellationToken, Task> writer, string contentType, int statusCode = 200)
     {
         ArgumentNullException.ThrowIfNull(writer);
-        return new ElsieResult(statusCode, contentType, body: null, bodyWriter: writer);
+        return new(statusCode, contentType, body: null, bodyWriter: writer, headers: null);
+    }
+
+    /// <summary>Creates a redirect response (302 by default, 301 when permanent).</summary>
+    public static ElsieResult Redirect(string location, bool permanent = false)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(location);
+        var headers = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["Location"] = location
+        };
+        return new(permanent ? 301 : 302, contentType: null, body: null, bodyWriter: null, headers);
+    }
+
+    /// <summary>Returns a copy of this result with an additional response header.</summary>
+    public ElsieResult WithHeader(string name, string value)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(name);
+        ArgumentNullException.ThrowIfNull(value);
+        var headers = _headers is null
+            ? new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+            : new Dictionary<string, string>(_headers, StringComparer.OrdinalIgnoreCase);
+        headers[name] = value;
+        return new(StatusCode, ContentType, Body, BodyWriter, headers);
+    }
+
+    private sealed class EmptyHeaders : Dictionary<string, string>, IReadOnlyDictionary<string, string>
+    {
+        public static readonly EmptyHeaders Instance = new();
+        private EmptyHeaders() : base(0, StringComparer.OrdinalIgnoreCase) { }
     }
 }
 
@@ -56,11 +91,4 @@ public sealed class ElsieResult
 public static class ElsieJson
 {
     public static JsonSerializerOptions DefaultOptions { get; } = new(JsonSerializerDefaults.Web);
-}
-
-// Avoid hard dependency name clash when FrameworkReference provides StatusCodes
-file static class StatusCodes
-{
-    public const int Status200OK = 200;
-    public const int Status204NoContent = 204;
 }
