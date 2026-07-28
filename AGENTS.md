@@ -57,8 +57,9 @@ dotnet pack Elsie.sln -c Release -o artifacts/nuget
 
 ## Samples
 
-- Easy: `samples/Elsie.Sample.Hello`
-- Advanced: `samples/Elsie.Sample.Api`
+- Easy ASP.NET: `samples/Elsie.Sample.Hello`
+- Advanced ASP.NET: `samples/Elsie.Sample.Api`
+- Core only (no ASP.NET): `samples/Elsie.Sample.Core`
 
 ## Engineering rules
 

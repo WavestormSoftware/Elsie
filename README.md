@@ -32,8 +32,9 @@ public sealed class HelloModule : ElsieModule
 ```
 
 ```bash
-dotnet run --project samples/Elsie.Sample.Hello
-dotnet run --project samples/Elsie.Sample.Api   # advanced
+dotnet run --project samples/Elsie.Sample.Hello  # easy ASP.NET
+dotnet run --project samples/Elsie.Sample.Api    # advanced ASP.NET API
+dotnet run --project samples/Elsie.Sample.Core   # no ASP.NET — dispatcher only
 ```
 
 ## Host-agnostic core
@@ -103,10 +104,11 @@ response.AssertStatus(200);
 
 ## Samples
 
-| Sample | Level |
-|--------|--------|
-| `samples/Elsie.Sample.Hello` | Easy — minimal module |
-| `samples/Elsie.Sample.Api` | Advanced — Path/Group, DI store, bind, API key, exception handler |
+| Sample | Level | Host |
+|--------|-------|------|
+| `samples/Elsie.Sample.Hello` | Easy | ASP.NET — DI greeter, query, constraints, pipelines |
+| `samples/Elsie.Sample.Api` | Advanced | ASP.NET — Path/Group CRUD, bind, API key, PATCH, ExceptionHandler |
+| `samples/Elsie.Sample.Core` | Core | **No ASP.NET** — `ElsieDispatcher` + `ElsieRequest` console demo |
 
 ## Build
 
