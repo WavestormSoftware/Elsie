@@ -1,0 +1,79 @@
+# Publish packable projects to nuget.org via Trusted Publishing (OIDC).
+# Requires a Trusted Publishing policy per package on https://www.nuget.org
+# (owner account) matching:
+#   Repository owner : WavestormSoftware
+#   Repository       : Elsie
+#   Workflow         : publish-nuget.yml
+#   Environment      : nuget  (optional but recommended)
+#
+# Docs: https://learn.microsoft.com/nuget/nuget-org/trusted-publishing
+
+name: publish-nuget
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Pack only; skip nuget push"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    environment: nuget
+    permissions:
+      contents: read
+      id-token: write   # OIDC for NuGet Trusted Publishing
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: |
+            8.0.x
+            9.0.x
+
+      - name: Restore
+        run: dotnet restore Elsie.sln
+
+      - name: Test
+        run: dotnet test Elsie.sln -c Release --verbosity minimal
+
+      - name: Pack
+        run: |
+          rm -rf artifacts/nuget
+          dotnet pack Elsie.sln -c Release -o artifacts/nuget --no-restore
+          # Drop symbols from the push set; snupkg push is optional/separate.
+          ls -la artifacts/nuget
+
+      - name: NuGet login (Trusted Publishing OIDC)
+        if: ${{ github.event_name == 'release' || inputs.dry_run == false }}
+        uses: NuGet/login@v1
+        id: nuget
+        with:
+          user: WavestormSoftware
+
+      - name: Push to nuget.org
+        if: ${{ github.event_name == 'release' || inputs.dry_run == false }}
+        run: |
+          shopt -s nullglob
+          pkgs=(artifacts/nuget/*.nupkg)
+          if [ ${#pkgs[@]} -eq 0 ]; then
+            echo "No nupkg files found" >&2
+            exit 1
+          fi
+          for pkg in "${pkgs[@]}"; do
+            echo "Pushing $pkg"
+            dotnet nuget push "$pkg" \
+              --api-key "${{ steps.nuget.outputs.NUGET_API_KEY }}" \
+              --source https://api.nuget.org/v3/index.json \
+              --skip-duplicate
+          done

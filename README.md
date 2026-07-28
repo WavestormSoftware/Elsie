@@ -133,11 +133,9 @@ Get("/", async (ctx, ct) =>
 
 ```bash
 dotnet pack Elsie.sln -c Release -o artifacts/nuget
-# GitHub Packages (org WavestormSoftware):
-dotnet nuget push artifacts/nuget/*.nupkg \
-  --source https://nuget.pkg.github.com/WavestormSoftware/index.json \
-  --api-key "$GITHUB_TOKEN"
 ```
+
+**Publish (nuget.org):** GitHub Actions workflow [`publish-nuget.yml`](.github/workflows/publish-nuget.yml) uses [Trusted Publishing](https://learn.microsoft.com/nuget/nuget-org/trusted-publishing) (OIDC) — no long-lived API key. Create a Trusted Publisher policy per package on nuget.org (repo `WavestormSoftware/Elsie`, workflow `publish-nuget.yml`, environment `nuget`), then run **Actions → publish-nuget** or publish a GitHub Release.
 
 ## Testing
 
