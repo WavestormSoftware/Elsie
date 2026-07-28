@@ -52,18 +52,16 @@ public sealed class ElsieInMemoryHost : IAsyncDisposable
         IReadOnlyDictionary<string, string>? headers = null,
         IReadOnlyDictionary<string, IReadOnlyList<string>>? headerValues = null)
     {
-        var (path, query, queryValues) = SplitPathAndQuery(pathAndQuery);
+        var (path, queryValues) = SplitPathAndQuery(pathAndQuery);
         var request = new ElsieRequest(
             method: method,
             path: path,
-            query: query,
-            headers: headers,
             body: body,
             contentLength: contentLength ?? body?.Length,
             contentType: contentType,
             requestServices: _services,
             queryValues: queryValues,
-            headerValues: headerValues);
+            headerValues: headerValues ?? Promote(headers));
 
         var outcome = await _dispatcher.DispatchAsync(request).ConfigureAwait(false);
         return await ElsieInMemoryResponse.FromDispatchAsync(outcome).ConfigureAwait(false);
@@ -83,7 +81,6 @@ public sealed class ElsieInMemoryHost : IAsyncDisposable
 
     private static (
         string Path,
-        IReadOnlyDictionary<string, string> Query,
         IReadOnlyDictionary<string, IReadOnlyList<string>> QueryValues)
         SplitPathAndQuery(string pathAndQuery)
     {
@@ -93,7 +90,6 @@ public sealed class ElsieInMemoryHost : IAsyncDisposable
         {
             return (
                 pathAndQuery,
-                new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase),
                 new Dictionary<string, IReadOnlyList<string>>(StringComparer.OrdinalIgnoreCase));
         }
 
@@ -125,15 +121,30 @@ public sealed class ElsieInMemoryHost : IAsyncDisposable
             list.Add(value);
         }
 
-        var query = new Dictionary<string, string>(multi.Count, StringComparer.OrdinalIgnoreCase);
         var queryValues = new Dictionary<string, IReadOnlyList<string>>(multi.Count, StringComparer.OrdinalIgnoreCase);
         foreach (var (key, list) in multi)
         {
             queryValues[key] = list;
-            query[key] = list.Count > 0 ? list[0] : string.Empty;
         }
 
-        return (path, query, queryValues);
+        return (path, queryValues);
+    }
+
+    private static IReadOnlyDictionary<string, IReadOnlyList<string>>? Promote(
+        IReadOnlyDictionary<string, string>? headers)
+    {
+        if (headers is null || headers.Count == 0)
+        {
+            return null;
+        }
+
+        var map = new Dictionary<string, IReadOnlyList<string>>(headers.Count, StringComparer.OrdinalIgnoreCase);
+        foreach (var (key, value) in headers)
+        {
+            map[key] = new[] { value };
+        }
+
+        return map;
     }
 
     public ValueTask DisposeAsync()
@@ -173,54 +184,19 @@ public sealed class ElsieInMemoryResponse
 
     internal static async Task<ElsieInMemoryResponse> FromDispatchAsync(ElsieDispatchResult outcome)
     {
-        if (outcome.Status == ElsieDispatchStatus.NotFound)
+        var baked = ElsieHttpResponse.FromDispatch(outcome);
+        if (baked is null)
         {
-            return new(404, null, Array.Empty<byte>(), EmptyHeaders(), outcome.Status, outcome.AllowedMethods);
+            return new(404, null, Array.Empty<byte>(), new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase), outcome.Status, outcome.AllowedMethods);
         }
 
-        if (outcome.Status == ElsieDispatchStatus.MethodNotAllowed)
-        {
-            var allow = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
-            {
-                ["Allow"] = string.Join(", ", outcome.AllowedMethods)
-            };
-            return new(405, null, Array.Empty<byte>(), allow, outcome.Status, outcome.AllowedMethods);
-        }
-
-        var result = outcome.Result!;
-        var headers = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-        if (outcome.Response is not null)
-        {
-            foreach (var h in outcome.Response.Headers)
-            {
-                headers[h.Key] = h.Value;
-            }
-        }
-
-        foreach (var h in result.Headers)
-        {
-            headers[h.Key] = h.Value;
-        }
-
-        byte[] body;
-        if (result.BodyWriter is not null)
-        {
-            await using var ms = new MemoryStream();
-            await result.BodyWriter(ms, CancellationToken.None).ConfigureAwait(false);
-            body = ms.ToArray();
-        }
-        else if (result.Body is { } memory)
-        {
-            body = memory.ToArray();
-        }
-        else
-        {
-            body = Array.Empty<byte>();
-        }
-
-        return new(result.StatusCode, result.ContentType, body, headers, outcome.Status, outcome.AllowedMethods);
+        var body = await baked.BufferBodyAsync().ConfigureAwait(false);
+        return new(
+            baked.StatusCode,
+            baked.ContentType,
+            body,
+            baked.Headers,
+            outcome.Status,
+            outcome.AllowedMethods);
     }
-
-    private static IReadOnlyDictionary<string, string> EmptyHeaders() =>
-        new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
 }

@@ -10,7 +10,6 @@ public class RequestMultiValueTests
         var request = new ElsieRequest(
             "GET",
             "/",
-            query: new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase) { ["tag"] = "a" },
             queryValues: new Dictionary<string, IReadOnlyList<string>>(StringComparer.OrdinalIgnoreCase)
             {
                 ["tag"] = new[] { "a", "b" }
@@ -18,6 +17,7 @@ public class RequestMultiValueTests
 
         Assert.Equal("a", request.GetQuery("tag"));
         Assert.Equal(new[] { "a", "b" }, request.GetQueryValues("tag"));
+        Assert.Equal("a", request.Query["tag"]);
     }
 
     [Fact]
@@ -38,13 +38,10 @@ public class RequestMultiValueTests
         var request = new ElsieRequest(
             "GET",
             "/",
-            headers: new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
-            {
-                ["Cookie"] = "a=1; session=abc; b=2"
-            },
             headerValues: new Dictionary<string, IReadOnlyList<string>>(StringComparer.OrdinalIgnoreCase)
             {
-                ["X-Forwarded-For"] = new[] { "1.1.1.1", "2.2.2.2" }
+                ["X-Forwarded-For"] = new[] { "1.1.1.1", "2.2.2.2" },
+                ["Cookie"] = new[] { "a=1; session=abc; b=2" }
             });
 
         Assert.Equal(new[] { "1.1.1.1", "2.2.2.2" }, request.GetHeaderValues("X-Forwarded-For"));

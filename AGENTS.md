@@ -53,6 +53,8 @@ dotnet pack Elsie.sln -c Release -o artifacts/nuget
 - Tests: `IServiceCollection.AddElsie` (no log rewiring).
 - Auth: `ElsieAuth.RequireApiKey` / `RequireHeader` / `RequireBearer` / `RequireCookie` before-hooks.
 - OpenAPI: core `ElsieOpenApiDocument`; host `MapElsieOpenApi` (JSON only; UI optional).
+- Dispatch bake: `ElsieHttpResponse.FromDispatch` — single materialize path (ASP.NET + in-memory).
+- Routing: `RouteTable.Lookup` owns matcher (`RouteMatcher` internal).
 - Do not reintroduce FrameworkReference on `Elsie` without an explicit product decision.
 
 ## Module registration

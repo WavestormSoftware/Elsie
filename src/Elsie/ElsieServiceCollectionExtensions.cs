@@ -32,7 +32,6 @@ public static class ElsieServiceCollectionExtensions
             var modules = sp.GetServices<ElsieModule>().ToArray();
             return RouteTable.FromModules(modules);
         });
-        services.TryAddSingleton<IRouteMatcher>(sp => new RouteMatcher(sp.GetRequiredService<RouteTable>()));
         services.TryAddSingleton<ElsieDispatcher>();
 
         RegisterScannedModules(services, options);

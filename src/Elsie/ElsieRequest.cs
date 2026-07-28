@@ -2,14 +2,15 @@ namespace Elsie;
 
 /// <summary>
 /// Host-agnostic HTTP request facade.
+/// Multi-value query/headers are the source of truth; <see cref="Query"/> / <see cref="Headers"/> are first-wins views.
 /// </summary>
 public sealed class ElsieRequest
 {
-    private static readonly Dictionary<string, string> Empty =
-        new(StringComparer.OrdinalIgnoreCase);
-
     private static readonly IReadOnlyDictionary<string, IReadOnlyList<string>> EmptyValues =
         new Dictionary<string, IReadOnlyList<string>>(StringComparer.OrdinalIgnoreCase);
+
+    private static readonly IReadOnlyDictionary<string, string> EmptyMap =
+        new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
 
     private static readonly IReadOnlyList<string> NoValues = Array.Empty<string>();
 
@@ -33,10 +34,10 @@ public sealed class ElsieRequest
         ArgumentException.ThrowIfNullOrWhiteSpace(method);
         Method = method.ToUpperInvariant();
         Path = NormalizePath(path);
-        _queryValues = queryValues ?? EmptyValues;
-        _headerValues = headerValues ?? EmptyValues;
-        Query = query ?? FirstWins(_queryValues) ?? Empty;
-        Headers = headers ?? FirstWins(_headerValues) ?? Empty;
+        _queryValues = queryValues ?? Promote(query);
+        _headerValues = headerValues ?? Promote(headers);
+        Query = FirstWins(_queryValues);
+        Headers = FirstWins(_headerValues);
         Body = body ?? Stream.Null;
         ContentLength = contentLength;
         ContentType = contentType;
@@ -48,10 +49,10 @@ public sealed class ElsieRequest
     public string Method { get; }
     public string Path { get; }
 
-    /// <summary>First value per key (compat). Prefer <see cref="GetQueryValues"/> for multi-value.</summary>
+    /// <summary>First value per key. Prefer <see cref="GetQueryValues"/> for multi-value.</summary>
     public IReadOnlyDictionary<string, string> Query { get; }
 
-    /// <summary>First value per key (compat). Prefer <see cref="GetHeaderValues"/> for multi-value.</summary>
+    /// <summary>First value per key. Prefer <see cref="GetHeaderValues"/> for multi-value.</summary>
     public IReadOnlyDictionary<string, string> Headers { get; }
     public Stream Body { get; }
     public long? ContentLength { get; }
@@ -67,47 +68,31 @@ public sealed class ElsieRequest
     public string? GetHeader(string name)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(name);
-        if (_headerValues.TryGetValue(name, out var values) && values.Count > 0)
-        {
-            return values[0];
-        }
-
-        return Headers.TryGetValue(name, out var value) ? value : null;
+        return _headerValues.TryGetValue(name, out var values) && values.Count > 0
+            ? values[0]
+            : null;
     }
 
     public string? GetQuery(string name)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(name);
-        if (_queryValues.TryGetValue(name, out var values) && values.Count > 0)
-        {
-            return values[0];
-        }
-
-        return Query.TryGetValue(name, out var value) ? value : null;
+        return _queryValues.TryGetValue(name, out var values) && values.Count > 0
+            ? values[0]
+            : null;
     }
 
     /// <summary>All values for a query key (empty when absent).</summary>
     public IReadOnlyList<string> GetQueryValues(string name)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(name);
-        if (_queryValues.TryGetValue(name, out var values))
-        {
-            return values;
-        }
-
-        return Query.TryGetValue(name, out var single) ? new[] { single } : NoValues;
+        return _queryValues.TryGetValue(name, out var values) ? values : NoValues;
     }
 
     /// <summary>All values for a header key (empty when absent).</summary>
     public IReadOnlyList<string> GetHeaderValues(string name)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(name);
-        if (_headerValues.TryGetValue(name, out var values))
-        {
-            return values;
-        }
-
-        return Headers.TryGetValue(name, out var single) ? new[] { single } : NoValues;
+        return _headerValues.TryGetValue(name, out var values) ? values : NoValues;
     }
 
     /// <summary>First matching cookie value from the <c>Cookie</c> header, or null.</summary>
@@ -138,23 +123,6 @@ public sealed class ElsieRequest
         }
 
         return null;
-    }
-
-    private static IReadOnlyDictionary<string, string>? FirstWins(
-        IReadOnlyDictionary<string, IReadOnlyList<string>> values)
-    {
-        if (ReferenceEquals(values, EmptyValues) || values.Count == 0)
-        {
-            return null;
-        }
-
-        var map = new Dictionary<string, string>(values.Count, StringComparer.OrdinalIgnoreCase);
-        foreach (var (key, list) in values)
-        {
-            map[key] = list.Count > 0 ? list[0] : string.Empty;
-        }
-
-        return map;
     }
 
     /// <summary>ASP.NET-style path segment prefix check (case-insensitive).</summary>
@@ -193,6 +161,40 @@ public sealed class ElsieRequest
         }
 
         return path;
+    }
+
+    private static IReadOnlyDictionary<string, IReadOnlyList<string>> Promote(
+        IReadOnlyDictionary<string, string>? single)
+    {
+        if (single is null || single.Count == 0)
+        {
+            return EmptyValues;
+        }
+
+        var map = new Dictionary<string, IReadOnlyList<string>>(single.Count, StringComparer.OrdinalIgnoreCase);
+        foreach (var (key, value) in single)
+        {
+            map[key] = new[] { value };
+        }
+
+        return map;
+    }
+
+    private static IReadOnlyDictionary<string, string> FirstWins(
+        IReadOnlyDictionary<string, IReadOnlyList<string>> values)
+    {
+        if (ReferenceEquals(values, EmptyValues) || values.Count == 0)
+        {
+            return EmptyMap;
+        }
+
+        var map = new Dictionary<string, string>(values.Count, StringComparer.OrdinalIgnoreCase);
+        foreach (var (key, list) in values)
+        {
+            map[key] = list.Count > 0 ? list[0] : string.Empty;
+        }
+
+        return map;
     }
 
     private sealed class EmptyServiceProvider : IServiceProvider

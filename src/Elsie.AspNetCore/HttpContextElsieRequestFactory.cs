@@ -10,31 +10,23 @@ internal static class HttpContextElsieRequestFactory
         ArgumentNullException.ThrowIfNull(httpContext);
         var request = httpContext.Request;
 
-        var (query, queryValues) = CopyMulti(request.Query);
-        var (headers, headerValues) = CopyMulti(request.Headers);
-
         var elsieRequest = new ElsieRequest(
             method: request.Method,
             path: request.Path.Value ?? "/",
-            query: query,
-            headers: headers,
             body: request.Body,
             contentLength: request.ContentLength,
             contentType: request.ContentType,
             requestServices: httpContext.RequestServices,
             requestAborted: httpContext.RequestAborted,
-            queryValues: queryValues,
-            headerValues: headerValues);
+            queryValues: CopyMulti(request.Query),
+            headerValues: CopyMulti(request.Headers));
         elsieRequest.SetHttpContext(httpContext);
         return elsieRequest;
     }
 
-    private static (
-        Dictionary<string, string> First,
-        Dictionary<string, IReadOnlyList<string>> All)
-        CopyMulti(IEnumerable<KeyValuePair<string, StringValues>> source)
+    private static Dictionary<string, IReadOnlyList<string>> CopyMulti(
+        IEnumerable<KeyValuePair<string, StringValues>> source)
     {
-        var first = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         var all = new Dictionary<string, IReadOnlyList<string>>(StringComparer.OrdinalIgnoreCase);
         foreach (var kv in source)
         {
@@ -46,9 +38,8 @@ internal static class HttpContextElsieRequestFactory
             }
 
             all[kv.Key] = list;
-            first[kv.Key] = list.Length > 0 ? list[0] : string.Empty;
         }
 
-        return (first, all);
+        return all;
     }
 }

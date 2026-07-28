@@ -18,17 +18,13 @@ public class RouteMatcherTests
         }
     }
 
-    private static IRouteMatcher CreateMatcher()
-    {
-        var table = RouteTable.FromModules([new SampleModule()]);
-        return new RouteMatcher(table);
-    }
+    private static RouteTable CreateTable() => RouteTable.FromModules([new SampleModule()]);
 
     [Fact]
     public void Matches_static_root()
     {
-        var matcher = CreateMatcher();
-        Assert.True(matcher.TryMatch("GET", "/", out var match));
+        var table = CreateTable();
+        Assert.True(table.TryMatch("GET", "/", out var match));
         Assert.NotNull(match);
         Assert.Equal("GET", match!.Route.Method);
     }
@@ -36,38 +32,38 @@ public class RouteMatcherTests
     [Fact]
     public void Extracts_route_parameter()
     {
-        var matcher = CreateMatcher();
-        Assert.True(matcher.TryMatch("GET", "/hello/Ada", out var match));
+        var table = CreateTable();
+        Assert.True(table.TryMatch("GET", "/hello/Ada", out var match));
         Assert.Equal("Ada", match!.RouteValues["name"]);
     }
 
     [Fact]
     public void Int_constraint_accepts_digits()
     {
-        var matcher = CreateMatcher();
-        Assert.True(matcher.TryMatch("GET", "/items/42", out var match));
+        var table = CreateTable();
+        Assert.True(table.TryMatch("GET", "/items/42", out var match));
         Assert.Equal("42", match!.RouteValues["id"]);
     }
 
     [Fact]
     public void Int_constraint_rejects_non_numeric()
     {
-        var matcher = CreateMatcher();
-        Assert.False(matcher.TryMatch("GET", "/items/abc", out _));
+        var table = CreateTable();
+        Assert.False(table.TryMatch("GET", "/items/abc", out _));
     }
 
     [Fact]
     public void Method_mismatch_does_not_match()
     {
-        var matcher = CreateMatcher();
-        Assert.False(matcher.TryMatch("GET", "/items", out _));
+        var table = CreateTable();
+        Assert.False(table.TryMatch("GET", "/items", out _));
     }
 
     [Fact]
     public void Lookup_reports_method_not_allowed()
     {
-        var matcher = CreateMatcher();
-        var lookup = matcher.Lookup("GET", "/items");
+        var table = CreateTable();
+        var lookup = table.Lookup("GET", "/items");
         Assert.Equal(RouteLookupStatus.MethodNotAllowed, lookup.Status);
         Assert.Contains("POST", lookup.AllowedMethods);
     }
@@ -75,33 +71,32 @@ public class RouteMatcherTests
     [Fact]
     public void Catch_all_captures_remaining_segments()
     {
-        var matcher = CreateMatcher();
-        Assert.True(matcher.TryMatch("GET", "/files/a/b/c", out var match));
+        var table = CreateTable();
+        Assert.True(table.TryMatch("GET", "/files/a/b/c", out var match));
         Assert.Equal("a/b/c", match!.RouteValues["path"]);
     }
 
     [Fact]
     public void Catch_all_allows_empty_remainder()
     {
-        var matcher = CreateMatcher();
-        Assert.True(matcher.TryMatch("GET", "/files", out var match));
+        var table = CreateTable();
+        Assert.True(table.TryMatch("GET", "/files", out var match));
         Assert.Equal(string.Empty, match!.RouteValues["path"]);
     }
 
     [Fact]
     public void Concrete_route_wins_over_catch_all()
     {
-        var matcher = CreateMatcher();
-        Assert.True(matcher.TryMatch("GET", "/files/readme", out var match));
+        var table = CreateTable();
+        Assert.True(table.TryMatch("GET", "/files/readme", out var match));
         Assert.Equal("/files/readme", match!.Route.Template);
     }
 
     [Fact]
-    public void Catch_all_not_final_throws_at_compile()
+    public void Catch_all_not_final_throws_at_table_build()
     {
         var module = new BadCatchAllModule();
-        var table = RouteTable.FromModules([module]);
-        Assert.Throws<InvalidOperationException>(() => new RouteMatcher(table));
+        Assert.Throws<InvalidOperationException>(() => RouteTable.FromModules([module]));
     }
 
     [Fact]

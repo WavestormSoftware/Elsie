@@ -1,6 +1,5 @@
 using System.Diagnostics;
 using Microsoft.AspNetCore.Http;
-using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 
 namespace Elsie.AspNetCore;
@@ -9,20 +8,17 @@ public sealed class ElsieMiddleware
 {
     private readonly RequestDelegate _next;
     private readonly ElsieDispatcher _dispatcher;
-    private readonly IElsieResultExecutor _executor;
     private readonly ILogger<ElsieMiddleware> _logger;
     private readonly bool _terminal;
 
     public ElsieMiddleware(
         RequestDelegate next,
         ElsieDispatcher dispatcher,
-        IServiceProvider services,
         ILogger<ElsieMiddleware> logger,
         bool terminal = false)
     {
         _next = next ?? throw new ArgumentNullException(nameof(next));
         _dispatcher = dispatcher ?? throw new ArgumentNullException(nameof(dispatcher));
-        _executor = services.GetService<IElsieResultExecutor>() ?? new ElsieResultExecutor();
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
         _terminal = terminal;
     }
@@ -34,42 +30,34 @@ public sealed class ElsieMiddleware
         var start = Stopwatch.GetTimestamp();
         var request = HttpContextElsieRequestFactory.Create(context);
         var outcome = await _dispatcher.DispatchAsync(request, context.RequestAborted).ConfigureAwait(false);
+        var response = ElsieHttpResponse.FromDispatch(outcome);
 
-        switch (outcome.Status)
+        if (response is null)
         {
-            case ElsieDispatchStatus.NotFound:
-                if (_terminal)
-                {
-                    context.Response.StatusCode = StatusCodes.Status404NotFound;
-                    Log(context, StatusCodes.Status404NotFound, start);
-                    return;
-                }
-
-                await _next(context).ConfigureAwait(false);
+            if (_terminal)
+            {
+                context.Response.StatusCode = StatusCodes.Status404NotFound;
+                Log(context, StatusCodes.Status404NotFound, start);
                 return;
+            }
 
-            case ElsieDispatchStatus.MethodNotAllowed:
-                context.Response.StatusCode = StatusCodes.Status405MethodNotAllowed;
-                context.Response.Headers.Allow = string.Join(", ", outcome.AllowedMethods);
-                Log(context, StatusCodes.Status405MethodNotAllowed, start);
-                return;
-
-            case ElsieDispatchStatus.Handled:
-                if (outcome.Response is not null)
-                {
-                    foreach (var header in outcome.Response.Headers)
-                    {
-                        context.Response.Headers[header.Key] = header.Value;
-                    }
-                }
-
-                await _executor.ExecuteAsync(context, outcome.Result!, context.RequestAborted).ConfigureAwait(false);
-                Log(context, outcome.Result!.StatusCode, start);
-                return;
-
-            default:
-                throw new InvalidOperationException($"Unknown dispatch status '{outcome.Status}'.");
+            await _next(context).ConfigureAwait(false);
+            return;
         }
+
+        context.Response.StatusCode = response.StatusCode;
+        foreach (var header in response.Headers)
+        {
+            context.Response.Headers[header.Key] = header.Value;
+        }
+
+        if (!string.IsNullOrEmpty(response.ContentType))
+        {
+            context.Response.ContentType = response.ContentType;
+        }
+
+        await response.WriteBodyAsync(context.Response.Body, context.RequestAborted).ConfigureAwait(false);
+        Log(context, response.StatusCode, start);
     }
 
     private void Log(HttpContext context, int statusCode, long startTimestamp)

@@ -4,17 +4,17 @@ namespace Elsie.Routing;
 
 /// <summary>
 /// Segment matcher: static segments, {param}, {param:constraint}, and trailing {*catchAll}.
-/// Built-in constraints: int, long, guid, bool.
+/// Owned by <see cref="RouteTable"/> — not a public seam.
 /// </summary>
-public sealed class RouteMatcher : IRouteMatcher
+internal sealed class RouteMatcher
 {
     private readonly IReadOnlyList<CompiledRoute> _routes;
 
-    public RouteMatcher(RouteTable table)
+    public RouteMatcher(IReadOnlyList<RouteDescriptor> routes)
     {
-        ArgumentNullException.ThrowIfNull(table);
+        ArgumentNullException.ThrowIfNull(routes);
         // Catch-all routes sort after concrete ones so specific templates win by default.
-        _routes = table.Routes
+        _routes = routes
             .Select(CompiledRoute.Compile)
             .OrderBy(static r => r.HasCatchAll ? 1 : 0)
             .ToArray();

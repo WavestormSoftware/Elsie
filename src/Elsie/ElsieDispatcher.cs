@@ -8,13 +8,13 @@ namespace Elsie;
 /// </summary>
 public sealed class ElsieDispatcher
 {
-    private readonly IRouteMatcher _matcher;
+    private readonly RouteTable _routes;
     private readonly ElsiePipelines _applicationPipelines;
     private readonly ElsieOptions _options;
 
-    public ElsieDispatcher(IRouteMatcher matcher, ElsiePipelines applicationPipelines, ElsieOptions options)
+    public ElsieDispatcher(RouteTable routes, ElsiePipelines applicationPipelines, ElsieOptions options)
     {
-        _matcher = matcher ?? throw new ArgumentNullException(nameof(matcher));
+        _routes = routes ?? throw new ArgumentNullException(nameof(routes));
         _applicationPipelines = applicationPipelines ?? throw new ArgumentNullException(nameof(applicationPipelines));
         _options = options ?? throw new ArgumentNullException(nameof(options));
     }
@@ -23,7 +23,7 @@ public sealed class ElsieDispatcher
     {
         ArgumentNullException.ThrowIfNull(request);
 
-        var lookup = _matcher.Lookup(request.Method, request.Path);
+        var lookup = _routes.Lookup(request.Method, request.Path);
         if (lookup.Status == RouteLookupStatus.NotFound)
         {
             return ElsieDispatchResult.NotFound();
