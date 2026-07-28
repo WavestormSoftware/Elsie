@@ -1,0 +1,21 @@
+<Project>
+  <PropertyGroup>
+    <TargetFrameworks>net8.0;net9.0</TargetFrameworks>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <LangVersion>latest</LangVersion>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <Authors>WavestormSoftware</Authors>
+    <Company>WavestormSoftware</Company>
+    <Product>Elsie</Product>
+    <Version>0.1.0-alpha.1</Version>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <PackageProjectUrl>https://github.com/WavestormSoftware/Elsie</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/WavestormSoftware/Elsie</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
+    <PackageTags>Elsie;HTTP;ASP.NET Core;Web</PackageTags>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <NoWarn>$(NoWarn);CS1591</NoWarn>
+    <IsPackable>true</IsPackable>
+  </PropertyGroup>
+</Project>

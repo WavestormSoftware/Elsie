@@ -1,0 +1,11 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <Description>Core module routing and HTTP result types for Elsie.</Description>
+    <RootNamespace>Elsie</RootNamespace>
+    <AssemblyName>Elsie</AssemblyName>
+    <PackageId>Elsie</PackageId>
+  </PropertyGroup>
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+</Project>
