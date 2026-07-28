@@ -1,0 +1,67 @@
+using Elsie.Pipelines;
+using Elsie.Routing;
+
+namespace Elsie;
+
+/// <summary>
+/// Host-agnostic route dispatch: match → pipelines → handler → result.
+/// </summary>
+public sealed class ElsieDispatcher
+{
+    private readonly IRouteMatcher _matcher;
+    private readonly ElsiePipelines _applicationPipelines;
+    private readonly ElsieOptions _options;
+
+    public ElsieDispatcher(IRouteMatcher matcher, ElsiePipelines applicationPipelines, ElsieOptions options)
+    {
+        _matcher = matcher ?? throw new ArgumentNullException(nameof(matcher));
+        _applicationPipelines = applicationPipelines ?? throw new ArgumentNullException(nameof(applicationPipelines));
+        _options = options ?? throw new ArgumentNullException(nameof(options));
+    }
+
+    public async Task<ElsieDispatchResult> DispatchAsync(ElsieRequest request, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+
+        var lookup = _matcher.Lookup(request.Method, request.Path);
+        if (lookup.Status == RouteLookupStatus.NotFound)
+        {
+            return ElsieDispatchResult.NotFound();
+        }
+
+        if (lookup.Status == RouteLookupStatus.MethodNotAllowed)
+        {
+            return ElsieDispatchResult.MethodNotAllowed(lookup.AllowedMethods);
+        }
+
+        var match = lookup.Match!;
+        var response = new ElsieResponse();
+        var context = new ElsieContext(request, response, match.RouteValues, _options.JsonSerializerOptions);
+        var ct = cancellationToken == default ? request.RequestAborted : cancellationToken;
+        var modulePipelines = match.Route.Module?.Pipelines;
+
+        ElsieResult result;
+        try
+        {
+            var shortCircuit = await _applicationPipelines.InvokeBeforeAsync(context, ct).ConfigureAwait(false);
+            if (shortCircuit is null && modulePipelines is not null)
+            {
+                shortCircuit = await modulePipelines.InvokeBeforeAsync(context, ct).ConfigureAwait(false);
+            }
+
+            result = shortCircuit ?? await match.Route.Handler(context, ct).ConfigureAwait(false);
+        }
+        catch (Exception ex) when (_options.ExceptionHandler is not null && ex is not OperationCanceledException)
+        {
+            result = await _options.ExceptionHandler(context, ex, ct).ConfigureAwait(false);
+        }
+
+        if (modulePipelines is not null)
+        {
+            await modulePipelines.InvokeAfterAsync(context, result, ct).ConfigureAwait(false);
+        }
+
+        await _applicationPipelines.InvokeAfterAsync(context, result, ct).ConfigureAwait(false);
+        return ElsieDispatchResult.Handled(result, response);
+    }
+}

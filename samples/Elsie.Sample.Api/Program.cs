@@ -123,17 +123,17 @@ namespace Elsie.Sample.Api
             // Module-level gate for mutating verbs under /api/todos
             Before(ctx =>
             {
-                if (HttpMethods.IsGet(ctx.Request.Method) || HttpMethods.IsHead(ctx.Request.Method))
+                if (ctx.Request.Method is "GET" or "HEAD")
                 {
                     return null;
                 }
 
-                if (!ctx.Request.Path.StartsWithSegments("/api/todos"))
+                if (!ctx.Request.PathStartsWithSegments("/api/todos"))
                 {
                     return null;
                 }
 
-                var key = ctx.Request.Headers["X-Api-Key"].ToString();
+                var key = ctx.Request.GetHeader("X-Api-Key");
                 return key == "dev-secret"
                     ? null
                     : ElsieResult.Unauthorized("Provide header X-Api-Key: dev-secret");

@@ -4,10 +4,13 @@ using Elsie.Routing;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 
-namespace Elsie.AspNetCore;
+namespace Elsie;
 
 public static class ElsieServiceCollectionExtensions
 {
+    /// <summary>
+    /// Registers core Elsie services (modules, routes, dispatcher). Host packages add transport adapters.
+    /// </summary>
     public static IServiceCollection AddElsie(this IServiceCollection services, Action<ElsieOptions>? configure = null)
     {
         ArgumentNullException.ThrowIfNull(services);
@@ -24,13 +27,13 @@ public static class ElsieServiceCollectionExtensions
 
             return pipelines;
         });
-        services.TryAddSingleton<IElsieResultExecutor, ElsieResultExecutor>();
         services.TryAddSingleton<RouteTable>(sp =>
         {
             var modules = sp.GetServices<ElsieModule>().ToArray();
             return RouteTable.FromModules(modules);
         });
         services.TryAddSingleton<IRouteMatcher>(sp => new RouteMatcher(sp.GetRequiredService<RouteTable>()));
+        services.TryAddSingleton<ElsieDispatcher>();
 
         RegisterScannedModules(services, options);
 
@@ -78,7 +81,6 @@ public static class ElsieServiceCollectionExtensions
                 return existing;
             }
 
-            // Factory/type registration — leave as-is; apply configure only to JSON static if provided.
             if (configure is not null)
             {
                 var fallback = new ElsieOptions();

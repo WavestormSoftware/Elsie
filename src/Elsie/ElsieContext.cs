@@ -1,32 +1,31 @@
 using System.Globalization;
 using System.Text.Json;
-using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace Elsie;
 
 /// <summary>
-/// Per-request facade available to Elsie route handlers.
+/// Per-request facade available to Elsie route handlers (host-agnostic).
 /// </summary>
 public sealed class ElsieContext
 {
     public ElsieContext(
-        HttpContext httpContext,
+        ElsieRequest request,
+        ElsieResponse response,
         IReadOnlyDictionary<string, string> routeValues,
         JsonSerializerOptions? jsonSerializerOptions = null)
     {
-        HttpContext = httpContext ?? throw new ArgumentNullException(nameof(httpContext));
+        Request = request ?? throw new ArgumentNullException(nameof(request));
+        Response = response ?? throw new ArgumentNullException(nameof(response));
         RouteValues = routeValues ?? throw new ArgumentNullException(nameof(routeValues));
         JsonSerializerOptions = jsonSerializerOptions ?? ElsieJson.DefaultOptions;
     }
 
-    public HttpContext HttpContext { get; }
-    public HttpRequest Request => HttpContext.Request;
-    public HttpResponse Response => HttpContext.Response;
+    public ElsieRequest Request { get; }
+    public ElsieResponse Response { get; }
     public IReadOnlyDictionary<string, string> RouteValues { get; }
-    public IServiceProvider RequestServices => HttpContext.RequestServices;
-    public CancellationToken RequestAborted => HttpContext.RequestAborted;
-    public IQueryCollection Query => Request.Query;
+    public IServiceProvider RequestServices => Request.RequestServices;
+    public CancellationToken RequestAborted => Request.RequestAborted;
 
     /// <summary>JSON options for this request (from <see cref="ElsieOptions"/>).</summary>
     public JsonSerializerOptions JsonSerializerOptions { get; }
@@ -41,8 +40,7 @@ public sealed class ElsieContext
     public string? RouteOrDefault(string key) =>
         RouteValues.TryGetValue(key, out var value) ? value : null;
 
-    public string? QueryOrDefault(string key) =>
-        Request.Query.TryGetValue(key, out var values) ? values.ToString() : null;
+    public string? QueryOrDefault(string key) => Request.GetQuery(key);
 
     public bool TryGetRouteInt(string key, out int value)
     {

@@ -4,7 +4,7 @@ Instructions for coding agents working on this repository.
 
 ## What this is
 
-**Elsie** is a greenfield, MIT-licensed, lightweight HTTP module framework for ASP.NET Core (net8/net9). It is *inspired by* the developer experience of Sinatra-style frameworks (small modules, explicit routes, minimal wiring). It is **not** a fork of NancyFx or any other framework.
+**Elsie** is a greenfield, MIT-licensed, lightweight HTTP module framework for .NET (net8/net9). Core is **host-agnostic**; `Elsie.AspNetCore` adapts ASP.NET Core. Inspired by Sinatra-style DX — **not** a NancyFx fork.
 
 ## Clean-room (mandatory)
 
@@ -15,9 +15,9 @@ Instructions for coding agents working on this repository.
 
 | Path | Role |
 |------|------|
-| `src/Elsie` | Core: modules, routing, context, results, pipelines |
-| `src/Elsie.AspNetCore` | `AddElsie`, `MapElsie` / middleware |
-| `src/Elsie.Testing` | In-process test host helpers |
+| `src/Elsie` | Host-agnostic core: modules, routing, dispatcher, context, results, pipelines, `AddElsie` |
+| `src/Elsie.AspNetCore` | `MapElsie` / `UseElsie`, `HttpContext` → `ElsieRequest` adapter |
+| `src/Elsie.Testing` | `ElsieInMemoryHost` + ASP.NET `ElsieTestHost` + asserts |
 | `tests/*` | Unit / integration tests |
 | `samples/*` | Runnable samples |
 | `README.md` | Public product docs |
@@ -36,16 +36,24 @@ dotnet restore Elsie.sln
 dotnet build Elsie.sln -c Release
 dotnet test Elsie.sln -c Release
 dotnet run --project samples/Elsie.Sample.Hello
+dotnet run --project samples/Elsie.Sample.Api
 dotnet pack Elsie.sln -c Release -o artifacts/nuget
 ```
+
+## Architecture rules
+
+- **No `HttpContext` in core.** Use `ElsieRequest` / `ElsieResponse` / `ElsieDispatcher`.
+- Core package refs: MS.DI only (no `Microsoft.AspNetCore.App`).
+- ASP.NET types stay in `Elsie.AspNetCore` (and Testing’s TestServer host).
+- Do not reintroduce FrameworkReference on `Elsie` without an explicit product decision.
 
 ## Module registration
 
 - Prefer **explicit** `AddElsieModule<T>()` in apps and tests.
-- `AddElsie()` defaults `ScanEntryAssembly = true` (entry assembly concrete modules).
-- `ElsieTestHost` sets `ScanEntryAssembly = false` — always register modules in the configure callback.
-- Modules are **singletons**. Ctor-inject singleton-safe services; use `ctx.GetRequiredService<T>()` / `ctx.RequestServices` for request scope.
-- Use `Path("/api")` + `Group("/x", () => { ... })` for prefixes; `BindJsonAsync` / problem results for input errors; optional `ElsieOptions.ExceptionHandler`.
+- `AddElsie()` defaults `ScanEntryAssembly = true`.
+- Test hosts set `ScanEntryAssembly = false`.
+- Modules are **singletons**. Ctor-inject singleton-safe services; `ctx.GetRequiredService<T>()` for request scope.
+- `Path` / `Group`, `BindJsonAsync`, problem results, optional `ExceptionHandler`.
 
 ## Samples
 
@@ -54,7 +62,7 @@ dotnet pack Elsie.sln -c Release -o artifacts/nuget
 
 ## Engineering rules
 
-1. YAGNI → reuse Elsie types → BCL / ASP.NET Core → smallest diff.
+1. YAGNI → reuse Elsie types → BCL → MS.Ext → ASP.NET adapter → smallest diff.
 2. `nullable enable`, latest C#, async all the way — no `.Result` / `.Wait()`.
 3. MS.DI only (`IServiceCollection` / `IServiceProvider`).
 4. Prefer `System.Text.Json`.

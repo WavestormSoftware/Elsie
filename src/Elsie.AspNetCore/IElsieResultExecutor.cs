@@ -1,6 +1,6 @@
 using Microsoft.AspNetCore.Http;
 
-namespace Elsie;
+namespace Elsie.AspNetCore;
 
 public interface IElsieResultExecutor
 {

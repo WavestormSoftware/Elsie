@@ -1,12 +1,13 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
-    <Description>In-process test host helpers for Elsie applications.</Description>
+    <Description>In-process test hosts for Elsie (in-memory core + ASP.NET TestServer).</Description>
     <RootNamespace>Elsie.Testing</RootNamespace>
     <AssemblyName>Elsie.Testing</AssemblyName>
     <PackageId>Elsie.Testing</PackageId>
   </PropertyGroup>
   <ItemGroup>
     <FrameworkReference Include="Microsoft.AspNetCore.App" />
+    <ProjectReference Include="..\Elsie\Elsie.csproj" />
     <ProjectReference Include="..\Elsie.AspNetCore\Elsie.AspNetCore.csproj" />
   </ItemGroup>
   <ItemGroup Condition="'$(TargetFramework)' == 'net8.0'">

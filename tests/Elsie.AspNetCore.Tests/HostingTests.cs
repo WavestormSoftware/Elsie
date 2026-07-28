@@ -1,5 +1,6 @@
 using System.Net;
 using System.Text.Json;
+using Elsie;
 using Elsie.AspNetCore;
 using Elsie.Testing;
 using Microsoft.Extensions.DependencyInjection;
@@ -174,12 +175,17 @@ public class HostingTests
             s.AddElsieModule<HelloModule>();
             s.ConfigureElsiePipelines(p =>
             {
-                p.AddAfter((_, _) => sawAfter = true);
+                p.AddAfter((ctx, _) =>
+                {
+                    sawAfter = true;
+                    ctx.Response.Headers["X-After"] = "1";
+                });
             });
         });
 
-        await host.GetAsync("/health");
+        var response = await host.GetAsync("/health");
         Assert.True(sawAfter);
+        response.AssertHeader("X-After", "1");
     }
 
     [Fact]

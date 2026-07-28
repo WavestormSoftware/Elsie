@@ -5,6 +5,7 @@ using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
+// AddElsie lives in Elsie core; MapElsie in Elsie.AspNetCore.
 
 namespace Elsie.Testing;
 

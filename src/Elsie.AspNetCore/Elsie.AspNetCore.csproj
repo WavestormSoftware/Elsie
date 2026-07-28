@@ -1,6 +1,6 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
-    <Description>ASP.NET Core hosting integration for Elsie.</Description>
+    <Description>ASP.NET Core host adapter for Elsie (MapElsie / UseElsie).</Description>
     <RootNamespace>Elsie.AspNetCore</RootNamespace>
     <AssemblyName>Elsie.AspNetCore</AssemblyName>
     <PackageId>Elsie.AspNetCore</PackageId>

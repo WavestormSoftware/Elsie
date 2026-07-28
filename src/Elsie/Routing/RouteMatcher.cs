@@ -1,5 +1,4 @@
 using System.Globalization;
-using Microsoft.AspNetCore.Http;
 
 namespace Elsie.Routing;
 
@@ -21,11 +20,11 @@ public sealed class RouteMatcher : IRouteMatcher
             .ToArray();
     }
 
-    public RouteLookup Lookup(string method, PathString path)
+    public RouteLookup Lookup(string method, string path)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(method);
         method = method.ToUpperInvariant();
-        var pathValue = NormalizePath(path.Value ?? "/");
+        var pathValue = ElsieRequest.NormalizePath(path);
 
         RouteMatch? matched = null;
         List<string>? allowed = null;
@@ -64,7 +63,7 @@ public sealed class RouteMatcher : IRouteMatcher
         return RouteLookup.NotFound();
     }
 
-    public bool TryMatch(string method, PathString path, out RouteMatch? match)
+    public bool TryMatch(string method, string path, out RouteMatch? match)
     {
         var lookup = Lookup(method, path);
         if (lookup.Status == RouteLookupStatus.Matched)
@@ -75,26 +74,6 @@ public sealed class RouteMatcher : IRouteMatcher
 
         match = null;
         return false;
-    }
-
-    internal static string NormalizePath(string path)
-    {
-        if (string.IsNullOrEmpty(path))
-        {
-            return "/";
-        }
-
-        if (!path.StartsWith('/'))
-        {
-            path = "/" + path;
-        }
-
-        if (path.Length > 1 && path.EndsWith('/'))
-        {
-            path = path.TrimEnd('/');
-        }
-
-        return path;
     }
 
     private sealed class CompiledRoute
