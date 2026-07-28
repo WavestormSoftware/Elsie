@@ -80,6 +80,19 @@ ctx.RequestServices / GetRequiredService<T>()
 
 Optional: `ElsieOptions.ExceptionHandler` maps handler exceptions → results.
 
+ASP.NET-only escape hatch (core stays free of `HttpContext`):
+
+```csharp
+using Elsie.AspNetCore;
+
+Get("/trace", ctx =>
+{
+    if (ctx.TryGetHttpContext(out var http))
+        return ElsieResult.Text(http.TraceIdentifier);
+    return ElsieResult.Text("core-only");
+});
+```
+
 ## Packages
 
 | Package | Purpose |

@@ -17,7 +17,8 @@ public sealed class ElsieRequest
         long? contentLength = null,
         string? contentType = null,
         IServiceProvider? requestServices = null,
-        CancellationToken requestAborted = default)
+        CancellationToken requestAborted = default,
+        IDictionary<object, object?>? items = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(method);
         Method = method.ToUpperInvariant();
@@ -29,6 +30,7 @@ public sealed class ElsieRequest
         ContentType = contentType;
         RequestServices = requestServices ?? EmptyServiceProvider.Instance;
         RequestAborted = requestAborted;
+        Items = items ?? new Dictionary<object, object?>();
     }
 
     public string Method { get; }
@@ -40,6 +42,11 @@ public sealed class ElsieRequest
     public string? ContentType { get; }
     public IServiceProvider RequestServices { get; }
     public CancellationToken RequestAborted { get; }
+
+    /// <summary>
+    /// Per-request bag for host adapters and middleware (e.g. stashed <c>HttpContext</c>).
+    /// </summary>
+    public IDictionary<object, object?> Items { get; }
 
     public string? GetHeader(string name) =>
         Headers.TryGetValue(name, out var value) ? value : null;

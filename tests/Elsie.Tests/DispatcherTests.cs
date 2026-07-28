@@ -49,4 +49,13 @@ public class DispatcherTests
         var outcome = await dispatcher.DispatchAsync(new ElsieRequest("GET", "/nope"));
         Assert.Equal(ElsieDispatchStatus.NotFound, outcome.Status);
     }
+
+    [Fact]
+    public void Request_items_bag_is_mutable()
+    {
+        var request = new ElsieRequest("GET", "/");
+        var key = new object();
+        request.Items[key] = "value";
+        Assert.Equal("value", request.Items[key]);
+    }
 }

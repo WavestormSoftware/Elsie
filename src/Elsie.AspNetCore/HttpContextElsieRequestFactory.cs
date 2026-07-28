@@ -21,7 +21,7 @@ internal static class HttpContextElsieRequestFactory
             headers[kv.Key] = kv.Value.ToString();
         }
 
-        return new ElsieRequest(
+        var elsieRequest = new ElsieRequest(
             method: request.Method,
             path: request.Path.Value ?? "/",
             query: query,
@@ -31,5 +31,7 @@ internal static class HttpContextElsieRequestFactory
             contentType: request.ContentType,
             requestServices: httpContext.RequestServices,
             requestAborted: httpContext.RequestAborted);
+        elsieRequest.SetHttpContext(httpContext);
+        return elsieRequest;
     }
 }

@@ -40,6 +40,17 @@ public class HostingTests
                 var clock = ctx.GetRequiredService<IClock>();
                 return ElsieResult.Text(clock.Stamp);
             });
+            Get("/http-context", ctx =>
+            {
+                if (!ctx.TryGetHttpContext(out var http))
+                {
+                    return ElsieResult.Status(500);
+                }
+
+                var trace = http.TraceIdentifier;
+                http.Response.Headers["X-From-HttpContext"] = "1";
+                return ElsieResult.Text(string.IsNullOrEmpty(trace) ? "missing" : trace);
+            });
         }
     }
 
@@ -256,6 +267,18 @@ public class HostingTests
         var response = await host.GetAsync("/di");
         response.AssertStatus(HttpStatusCode.OK);
         Assert.Equal("t0", await response.AssertTextAsync());
+    }
+
+    [Fact]
+    public async Task TryGetHttpContext_exposes_aspnet_context()
+    {
+        await using var host = ElsieTestHost.Create(s => s.AddElsieModule<HelloModule>());
+        var response = await host.GetAsync("/http-context");
+        response.AssertStatus(HttpStatusCode.OK);
+        var body = await response.AssertTextAsync();
+        Assert.False(string.IsNullOrWhiteSpace(body));
+        Assert.NotEqual("missing", body);
+        Assert.True(response.Headers.Contains("X-From-HttpContext"));
     }
 
     [Fact]
