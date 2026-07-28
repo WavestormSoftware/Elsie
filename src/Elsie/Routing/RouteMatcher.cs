@@ -1,9 +1,11 @@
+using System.Globalization;
 using Microsoft.AspNetCore.Http;
 
 namespace Elsie.Routing;
 
 /// <summary>
-/// Simple segment matcher supporting static segments and {param} tokens.
+/// Simple segment matcher supporting static segments and {param} / {param:constraint} tokens.
+/// Built-in constraints: int, long, guid, bool.
 /// </summary>
 public sealed class RouteMatcher : IRouteMatcher
 {
@@ -61,16 +63,12 @@ public sealed class RouteMatcher : IRouteMatcher
 
     private sealed class CompiledRoute
     {
-        private readonly string[] _segments;
-        private readonly bool[] _isParam;
-        private readonly string[] _paramNames;
+        private readonly Segment[] _segments;
 
-        private CompiledRoute(RouteDescriptor descriptor, string[] segments, bool[] isParam, string[] paramNames)
+        private CompiledRoute(RouteDescriptor descriptor, Segment[] segments)
         {
             Descriptor = descriptor;
             _segments = segments;
-            _isParam = isParam;
-            _paramNames = paramNames;
         }
 
         public RouteDescriptor Descriptor { get; }
@@ -80,32 +78,37 @@ public sealed class RouteMatcher : IRouteMatcher
             var raw = descriptor.Template.Trim('/');
             if (raw.Length == 0)
             {
-                return new CompiledRoute(descriptor, Array.Empty<string>(), Array.Empty<bool>(), Array.Empty<string>());
+                return new CompiledRoute(descriptor, Array.Empty<Segment>());
             }
 
             var parts = raw.Split('/', StringSplitOptions.RemoveEmptyEntries);
-            var segments = new string[parts.Length];
-            var isParam = new bool[parts.Length];
-            var names = new string[parts.Length];
+            var segments = new Segment[parts.Length];
 
             for (var i = 0; i < parts.Length; i++)
             {
                 var part = parts[i];
                 if (part.StartsWith('{') && part.EndsWith('}') && part.Length > 2)
                 {
-                    isParam[i] = true;
-                    names[i] = part[1..^1];
-                    segments[i] = string.Empty;
+                    var inner = part[1..^1];
+                    var colon = inner.IndexOf(':');
+                    if (colon > 0)
+                    {
+                        var name = inner[..colon];
+                        var constraint = inner[(colon + 1)..];
+                        segments[i] = Segment.Param(name, constraint);
+                    }
+                    else
+                    {
+                        segments[i] = Segment.Param(inner, constraint: null);
+                    }
                 }
                 else
                 {
-                    isParam[i] = false;
-                    names[i] = string.Empty;
-                    segments[i] = part;
+                    segments[i] = Segment.Static(part);
                 }
             }
 
-            return new CompiledRoute(descriptor, segments, isParam, names);
+            return new CompiledRoute(descriptor, segments);
         }
 
         public bool TryMatch(string path, out IReadOnlyDictionary<string, string> values)
@@ -133,19 +136,67 @@ public sealed class RouteMatcher : IRouteMatcher
             var map = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
             for (var i = 0; i < parts.Length; i++)
             {
-                if (_isParam[i])
+                var segment = _segments[i];
+                var value = Uri.UnescapeDataString(parts[i]);
+
+                if (!segment.IsParameter)
                 {
-                    map[_paramNames[i]] = Uri.UnescapeDataString(parts[i]);
+                    if (!string.Equals(value, segment.Literal, StringComparison.OrdinalIgnoreCase))
+                    {
+                        values = null!;
+                        return false;
+                    }
+
+                    continue;
                 }
-                else if (!string.Equals(parts[i], _segments[i], StringComparison.OrdinalIgnoreCase))
+
+                if (!MatchesConstraint(value, segment.Constraint))
                 {
                     values = null!;
                     return false;
                 }
+
+                map[segment.Name!] = value;
             }
 
             values = map;
             return true;
+        }
+
+        private static bool MatchesConstraint(string value, string? constraint)
+        {
+            if (string.IsNullOrEmpty(constraint))
+            {
+                return true;
+            }
+
+            return constraint.ToLowerInvariant() switch
+            {
+                "int" => int.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out _),
+                "long" => long.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out _),
+                "guid" => Guid.TryParse(value, out _),
+                "bool" => bool.TryParse(value, out _),
+                _ => throw new InvalidOperationException($"Unknown route constraint '{constraint}'. Supported: int, long, guid, bool.")
+            };
+        }
+
+        private readonly struct Segment
+        {
+            private Segment(bool isParameter, string? literal, string? name, string? constraint)
+            {
+                IsParameter = isParameter;
+                Literal = literal;
+                Name = name;
+                Constraint = constraint;
+            }
+
+            public bool IsParameter { get; }
+            public string? Literal { get; }
+            public string? Name { get; }
+            public string? Constraint { get; }
+
+            public static Segment Static(string literal) => new(false, literal, null, null);
+            public static Segment Param(string name, string? constraint) => new(true, null, name, constraint);
         }
     }
 }

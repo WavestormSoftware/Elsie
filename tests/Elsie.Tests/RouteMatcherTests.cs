@@ -12,6 +12,7 @@ public class RouteMatcherTests
         {
             Get("/", () => ElsieResult.Text("root"));
             Get("/hello/{name}", ctx => ElsieResult.Text(ctx.RouteValues["name"]));
+            Get("/items/{id:int}", ctx => ElsieResult.Text(ctx.RouteValues["id"]));
             Post("/items", () => ElsieResult.Status(201));
         }
     }
@@ -37,6 +38,21 @@ public class RouteMatcherTests
         var matcher = CreateMatcher();
         Assert.True(matcher.TryMatch("GET", new PathString("/hello/Ada"), out var match));
         Assert.Equal("Ada", match!.RouteValues["name"]);
+    }
+
+    [Fact]
+    public void Int_constraint_accepts_digits()
+    {
+        var matcher = CreateMatcher();
+        Assert.True(matcher.TryMatch("GET", new PathString("/items/42"), out var match));
+        Assert.Equal("42", match!.RouteValues["id"]);
+    }
+
+    [Fact]
+    public void Int_constraint_rejects_non_numeric()
+    {
+        var matcher = CreateMatcher();
+        Assert.False(matcher.TryMatch("GET", new PathString("/items/abc"), out _));
     }
 
     [Fact]
