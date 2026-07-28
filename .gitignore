@@ -1,0 +1,36 @@
+## Build
+[Bb]in/
+[Oo]bj/
+[Dd]ebug/
+[Rr]elease/
+artifacts/
+*.nupkg
+*.snupkg
+project.lock.json
+project.fragment.lock.json
+
+## IDE / OS
+.vs/
+.vscode/
+.idea/
+*.user
+*.suo
+*.userprefs
+.DS_Store
+Thumbs.db
+
+## Test
+TestResults/
+*.trx
+*.coverage
+*.coveragexml
+
+## Agent / local
+.pi-subagents/
+.pi/
+*.log
+
+## Dotnet
+.dotnet/
+*.swp
+*~
