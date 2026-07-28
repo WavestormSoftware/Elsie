@@ -2,7 +2,7 @@ using Elsie;
 using Elsie.AspNetCore;
 
 // -----------------------------------------------------------------------------
-// Easy sample — smallest useful Elsie app on ASP.NET Core.
+// Easy sample — DI, query, constraints, pipelines (after HelloWorld).
 // Try:  GET /  |  GET /hello/Ada  |  GET /hello/Ada?shout=true  |  GET /health
 // -----------------------------------------------------------------------------
 
@@ -12,7 +12,6 @@ builder.Services.AddElsie();
 builder.Services.AddElsieModule<HelloModule>();
 builder.Services.ConfigureElsiePipelines(p =>
 {
-    // App-wide after hook → host-agnostic response header bag
     p.AddAfter((ctx, _) => ctx.Response.Headers["X-Elsie-Sample"] = "hello");
 });
 
@@ -46,14 +45,11 @@ public sealed class HelloModule : ElsieModule
         {
             var name = ctx.RouteOrDefault("name") ?? "world";
             var shout = ctx.TryGetQueryBool("shout", out var s) && s;
-            // Prefer ctor-injected services; request scope also works:
-            // var greeter = ctx.GetRequiredService<IGreeter>();
             return ElsieResult.Text(greeter.Greet(name, shout));
         });
 
         Get("/health", () => ElsieResult.Json(new { status = "ok", sample = "hello" }));
 
-        // Redirect helper
         Get("/go", () => ElsieResult.Redirect("/hello/redirected"));
 
         // Constraint demo — non-integers 404 at the router

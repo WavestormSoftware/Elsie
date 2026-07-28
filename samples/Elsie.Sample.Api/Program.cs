@@ -4,7 +4,7 @@ using Elsie.AspNetCore;
 using Elsie.Sample.Api;
 
 // -----------------------------------------------------------------------------
-// Advanced sample — multi-module API on ASP.NET Core host adapter.
+// Advanced ASP.NET sample — multi-module API.
 //
 //   GET  /                         catalog
 //   GET  /health
@@ -16,8 +16,8 @@ using Elsie.Sample.Api;
 //   PATCH /api/todos/{id}          JSON { "done": true }    (partial)
 //   DELETE /api/todos/{id}
 //
-// Core features shown: Path/Group, DI, BindJsonAsync, problem results,
-// ExceptionHandler, module Before gate, app After headers, request helpers.
+// Path/Group, DI, BindJsonAsync, problem results, ExceptionHandler,
+// module Before gate, app After headers, request helpers.
 // -----------------------------------------------------------------------------
 
 var builder = WebApplication.CreateBuilder(args);
@@ -29,7 +29,6 @@ builder.Services.AddElsie(o =>
     o.ScanEntryAssembly = false; // explicit modules only
     o.ExceptionHandler = (ctx, ex, _) =>
     {
-        // Host-agnostic context — no HttpContext here.
         ctx.Response.Headers["X-Elsie-Error"] = ex.GetType().Name;
 
         if (ex is KeyNotFoundException)
@@ -171,7 +170,6 @@ namespace Elsie.Sample.Api
             Get("/", ctx => ElsieResult.Json(new
             {
                 name = "Elsie Sample API",
-                host = "ASP.NET Core adapter",
                 path = ctx.Request.Path,
                 method = ctx.Request.Method,
                 links = new

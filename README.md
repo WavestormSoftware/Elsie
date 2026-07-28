@@ -6,7 +6,7 @@ Elsie is inspired by Sinatra-style frameworks (small modules, explicit routes, m
 
 **Core is host-agnostic.** Routing, modules, pipelines, and results live in `Elsie` with no ASP.NET Core dependency. `Elsie.AspNetCore` is the first-party host adapter (`MapElsie` / `UseElsie`).
 
-## Quick start (ASP.NET Core)
+## Quick start
 
 ```csharp
 using Elsie;
@@ -24,7 +24,7 @@ public sealed class HelloModule : ElsieModule
 {
     public HelloModule()
     {
-        Get("/", () => ElsieResult.Text("hi"));
+        Get("/", () => ElsieResult.Text("Hello, world!"));
         Get("/hello/{name}", ctx =>
             ElsieResult.Text($"Hello {ctx.RouteOrDefault("name")}!"));
     }
@@ -32,25 +32,12 @@ public sealed class HelloModule : ElsieModule
 ```
 
 ```bash
-dotnet run --project samples/Elsie.Sample.Hello  # easy ASP.NET
-dotnet run --project samples/Elsie.Sample.Api    # advanced ASP.NET API
-dotnet run --project samples/Elsie.Sample.Core   # no ASP.NET — dispatcher only
+dotnet run --project samples/Elsie.Sample.HelloWorld  # simplest
+dotnet run --project samples/Elsie.Sample.Hello       # easy features
+dotnet run --project samples/Elsie.Sample.Api         # advanced API
 ```
 
-## Host-agnostic core
-
-```csharp
-var services = new ServiceCollection();
-services.AddElsie(o => o.ScanEntryAssembly = false);
-services.AddElsieModule<HelloModule>();
-await using var sp = services.BuildServiceProvider();
-
-var dispatcher = sp.GetRequiredService<ElsieDispatcher>();
-var outcome = await dispatcher.DispatchAsync(new ElsieRequest("GET", "/hello/Ada"));
-// outcome.Status / outcome.Result / outcome.Response.Headers
-```
-
-In tests without ASP.NET: `ElsieInMemoryHost` in `Elsie.Testing`.
+Core stays host-agnostic (no `HttpContext`); tests can use `ElsieInMemoryHost` without ASP.NET.
 
 ## Module registration
 
@@ -117,11 +104,11 @@ response.AssertStatus(200);
 
 ## Samples
 
-| Sample | Level | Host |
-|--------|-------|------|
-| `samples/Elsie.Sample.Hello` | Easy | ASP.NET — DI greeter, query, constraints, pipelines |
-| `samples/Elsie.Sample.Api` | Advanced | ASP.NET — Path/Group CRUD, bind, API key, PATCH, ExceptionHandler |
-| `samples/Elsie.Sample.Core` | Core | **No ASP.NET** — `ElsieDispatcher` + `ElsieRequest` console demo |
+| Sample | Level |
+|--------|-------|
+| `samples/Elsie.Sample.HelloWorld` | Simplest quickstart |
+| `samples/Elsie.Sample.Hello` | Easy — DI, query, constraints, pipelines |
+| `samples/Elsie.Sample.Api` | Advanced — Path/Group CRUD, bind, API key, PATCH, ExceptionHandler |
 
 ## Build
 

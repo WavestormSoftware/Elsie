@@ -35,6 +35,7 @@ cd /home/damian/Documents/Projects/Elsie
 dotnet restore Elsie.sln
 dotnet build Elsie.sln -c Release
 dotnet test Elsie.sln -c Release
+dotnet run --project samples/Elsie.Sample.HelloWorld
 dotnet run --project samples/Elsie.Sample.Hello
 dotnet run --project samples/Elsie.Sample.Api
 dotnet pack Elsie.sln -c Release -o artifacts/nuget
@@ -57,9 +58,10 @@ dotnet pack Elsie.sln -c Release -o artifacts/nuget
 
 ## Samples
 
-- Easy ASP.NET: `samples/Elsie.Sample.Hello`
-- Advanced ASP.NET: `samples/Elsie.Sample.Api`
-- Core only (no ASP.NET): `samples/Elsie.Sample.Core`
+- HelloWorld (simplest): `samples/Elsie.Sample.HelloWorld`
+- Easy: `samples/Elsie.Sample.Hello`
+- Advanced API: `samples/Elsie.Sample.Api`
+- All samples use ASP.NET Core (`MapElsie`)
 
 ## Engineering rules
 
