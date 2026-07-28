@@ -202,23 +202,7 @@ namespace Elsie.Sample.Api
         {
             Path("/api");
 
-            Before(ctx =>
-            {
-                if (ctx.Request.Method is "GET" or "HEAD" or "OPTIONS")
-                {
-                    return null;
-                }
-
-                if (!ctx.Request.PathStartsWithSegments("/api/todos"))
-                {
-                    return null;
-                }
-
-                var key = ctx.Request.GetHeader("X-Api-Key");
-                return key == "dev-secret"
-                    ? null
-                    : ElsieResult.Unauthorized("Provide header X-Api-Key: dev-secret");
-            });
+            Before(ElsieAuth.RequireApiKey("dev-secret"));
 
             Group("/todos", () =>
             {

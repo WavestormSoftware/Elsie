@@ -1,42 +1,35 @@
-using Elsie.AspNetCore.Logging;
 using Microsoft.AspNetCore.Builder;
+using Microsoft.Extensions.Logging;
 
 namespace Elsie.AspNetCore;
 
 public static class ElsieWebApplicationBuilderExtensions
 {
     /// <summary>
-    /// Registers Elsie on a <see cref="WebApplicationBuilder"/> and, by default,
-    /// replaces noisy ASP.NET console logging with Elsie console logging.
+    /// Registers Elsie on a <see cref="WebApplicationBuilder"/>.
+    /// When <paramref name="quietConsole"/> is true (default), clears noisy framework
+    /// console logs and keeps a single-line console logger.
     /// </summary>
     public static WebApplicationBuilder AddElsie(
         this WebApplicationBuilder builder,
-        Action<ElsieOptions>? configure = null)
+        Action<ElsieOptions>? configure = null,
+        bool quietConsole = true)
     {
         ArgumentNullException.ThrowIfNull(builder);
 
-        var options = new ElsieOptions();
-        configure?.Invoke(options);
-
-        if (options.UseElsieConsoleLogging)
+        if (quietConsole)
         {
-            builder.Logging.UseElsieConsoleLogging();
+            builder.Logging.ClearProviders();
+            builder.Logging.AddFilter("Microsoft", LogLevel.None);
+            builder.Logging.AddFilter("System", LogLevel.None);
+            builder.Logging.AddSimpleConsole(o =>
+            {
+                o.SingleLine = true;
+                o.TimestampFormat = "HH:mm:ss ";
+            });
         }
 
-        builder.Services.AddElsie(o => ApplyOptions(options, o));
+        builder.Services.AddElsie(configure);
         return builder;
-    }
-
-    internal static void ApplyOptions(ElsieOptions source, ElsieOptions target)
-    {
-        target.ScanEntryAssembly = source.ScanEntryAssembly;
-        target.UseElsieConsoleLogging = source.UseElsieConsoleLogging;
-        target.ExceptionHandler = source.ExceptionHandler;
-        target.JsonSerializerOptions = source.JsonSerializerOptions;
-        target.AssembliesToScan.Clear();
-        foreach (var assembly in source.AssembliesToScan)
-        {
-            target.AssembliesToScan.Add(assembly);
-        }
     }
 }

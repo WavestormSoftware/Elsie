@@ -15,7 +15,7 @@ public static class ElsieViewContextExtensions
         ArgumentNullException.ThrowIfNull(ctx);
         ArgumentException.ThrowIfNullOrWhiteSpace(viewName);
 
-        var engine = ctx.GetRequiredService<IElsieViewEngine>();
+        var engine = ctx.GetRequiredService<ElsieFileViewEngine>();
         var html = await engine.RenderAsync(viewName, model, cancellationToken).ConfigureAwait(false);
         return ElsieResult.Text(html, statusCode, "text/html; charset=utf-8");
     }

@@ -38,11 +38,4 @@ public sealed class ElsieOptions
     /// When null, exceptions propagate to the ASP.NET Core pipeline.
     /// </summary>
     public ElsieExceptionHandler? ExceptionHandler { get; set; }
-
-    /// <summary>
-    /// When true (default), <c>WebApplicationBuilder.AddElsie</c> / <c>ElsieWeb.Run</c>
-    /// replace default ASP.NET console logging with Elsie console logging.
-    /// Ignored by <see cref="ElsieServiceCollectionExtensions.AddElsie"/> (IServiceCollection-only).
-    /// </summary>
-    public bool UseElsieConsoleLogging { get; set; } = true;
 }

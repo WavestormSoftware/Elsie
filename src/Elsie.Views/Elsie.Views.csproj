@@ -1,6 +1,6 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
-    <Description>Minimal file-based views and layouts for Elsie.</Description>
+    <Description>Minimal HTML file templates and layouts for Elsie ({{tokens}}, @layout).</Description>
     <RootNamespace>Elsie.Views</RootNamespace>
     <AssemblyName>Elsie.Views</AssemblyName>
     <PackageId>Elsie.Views</PackageId>

@@ -6,12 +6,8 @@ namespace Elsie.Views;
 /// <summary>
 /// Tiny file template engine: <c>{{Path}}</c>, <c>{{{raw}}}</c>, optional <c>@layout Name</c> + <c>{{body}}</c>.
 /// </summary>
-public sealed class ElsieFileViewEngine : IElsieViewEngine
+public sealed class ElsieFileViewEngine
 {
-    private static readonly Regex TokenRegex = new(
-        @"\{\{\{(?<raw>[^}]+)\}\}\}|\{\{(?<enc>[^}]+)\}\}",
-        RegexOptions.Compiled | RegexOptions.CultureInvariant);
-
     private readonly ElsieViewOptions _options;
 
     public ElsieFileViewEngine(ElsieViewOptions options)
@@ -35,8 +31,7 @@ public sealed class ElsieFileViewEngine : IElsieViewEngine
 
         var layoutPath = ResolvePath(layoutName);
         var layout = await File.ReadAllTextAsync(layoutPath, cancellationToken).ConfigureAwait(false);
-        // Keep rendered body out of HTML-encoding while still allowing {{Model}} tokens in the layout.
-        const string bodyMarker = "ELSIE_BODY";
+        const string bodyMarker = "\uE000ELSIE_BODY\uE000";
         var staged = layout.Replace("{{body}}", bodyMarker, StringComparison.Ordinal);
         return ReplaceTokens(staged, model).Replace(bodyMarker, body, StringComparison.Ordinal);
     }
@@ -52,9 +47,9 @@ public sealed class ElsieFileViewEngine : IElsieViewEngine
 
         var relative = name.Replace('/', Path.DirectorySeparatorChar)
             .Replace('\\', Path.DirectorySeparatorChar);
-        if (!relative.EndsWith(_options.Extension, StringComparison.OrdinalIgnoreCase))
+        if (!relative.EndsWith(".html", StringComparison.OrdinalIgnoreCase))
         {
-            relative += _options.Extension;
+            relative += ".html";
         }
 
         var full = Path.GetFullPath(Path.Combine(_options.ContentRoot, _options.RootPath, relative));
@@ -86,35 +81,31 @@ public sealed class ElsieFileViewEngine : IElsieViewEngine
         if (trimmed.StartsWith("@layout ", StringComparison.Ordinal))
         {
             var layout = trimmed["@layout ".Length..].Trim();
-            var rest = reader.ReadToEnd();
-            return (string.IsNullOrWhiteSpace(layout) ? null : layout, rest);
+            return (string.IsNullOrWhiteSpace(layout) ? null : layout, reader.ReadToEnd());
         }
 
         return (null, content);
     }
 
-    private static string ReplaceTokens(string template, object? model)
-    {
-        return TokenRegex.Replace(template, match =>
-        {
-            if (match.Groups["raw"].Success)
+    private static string ReplaceTokens(string template, object? model) =>
+        Regex.Replace(
+            template,
+            @"\{\{\{(?<raw>[^}]+)\}\}\}|\{\{(?<enc>[^}]+)\}\}",
+            match =>
             {
-                return ResolvePathValue(model, match.Groups["raw"].Value.Trim()) ?? string.Empty;
-            }
+                if (match.Groups["raw"].Success)
+                {
+                    return ResolvePathValue(model, match.Groups["raw"].Value.Trim()) ?? string.Empty;
+                }
 
-            var value = ResolvePathValue(model, match.Groups["enc"].Value.Trim()) ?? string.Empty;
-            return WebUtility.HtmlEncode(value);
-        });
-    }
+                var value = ResolvePathValue(model, match.Groups["enc"].Value.Trim()) ?? string.Empty;
+                return WebUtility.HtmlEncode(value);
+            },
+            RegexOptions.CultureInvariant);
 
     private static string? ResolvePathValue(object? model, string path)
     {
-        if (model is null || string.IsNullOrWhiteSpace(path))
-        {
-            return null;
-        }
-
-        if (path.Equals("body", StringComparison.Ordinal))
+        if (model is null || string.IsNullOrWhiteSpace(path) || path == "body")
         {
             return null;
         }
@@ -127,48 +118,10 @@ public sealed class ElsieFileViewEngine : IElsieViewEngine
                 return null;
             }
 
-            current = GetMember(current, segment);
+            var prop = current.GetType().GetProperty(segment);
+            current = prop?.GetValue(current);
         }
 
-        return current switch
-        {
-            null => null,
-            string s => s,
-            IFormattable f => f.ToString(null, System.Globalization.CultureInfo.InvariantCulture),
-            _ => current.ToString()
-        };
-    }
-
-    private static object? GetMember(object target, string name)
-    {
-        if (target is System.Collections.IDictionary dict)
-        {
-            if (dict.Contains(name))
-            {
-                return dict[name];
-            }
-
-            foreach (var key in dict.Keys)
-            {
-                if (key is string s && s.Equals(name, StringComparison.OrdinalIgnoreCase))
-                {
-                    return dict[key];
-                }
-            }
-
-            return null;
-        }
-
-        var type = target.GetType();
-        var prop = type.GetProperty(name)
-            ?? type.GetProperties().FirstOrDefault(p => p.Name.Equals(name, StringComparison.OrdinalIgnoreCase));
-        if (prop is not null)
-        {
-            return prop.GetValue(target);
-        }
-
-        var field = type.GetField(name)
-            ?? type.GetFields().FirstOrDefault(f => f.Name.Equals(name, StringComparison.OrdinalIgnoreCase));
-        return field?.GetValue(target);
+        return current?.ToString();
     }
 }

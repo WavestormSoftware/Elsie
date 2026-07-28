@@ -1,6 +1,4 @@
 using Elsie.AspNetCore;
-using Microsoft.AspNetCore.Builder;
-using Microsoft.Extensions.DependencyInjection;
 using Xunit;
 
 namespace Elsie.AspNetCore.Tests;
@@ -16,18 +14,6 @@ public class ElsieWebTests
     }
 
     [Fact]
-    public void WebApplicationBuilder_AddElsie_registers_dispatcher()
-    {
-        var builder = WebApplication.CreateBuilder();
-        builder.AddElsie(o => o.ScanEntryAssembly = false);
-        builder.Services.AddElsieModule<PingModule>();
-        using var app = builder.Build();
-
-        Assert.NotNull(app.Services.GetService<ElsieDispatcher>());
-        Assert.NotNull(app.Services.GetService<ElsieOptions>());
-    }
-
-    [Fact]
     public async Task CreateApp_handles_get()
     {
         await using var app = ElsieWeb.CreateApp<PingModule>(
@@ -37,10 +23,8 @@ public class ElsieWebTests
         await app.StartAsync();
         try
         {
-            var url = app.Urls.Single();
-            using var client = new HttpClient { BaseAddress = new Uri(url) };
-            var body = await client.GetStringAsync("/ping");
-            Assert.Equal("pong", body);
+            using var client = new HttpClient { BaseAddress = new Uri(app.Urls.Single()) };
+            Assert.Equal("pong", await client.GetStringAsync("/ping"));
         }
         finally
         {

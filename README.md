@@ -32,7 +32,7 @@ dotnet run --project samples/Elsie.Sample.Api         # advanced API
 dotnet run --project samples/Elsie.Sample.Views       # HTML templates
 ```
 
-`ElsieWeb.Run` / `builder.AddElsie()` install quiet **Elsie console logging** by default (no Microsoft.Hosting spam). Opt out: `o.UseElsieConsoleLogging = false`.
+`ElsieWeb.Run` / `builder.AddElsie()` quiet the console by default (no Microsoft.Hosting spam). Opt out: `builder.AddElsie(quietConsole: false)`.
 
 ## Module registration
 
@@ -64,7 +64,17 @@ ctx.RequestServices / GetRequiredService<T>()
 
 Optional: `ElsieOptions.ExceptionHandler` maps handler exceptions → results.
 
-ASP.NET escape hatch (core stays free of `HttpContext`):
+### Auth hooks
+
+```csharp
+// Module before-hook: require X-Api-Key on mutating verbs
+Before(ElsieAuth.RequireApiKey("dev-secret"));
+
+// Or any header
+Before(ElsieAuth.RequireHeader("X-Tenant", "acme"));
+```
+
+### ASP.NET escape hatch
 
 ```csharp
 using Elsie.AspNetCore;
@@ -81,7 +91,8 @@ Get("/trace", ctx =>
 builder.AddElsie();
 builder.Services.AddElsieViews(o => o.ContentRoot = builder.Environment.ContentRootPath);
 
-Get("/", async (ctx, ct) => await ctx.ViewAsync("home", new { Title = "Hi", Name = "Ada" }, cancellationToken: ct));
+Get("/", async (ctx, ct) =>
+    await ctx.ViewAsync("home", new { Title = "Hi", Name = "Ada" }, cancellationToken: ct));
 ```
 
 ```html
@@ -95,20 +106,22 @@ Get("/", async (ctx, ct) => await ctx.ViewAsync("home", new { Title = "Hi", Name
 
 | Package | Purpose |
 |---------|---------|
-| `Elsie` | Host-agnostic modules, router, dispatcher, results (MS.DI only) |
-| `Elsie.AspNetCore` | `ElsieWeb` / `MapElsie` / `UseElsie` + console logging |
-| `Elsie.Views` | Minimal file templates + layouts |
-| `Elsie.Testing` | `ElsieInMemoryHost` + ASP.NET `ElsieTestHost` + asserts |
+| `Elsie` | Modules, router, dispatcher, results, `ElsieAuth` |
+| `Elsie.AspNetCore` | `ElsieWeb` / `MapElsie` / `UseElsie` |
+| `Elsie.Views` | File templates + layouts |
+| `Elsie.Testing` | In-memory + TestServer hosts + asserts |
+
+```bash
+dotnet pack Elsie.sln -c Release -o artifacts/nuget
+```
 
 ## Testing
 
 ```csharp
-// Pure core (no ASP.NET)
 await using var mem = ElsieInMemoryHost.Create(s => s.AddElsieModule<HelloModule>());
 var r = await mem.GetAsync("/hello/Ada");
 Assert.Equal(200, r.StatusCode);
 
-// Full ASP.NET TestServer
 await using var host = ElsieTestHost.Create(s => s.AddElsieModule<HelloModule>());
 var response = await host.GetAsync("/hello/Ada");
 response.AssertStatus(200);
@@ -120,14 +133,13 @@ response.AssertStatus(200);
 |--------|-------|
 | `samples/Elsie.Sample.HelloWorld` | `ElsieWeb.Run` quickstart |
 | `samples/Elsie.Sample.Hello` | DI, query, constraints, pipelines |
-| `samples/Elsie.Sample.Api` | Path/Group CRUD, bind, API key, ExceptionHandler |
+| `samples/Elsie.Sample.Api` | CRUD + `ElsieAuth.RequireApiKey` |
 | `samples/Elsie.Sample.Views` | HTML templates + layout |
 
 ## Build
 
 ```bash
 dotnet test Elsie.sln -c Release
-dotnet pack Elsie.sln -c Release -o artifacts/nuget
 ```
 
 ## License

@@ -1,6 +1,6 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
-    <Description>Host-agnostic HTTP modules, routing, and results for Elsie.</Description>
+    <Description>Host-agnostic HTTP modules, routing, results, and auth hooks for Elsie.</Description>
     <RootNamespace>Elsie</RootNamespace>
     <AssemblyName>Elsie</AssemblyName>
     <PackageId>Elsie</PackageId>

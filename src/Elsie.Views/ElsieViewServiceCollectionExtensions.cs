@@ -14,7 +14,7 @@ public static class ElsieViewServiceCollectionExtensions
         var options = new ElsieViewOptions();
         configure?.Invoke(options);
         services.AddSingleton(options);
-        services.TryAddSingleton<IElsieViewEngine, ElsieFileViewEngine>();
+        services.TryAddSingleton<ElsieFileViewEngine>();
         return services;
     }
 }

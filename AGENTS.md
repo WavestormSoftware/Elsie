@@ -48,8 +48,9 @@ dotnet pack Elsie.sln -c Release -o artifacts/nuget
 - **No `HttpContext` in core or Views.** Use `ElsieRequest` / `ElsieResponse` / `ElsieDispatcher`.
 - Core package refs: MS.DI only (no `Microsoft.AspNetCore.App`).
 - ASP.NET types stay in `Elsie.AspNetCore` (and Testing’s TestServer host).
-- App DX: prefer `ElsieWeb.Run` / `builder.AddElsie()` (Elsie console logging).
+- App DX: prefer `ElsieWeb.Run` / `builder.AddElsie()` (`quietConsole: true` default).
 - Tests: `IServiceCollection.AddElsie` (no log rewiring).
+- Auth: `ElsieAuth.RequireApiKey` / `RequireHeader` before-hooks.
 - Do not reintroduce FrameworkReference on `Elsie` without an explicit product decision.
 
 ## Module registration
