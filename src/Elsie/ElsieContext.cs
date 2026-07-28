@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Text.Json;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.DependencyInjection;
@@ -37,6 +38,9 @@ public sealed class ElsieContext
     /// <summary>Resolve an optional service from the current request scope.</summary>
     public T? GetService<T>() => RequestServices.GetService<T>();
 
+    public string? RouteOrDefault(string key) =>
+        RouteValues.TryGetValue(key, out var value) ? value : null;
+
     public string? QueryOrDefault(string key) =>
         Request.Query.TryGetValue(key, out var values) ? values.ToString() : null;
 
@@ -44,7 +48,71 @@ public sealed class ElsieContext
     {
         value = default;
         return RouteValues.TryGetValue(key, out var raw)
-            && int.TryParse(raw, System.Globalization.NumberStyles.Integer, System.Globalization.CultureInfo.InvariantCulture, out value);
+            && int.TryParse(raw, NumberStyles.Integer, CultureInfo.InvariantCulture, out value);
+    }
+
+    public bool TryGetRouteLong(string key, out long value)
+    {
+        value = default;
+        return RouteValues.TryGetValue(key, out var raw)
+            && long.TryParse(raw, NumberStyles.Integer, CultureInfo.InvariantCulture, out value);
+    }
+
+    public bool TryGetRouteGuid(string key, out Guid value)
+    {
+        value = default;
+        return RouteValues.TryGetValue(key, out var raw) && Guid.TryParse(raw, out value);
+    }
+
+    public bool TryGetRouteBool(string key, out bool value)
+    {
+        value = default;
+        return RouteValues.TryGetValue(key, out var raw) && bool.TryParse(raw, out value);
+    }
+
+    public bool TryGetQueryInt(string key, out int value)
+    {
+        value = default;
+        var raw = QueryOrDefault(key);
+        return raw is not null
+            && int.TryParse(raw, NumberStyles.Integer, CultureInfo.InvariantCulture, out value);
+    }
+
+    public bool TryGetQueryBool(string key, out bool value)
+    {
+        value = default;
+        var raw = QueryOrDefault(key);
+        return raw is not null && bool.TryParse(raw, out value);
+    }
+
+    /// <summary>
+    /// Required route int. On failure sets <paramref name="error"/> to 400 problem result.
+    /// </summary>
+    public bool RequireRouteInt(string key, out int value, out ElsieResult? error)
+    {
+        if (TryGetRouteInt(key, out value))
+        {
+            error = null;
+            return true;
+        }
+
+        error = ElsieResult.BadRequest($"Route value '{key}' must be an integer.");
+        return false;
+    }
+
+    /// <summary>
+    /// Required route GUID. On failure sets <paramref name="error"/> to 400 problem result.
+    /// </summary>
+    public bool RequireRouteGuid(string key, out Guid value, out ElsieResult? error)
+    {
+        if (TryGetRouteGuid(key, out value))
+        {
+            error = null;
+            return true;
+        }
+
+        error = ElsieResult.BadRequest($"Route value '{key}' must be a GUID.");
+        return false;
     }
 
     public async Task<T?> ReadJsonAsync<T>(CancellationToken cancellationToken = default)
@@ -53,6 +121,36 @@ public sealed class ElsieContext
             Request.Body,
             JsonSerializerOptions,
             cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Deserialize JSON body. Returns a failed bind result (400 problem+json) when missing/invalid.
+    /// </summary>
+    public async Task<ElsieBindResult<T>> BindJsonAsync<T>(CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            if (Request.ContentLength is 0)
+            {
+                return ElsieBindResult<T>.Fail(ElsieResult.BadRequest("JSON body is required."));
+            }
+
+            var value = await JsonSerializer.DeserializeAsync<T>(
+                Request.Body,
+                JsonSerializerOptions,
+                cancellationToken).ConfigureAwait(false);
+
+            if (value is null)
+            {
+                return ElsieBindResult<T>.Fail(ElsieResult.BadRequest("JSON body is required."));
+            }
+
+            return ElsieBindResult<T>.Success(value);
+        }
+        catch (JsonException ex)
+        {
+            return ElsieBindResult<T>.Fail(ElsieResult.BadRequest($"Invalid JSON: {ex.Message}"));
+        }
     }
 
     /// <summary>Serialize <paramref name="value"/> with this request's JSON options.</summary>

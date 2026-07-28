@@ -58,16 +58,24 @@ public sealed class ElsieMiddleware
         var match = lookup.Match!;
         var elsieContext = new ElsieContext(context, match.RouteValues, _options.JsonSerializerOptions);
         var ct = context.RequestAborted;
-
-        var result = await _applicationPipelines.InvokeBeforeAsync(elsieContext, ct).ConfigureAwait(false);
-
         var modulePipelines = match.Route.Module?.Pipelines;
-        if (result is null && modulePipelines is not null)
-        {
-            result = await modulePipelines.InvokeBeforeAsync(elsieContext, ct).ConfigureAwait(false);
-        }
 
-        result ??= await match.Route.Handler(elsieContext, ct).ConfigureAwait(false);
+        ElsieResult result;
+        try
+        {
+            var shortCircuit = await _applicationPipelines.InvokeBeforeAsync(elsieContext, ct).ConfigureAwait(false);
+
+            if (shortCircuit is null && modulePipelines is not null)
+            {
+                shortCircuit = await modulePipelines.InvokeBeforeAsync(elsieContext, ct).ConfigureAwait(false);
+            }
+
+            result = shortCircuit ?? await match.Route.Handler(elsieContext, ct).ConfigureAwait(false);
+        }
+        catch (Exception ex) when (_options.ExceptionHandler is not null && ex is not OperationCanceledException)
+        {
+            result = await _options.ExceptionHandler(elsieContext, ex, ct).ConfigureAwait(false);
+        }
 
         if (modulePipelines is not null)
         {

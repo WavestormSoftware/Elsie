@@ -9,11 +9,39 @@ namespace Elsie;
 public abstract class ElsieModule
 {
     private readonly List<RouteDescriptor> _routes = [];
+    private string _pathPrefix = string.Empty;
 
     /// <summary>Module-scoped before/after hooks.</summary>
     public ElsiePipelines Pipelines { get; } = new();
 
+    /// <summary>Current path prefix applied to newly registered routes.</summary>
+    protected string PathPrefix => _pathPrefix;
+
     public IReadOnlyList<RouteDescriptor> Routes => _routes;
+
+    /// <summary>
+    /// Sets a base path prepended to every route registered after this call.
+    /// Pass <c>"/"</c> or empty to clear. Prefer <see cref="Group"/> for nested scopes.
+    /// </summary>
+    protected void Path(string prefix) => _pathPrefix = NormalizePrefix(prefix);
+
+    /// <summary>
+    /// Temporarily extends the path prefix, runs <paramref name="configure"/>, then restores it.
+    /// </summary>
+    protected void Group(string prefix, Action configure)
+    {
+        ArgumentNullException.ThrowIfNull(configure);
+        var previous = _pathPrefix;
+        _pathPrefix = CombinePaths(_pathPrefix, prefix);
+        try
+        {
+            configure();
+        }
+        finally
+        {
+            _pathPrefix = previous;
+        }
+    }
 
     protected void Before(ElsieBeforeDelegate hook) => Pipelines.AddBefore(hook);
 
@@ -68,8 +96,20 @@ public abstract class ElsieModule
     protected void Delete(string template, Func<ElsieContext, CancellationToken, Task<ElsieResult>> handler) =>
         Add("DELETE", template, handler);
 
+    protected void Head(string template, Func<ElsieResult> handler) =>
+        Add("HEAD", template, (_, _) => Task.FromResult(handler()));
+
+    protected void Head(string template, Func<ElsieContext, ElsieResult> handler) =>
+        Add("HEAD", template, (ctx, _) => Task.FromResult(handler(ctx)));
+
     protected void Head(string template, Func<ElsieContext, CancellationToken, Task<ElsieResult>> handler) =>
         Add("HEAD", template, handler);
+
+    protected void Options(string template, Func<ElsieResult> handler) =>
+        Add("OPTIONS", template, (_, _) => Task.FromResult(handler()));
+
+    protected void Options(string template, Func<ElsieContext, ElsieResult> handler) =>
+        Add("OPTIONS", template, (ctx, _) => Task.FromResult(handler(ctx)));
 
     protected void Options(string template, Func<ElsieContext, CancellationToken, Task<ElsieResult>> handler) =>
         Add("OPTIONS", template, handler);
@@ -77,6 +117,34 @@ public abstract class ElsieModule
     private void Add(string method, string template, Func<ElsieContext, CancellationToken, Task<ElsieResult>> handler)
     {
         ArgumentNullException.ThrowIfNull(handler);
-        _routes.Add(new RouteDescriptor(method, template, (ctx, ct) => handler(ctx, ct), this));
+        var fullTemplate = CombinePaths(_pathPrefix, template);
+        _routes.Add(new RouteDescriptor(method, fullTemplate, (ctx, ct) => handler(ctx, ct), this));
+    }
+
+    internal static string NormalizePrefix(string prefix)
+    {
+        if (string.IsNullOrWhiteSpace(prefix) || prefix == "/")
+        {
+            return string.Empty;
+        }
+
+        var normalized = RouteDescriptor.NormalizeTemplate(prefix);
+        return normalized == "/" ? string.Empty : normalized;
+    }
+
+    internal static string CombinePaths(string prefix, string template)
+    {
+        var normalizedTemplate = RouteDescriptor.NormalizeTemplate(template);
+        if (string.IsNullOrEmpty(prefix))
+        {
+            return normalizedTemplate;
+        }
+
+        if (normalizedTemplate == "/")
+        {
+            return prefix;
+        }
+
+        return prefix.TrimEnd('/') + normalizedTemplate;
     }
 }

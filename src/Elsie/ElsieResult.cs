@@ -36,6 +36,41 @@ public sealed class ElsieResult
 
     public static ElsieResult NoContent() => Status(204);
 
+    public static ElsieResult BadRequest(string? detail = null) =>
+        Problem(400, title: "Bad Request", detail);
+
+    public static ElsieResult Unauthorized(string? detail = null) =>
+        Problem(401, title: "Unauthorized", detail);
+
+    public static ElsieResult Forbidden(string? detail = null) =>
+        Problem(403, title: "Forbidden", detail);
+
+    public static ElsieResult NotFound(string? detail = null) =>
+        Problem(404, title: "Not Found", detail);
+
+    public static ElsieResult Conflict(string? detail = null) =>
+        Problem(409, title: "Conflict", detail);
+
+    /// <summary>
+    /// Lightweight RFC 7807-style JSON problem body (no external dependency).
+    /// </summary>
+    public static ElsieResult Problem(int statusCode, string title, string? detail = null, JsonSerializerOptions? options = null)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(title);
+        var payload = new Dictionary<string, object?>(StringComparer.Ordinal)
+        {
+            ["status"] = statusCode,
+            ["title"] = title
+        };
+        if (!string.IsNullOrWhiteSpace(detail))
+        {
+            payload["detail"] = detail;
+        }
+
+        var bytes = JsonSerializer.SerializeToUtf8Bytes(payload, options ?? ElsieJson.DefaultOptions);
+        return new(statusCode, "application/problem+json; charset=utf-8", bytes, bodyWriter: null, headers: null);
+    }
+
     public static ElsieResult Text(string text, int statusCode = 200, string contentType = "text/plain; charset=utf-8")
     {
         ArgumentNullException.ThrowIfNull(text);

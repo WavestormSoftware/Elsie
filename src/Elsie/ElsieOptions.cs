@@ -4,6 +4,14 @@ using System.Text.Json;
 namespace Elsie;
 
 /// <summary>
+/// Handles uncaught exceptions from Elsie pipelines/handlers. Return a result to write; throw to rethrow.
+/// </summary>
+public delegate Task<ElsieResult> ElsieExceptionHandler(
+    ElsieContext context,
+    Exception exception,
+    CancellationToken cancellationToken);
+
+/// <summary>
 /// Configuration for Elsie module discovery and runtime behavior.
 /// </summary>
 public sealed class ElsieOptions
@@ -24,4 +32,10 @@ public sealed class ElsieOptions
     /// when no explicit options are passed.
     /// </summary>
     public JsonSerializerOptions JsonSerializerOptions { get; set; } = new(JsonSerializerDefaults.Web);
+
+    /// <summary>
+    /// Optional handler for exceptions thrown by before hooks or route handlers.
+    /// When null, exceptions propagate to the ASP.NET Core pipeline.
+    /// </summary>
+    public ElsieExceptionHandler? ExceptionHandler { get; set; }
 }

@@ -50,6 +50,35 @@ public class HostingTests
         }
     }
 
+    private sealed class ApiModule : ElsieModule
+    {
+        public ApiModule()
+        {
+            Path("/api");
+            Group("/things", () =>
+            {
+                Get("/", () => ElsieResult.Text("list"));
+                Post("/", async (ctx, ct) =>
+                {
+                    var bind = await ctx.BindJsonAsync<EchoDto>(ct);
+                    if (!bind.IsSuccess)
+                    {
+                        return bind.Error!;
+                    }
+
+                    if (string.IsNullOrWhiteSpace(bind.Value!.Message))
+                    {
+                        return ElsieResult.BadRequest("Message is required.");
+                    }
+
+                    return ctx.Json(bind.Value, statusCode: 201);
+                });
+                Get("/boom", _ => throw new InvalidOperationException("kaboom"));
+                Get("/missing", _ => throw new KeyNotFoundException("nope"));
+            });
+        }
+    }
+
     private sealed class GuardedModule : ElsieModule
     {
         public GuardedModule()
@@ -234,5 +263,58 @@ public class HostingTests
 
         var response = await host.GetAsync("/ctor-di");
         await response.AssertStatus(HttpStatusCode.OK).AssertTextAsync("t0");
+    }
+
+    [Fact]
+    public async Task Path_prefix_and_group_compose_routes()
+    {
+        await using var host = ElsieTestHost.Create(s => s.AddElsieModule<ApiModule>());
+        var response = await host.GetAsync("/api/things");
+        await response.AssertStatus(HttpStatusCode.OK).AssertTextAsync("list");
+    }
+
+    [Fact]
+    public async Task BindJson_rejects_invalid_body()
+    {
+        await using var host = ElsieTestHost.Create(s => s.AddElsieModule<ApiModule>());
+        using var content = new StringContent("{not-json", System.Text.Encoding.UTF8, "application/json");
+        var response = await host.Client.PostAsync("/api/things", content);
+        response.AssertStatus(HttpStatusCode.BadRequest);
+        Assert.Equal("application/problem+json; charset=utf-8", response.Content.Headers.ContentType?.ToString());
+    }
+
+    [Fact]
+    public async Task BindJson_accepts_valid_body()
+    {
+        await using var host = ElsieTestHost.Create(s => s.AddElsieModule<ApiModule>());
+        var response = await host.PostJsonAsync("/api/things", new EchoDto("hi"));
+        response.AssertStatus(HttpStatusCode.Created);
+        var dto = await response.AssertJsonAsync<EchoDto>();
+        Assert.Equal("hi", dto!.Message);
+    }
+
+    [Fact]
+    public async Task ExceptionHandler_maps_exceptions_to_results()
+    {
+        await using var host = ElsieTestHost.Create(s =>
+        {
+            s.AddElsie(o =>
+            {
+                o.ScanEntryAssembly = false;
+                o.ExceptionHandler = (_, ex, _) =>
+                    Task.FromResult(ex is KeyNotFoundException
+                        ? ElsieResult.NotFound(ex.Message)
+                        : ElsieResult.Problem(500, "Server Error", ex.Message));
+            });
+            s.AddElsieModule<ApiModule>();
+        });
+
+        var missing = await host.GetAsync("/api/things/missing");
+        missing.AssertStatus(HttpStatusCode.NotFound);
+
+        var boom = await host.GetAsync("/api/things/boom");
+        boom.AssertStatus(HttpStatusCode.InternalServerError);
+        var body = await boom.AssertTextAsync();
+        Assert.Contains("kaboom", body, StringComparison.Ordinal);
     }
 }

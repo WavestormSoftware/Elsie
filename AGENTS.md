@@ -45,6 +45,12 @@ dotnet pack Elsie.sln -c Release -o artifacts/nuget
 - `AddElsie()` defaults `ScanEntryAssembly = true` (entry assembly concrete modules).
 - `ElsieTestHost` sets `ScanEntryAssembly = false` — always register modules in the configure callback.
 - Modules are **singletons**. Ctor-inject singleton-safe services; use `ctx.GetRequiredService<T>()` / `ctx.RequestServices` for request scope.
+- Use `Path("/api")` + `Group("/x", () => { ... })` for prefixes; `BindJsonAsync` / problem results for input errors; optional `ElsieOptions.ExceptionHandler`.
+
+## Samples
+
+- Easy: `samples/Elsie.Sample.Hello`
+- Advanced: `samples/Elsie.Sample.Api`
 
 ## Engineering rules
 
