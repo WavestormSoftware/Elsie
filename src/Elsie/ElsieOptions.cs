@@ -1,4 +1,5 @@
 using System.Reflection;
+using System.Text.Json;
 
 namespace Elsie;
 
@@ -16,4 +17,11 @@ public sealed class ElsieOptions
     /// When true (default), the entry assembly is included in module scanning.
     /// </summary>
     public bool ScanEntryAssembly { get; set; } = true;
+
+    /// <summary>
+    /// JSON serializer options used by <see cref="ElsieContext.ReadJsonAsync{T}"/>,
+    /// <see cref="ElsieContext.Json{T}"/>, and <see cref="ElsieResult.Json{T}"/> defaults
+    /// when no explicit options are passed.
+    /// </summary>
+    public JsonSerializerOptions JsonSerializerOptions { get; set; } = new(JsonSerializerDefaults.Web);
 }

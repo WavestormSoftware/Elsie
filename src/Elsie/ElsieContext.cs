@@ -8,10 +8,14 @@ namespace Elsie;
 /// </summary>
 public sealed class ElsieContext
 {
-    public ElsieContext(HttpContext httpContext, IReadOnlyDictionary<string, string> routeValues)
+    public ElsieContext(
+        HttpContext httpContext,
+        IReadOnlyDictionary<string, string> routeValues,
+        JsonSerializerOptions? jsonSerializerOptions = null)
     {
         HttpContext = httpContext ?? throw new ArgumentNullException(nameof(httpContext));
         RouteValues = routeValues ?? throw new ArgumentNullException(nameof(routeValues));
+        JsonSerializerOptions = jsonSerializerOptions ?? ElsieJson.DefaultOptions;
     }
 
     public HttpContext HttpContext { get; }
@@ -21,6 +25,9 @@ public sealed class ElsieContext
     public IServiceProvider RequestServices => HttpContext.RequestServices;
     public CancellationToken RequestAborted => HttpContext.RequestAborted;
     public IQueryCollection Query => Request.Query;
+
+    /// <summary>JSON options for this request (from <see cref="ElsieOptions"/>).</summary>
+    public JsonSerializerOptions JsonSerializerOptions { get; }
 
     public string? QueryOrDefault(string key) =>
         Request.Query.TryGetValue(key, out var values) ? values.ToString() : null;
@@ -36,7 +43,11 @@ public sealed class ElsieContext
     {
         return await JsonSerializer.DeserializeAsync<T>(
             Request.Body,
-            ElsieJson.DefaultOptions,
+            JsonSerializerOptions,
             cancellationToken).ConfigureAwait(false);
     }
+
+    /// <summary>Serialize <paramref name="value"/> with this request's JSON options.</summary>
+    public ElsieResult Json<T>(T value, int statusCode = 200) =>
+        ElsieResult.Json(value, statusCode, JsonSerializerOptions);
 }

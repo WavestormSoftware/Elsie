@@ -4,7 +4,7 @@ using Microsoft.AspNetCore.Http;
 namespace Elsie.Routing;
 
 /// <summary>
-/// Simple segment matcher supporting static segments and {param} / {param:constraint} tokens.
+/// Segment matcher: static segments, {param}, {param:constraint}, and trailing {*catchAll}.
 /// Built-in constraints: int, long, guid, bool.
 /// </summary>
 public sealed class RouteMatcher : IRouteMatcher
@@ -14,27 +14,63 @@ public sealed class RouteMatcher : IRouteMatcher
     public RouteMatcher(RouteTable table)
     {
         ArgumentNullException.ThrowIfNull(table);
-        _routes = table.Routes.Select(CompiledRoute.Compile).ToArray();
+        // Catch-all routes sort after concrete ones so specific templates win by default.
+        _routes = table.Routes
+            .Select(CompiledRoute.Compile)
+            .OrderBy(static r => r.HasCatchAll ? 1 : 0)
+            .ToArray();
     }
 
-    public bool TryMatch(string method, PathString path, out RouteMatch? match)
+    public RouteLookup Lookup(string method, PathString path)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(method);
         method = method.ToUpperInvariant();
         var pathValue = NormalizePath(path.Value ?? "/");
 
+        RouteMatch? matched = null;
+        List<string>? allowed = null;
+
         foreach (var route in _routes)
         {
-            if (!string.Equals(route.Descriptor.Method, method, StringComparison.Ordinal))
+            if (!route.TryMatch(pathValue, out var values))
             {
                 continue;
             }
 
-            if (route.TryMatch(pathValue, out var values))
+            if (string.Equals(route.Descriptor.Method, method, StringComparison.Ordinal))
             {
-                match = new RouteMatch(route.Descriptor, values);
-                return true;
+                matched = new RouteMatch(route.Descriptor, values);
+                break;
             }
+
+            allowed ??= [];
+            if (!allowed.Contains(route.Descriptor.Method, StringComparer.Ordinal))
+            {
+                allowed.Add(route.Descriptor.Method);
+            }
+        }
+
+        if (matched is not null)
+        {
+            return RouteLookup.Matched(matched);
+        }
+
+        if (allowed is { Count: > 0 })
+        {
+            allowed.Sort(StringComparer.Ordinal);
+            return RouteLookup.MethodNotAllowed(allowed);
+        }
+
+        return RouteLookup.NotFound();
+    }
+
+    public bool TryMatch(string method, PathString path, out RouteMatch? match)
+    {
+        var lookup = Lookup(method, path);
+        if (lookup.Status == RouteLookupStatus.Matched)
+        {
+            match = lookup.Match;
+            return true;
         }
 
         match = null;
@@ -64,25 +100,29 @@ public sealed class RouteMatcher : IRouteMatcher
     private sealed class CompiledRoute
     {
         private readonly Segment[] _segments;
+        private readonly bool _hasCatchAll;
 
-        private CompiledRoute(RouteDescriptor descriptor, Segment[] segments)
+        private CompiledRoute(RouteDescriptor descriptor, Segment[] segments, bool hasCatchAll)
         {
             Descriptor = descriptor;
             _segments = segments;
+            _hasCatchAll = hasCatchAll;
         }
 
         public RouteDescriptor Descriptor { get; }
+        public bool HasCatchAll => _hasCatchAll;
 
         public static CompiledRoute Compile(RouteDescriptor descriptor)
         {
             var raw = descriptor.Template.Trim('/');
             if (raw.Length == 0)
             {
-                return new CompiledRoute(descriptor, Array.Empty<Segment>());
+                return new CompiledRoute(descriptor, Array.Empty<Segment>(), hasCatchAll: false);
             }
 
             var parts = raw.Split('/', StringSplitOptions.RemoveEmptyEntries);
             var segments = new Segment[parts.Length];
+            var hasCatchAll = false;
 
             for (var i = 0; i < parts.Length; i++)
             {
@@ -90,16 +130,46 @@ public sealed class RouteMatcher : IRouteMatcher
                 if (part.StartsWith('{') && part.EndsWith('}') && part.Length > 2)
                 {
                     var inner = part[1..^1];
-                    var colon = inner.IndexOf(':');
-                    if (colon > 0)
+                    var isCatchAll = inner.StartsWith('*');
+                    if (isCatchAll)
                     {
-                        var name = inner[..colon];
-                        var constraint = inner[(colon + 1)..];
-                        segments[i] = Segment.Param(name, constraint);
+                        if (i != parts.Length - 1)
+                        {
+                            throw new InvalidOperationException(
+                                $"Catch-all parameter '{{{inner}}}' must be the final segment in template '{descriptor.Template}'.");
+                        }
+
+                        inner = inner[1..];
+                        if (inner.Length == 0)
+                        {
+                            throw new InvalidOperationException(
+                                $"Catch-all parameter in template '{descriptor.Template}' must have a name (e.g. {{*path}}).");
+                        }
+
+                        // Constraints on catch-all are not supported.
+                        var colon = inner.IndexOf(':');
+                        if (colon >= 0)
+                        {
+                            throw new InvalidOperationException(
+                                $"Catch-all parameter '{{{part[1..^1]}}}' does not support constraints.");
+                        }
+
+                        segments[i] = Segment.CatchAll(inner);
+                        hasCatchAll = true;
                     }
                     else
                     {
-                        segments[i] = Segment.Param(inner, constraint: null);
+                        var colon = inner.IndexOf(':');
+                        if (colon > 0)
+                        {
+                            var name = inner[..colon];
+                            var constraint = inner[(colon + 1)..];
+                            segments[i] = Segment.Param(name, constraint);
+                        }
+                        else
+                        {
+                            segments[i] = Segment.Param(inner, constraint: null);
+                        }
                     }
                 }
                 else
@@ -108,7 +178,7 @@ public sealed class RouteMatcher : IRouteMatcher
                 }
             }
 
-            return new CompiledRoute(descriptor, segments);
+            return new CompiledRoute(descriptor, segments, hasCatchAll);
         }
 
         public bool TryMatch(string path, out IReadOnlyDictionary<string, string> values)
@@ -122,44 +192,97 @@ public sealed class RouteMatcher : IRouteMatcher
                     return true;
                 }
 
+                // "/files/{*path}" matches "/files" with empty catch-all.
+                if (_hasCatchAll && _segments.Length == 1 && _segments[0].IsCatchAll)
+                {
+                    values = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+                    {
+                        [_segments[0].Name!] = string.Empty
+                    };
+                    return true;
+                }
+
                 values = null!;
                 return false;
             }
 
             var parts = raw.Split('/', StringSplitOptions.RemoveEmptyEntries);
+
+            if (_hasCatchAll)
+            {
+                // Need at least all non-catch-all segments; catch-all may consume zero or more.
+                var fixedCount = _segments.Length - 1;
+                if (parts.Length < fixedCount)
+                {
+                    values = null!;
+                    return false;
+                }
+
+                var map = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+                for (var i = 0; i < fixedCount; i++)
+                {
+                    if (!MatchSegment(_segments[i], parts[i], map))
+                    {
+                        values = null!;
+                        return false;
+                    }
+                }
+
+                var catchAll = _segments[^1];
+                if (parts.Length == fixedCount)
+                {
+                    map[catchAll.Name!] = string.Empty;
+                }
+                else
+                {
+                    var rest = new string[parts.Length - fixedCount];
+                    for (var i = 0; i < rest.Length; i++)
+                    {
+                        rest[i] = Uri.UnescapeDataString(parts[fixedCount + i]);
+                    }
+
+                    map[catchAll.Name!] = string.Join('/', rest);
+                }
+
+                values = map;
+                return true;
+            }
+
             if (parts.Length != _segments.Length)
             {
                 values = null!;
                 return false;
             }
 
-            var map = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            var exact = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
             for (var i = 0; i < parts.Length; i++)
             {
-                var segment = _segments[i];
-                var value = Uri.UnescapeDataString(parts[i]);
-
-                if (!segment.IsParameter)
-                {
-                    if (!string.Equals(value, segment.Literal, StringComparison.OrdinalIgnoreCase))
-                    {
-                        values = null!;
-                        return false;
-                    }
-
-                    continue;
-                }
-
-                if (!MatchesConstraint(value, segment.Constraint))
+                if (!MatchSegment(_segments[i], parts[i], exact))
                 {
                     values = null!;
                     return false;
                 }
-
-                map[segment.Name!] = value;
             }
 
-            values = map;
+            values = exact;
+            return true;
+        }
+
+        private static bool MatchSegment(Segment segment, string rawPart, Dictionary<string, string> map)
+        {
+            var value = Uri.UnescapeDataString(rawPart);
+
+            if (!segment.IsParameter)
+            {
+                return string.Equals(value, segment.Literal, StringComparison.OrdinalIgnoreCase);
+            }
+
+            if (!MatchesConstraint(value, segment.Constraint))
+            {
+                return false;
+            }
+
+            map[segment.Name!] = value;
             return true;
         }
 
@@ -182,21 +305,24 @@ public sealed class RouteMatcher : IRouteMatcher
 
         private readonly struct Segment
         {
-            private Segment(bool isParameter, string? literal, string? name, string? constraint)
+            private Segment(bool isParameter, bool isCatchAll, string? literal, string? name, string? constraint)
             {
                 IsParameter = isParameter;
+                IsCatchAll = isCatchAll;
                 Literal = literal;
                 Name = name;
                 Constraint = constraint;
             }
 
             public bool IsParameter { get; }
+            public bool IsCatchAll { get; }
             public string? Literal { get; }
             public string? Name { get; }
             public string? Constraint { get; }
 
-            public static Segment Static(string literal) => new(false, literal, null, null);
-            public static Segment Param(string name, string? constraint) => new(true, null, name, constraint);
+            public static Segment Static(string literal) => new(false, false, literal, null, null);
+            public static Segment Param(string name, string? constraint) => new(true, false, null, name, constraint);
+            public static Segment CatchAll(string name) => new(true, true, null, name, null);
         }
     }
 }

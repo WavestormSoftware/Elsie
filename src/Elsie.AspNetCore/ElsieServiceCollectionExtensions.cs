@@ -12,11 +12,18 @@ public static class ElsieServiceCollectionExtensions
     {
         ArgumentNullException.ThrowIfNull(services);
 
-        var options = new ElsieOptions();
-        configure?.Invoke(options);
+        var options = GetOrAddOptions(services, configure);
 
-        services.TryAddSingleton(options);
-        services.TryAddSingleton<ElsiePipelines>();
+        services.TryAddSingleton<ElsiePipelines>(sp =>
+        {
+            var pipelines = new ElsiePipelines();
+            foreach (var setup in sp.GetServices<ElsiePipelineSetup>())
+            {
+                setup.Configure(pipelines);
+            }
+
+            return pipelines;
+        });
         services.TryAddSingleton<IElsieResultExecutor, ElsieResultExecutor>();
         services.TryAddSingleton<RouteTable>(sp =>
         {
@@ -32,6 +39,7 @@ public static class ElsieServiceCollectionExtensions
 
     /// <summary>
     /// Configures application-wide before/after pipelines.
+    /// Multiple calls compose in registration order onto a single <see cref="ElsiePipelines"/> instance.
     /// </summary>
     public static IServiceCollection ConfigureElsiePipelines(
         this IServiceCollection services,
@@ -41,13 +49,7 @@ public static class ElsieServiceCollectionExtensions
         ArgumentNullException.ThrowIfNull(configure);
 
         services.AddElsie();
-        services.AddSingleton(sp =>
-        {
-            var pipelines = new ElsiePipelines();
-            configure(pipelines);
-            return pipelines;
-        });
-
+        services.AddSingleton(new ElsiePipelineSetup(configure));
         return services;
     }
 
@@ -58,6 +60,41 @@ public static class ElsieServiceCollectionExtensions
         services.TryAddEnumerable(ServiceDescriptor.Singleton<ElsieModule, TModule>());
         services.TryAddSingleton<TModule>();
         return services;
+    }
+
+    private static ElsieOptions GetOrAddOptions(IServiceCollection services, Action<ElsieOptions>? configure)
+    {
+        foreach (var descriptor in services)
+        {
+            if (descriptor.ServiceType != typeof(ElsieOptions))
+            {
+                continue;
+            }
+
+            if (descriptor.ImplementationInstance is ElsieOptions existing)
+            {
+                configure?.Invoke(existing);
+                ElsieJson.Configure(existing.JsonSerializerOptions);
+                return existing;
+            }
+
+            // Factory/type registration — leave as-is; apply configure only to JSON static if provided.
+            if (configure is not null)
+            {
+                var fallback = new ElsieOptions();
+                configure(fallback);
+                ElsieJson.Configure(fallback.JsonSerializerOptions);
+                return fallback;
+            }
+
+            return new ElsieOptions();
+        }
+
+        var options = new ElsieOptions();
+        configure?.Invoke(options);
+        ElsieJson.Configure(options.JsonSerializerOptions);
+        services.AddSingleton(options);
+        return options;
     }
 
     private static void RegisterScannedModules(IServiceCollection services, ElsieOptions options)
@@ -96,4 +133,15 @@ public static class ElsieServiceCollectionExtensions
             }
         }
     }
+}
+
+/// <summary>Internal registration hook so pipeline configures compose on one singleton.</summary>
+internal sealed class ElsiePipelineSetup
+{
+    public ElsiePipelineSetup(Action<ElsiePipelines> configure)
+    {
+        Configure = configure ?? throw new ArgumentNullException(nameof(configure));
+    }
+
+    public Action<ElsiePipelines> Configure { get; }
 }

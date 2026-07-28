@@ -14,6 +14,8 @@ public class RouteMatcherTests
             Get("/hello/{name}", ctx => ElsieResult.Text(ctx.RouteValues["name"]));
             Get("/items/{id:int}", ctx => ElsieResult.Text(ctx.RouteValues["id"]));
             Post("/items", () => ElsieResult.Status(201));
+            Get("/files/{*path}", ctx => ElsieResult.Text(ctx.RouteValues["path"]));
+            Get("/files/readme", () => ElsieResult.Text("readme"));
         }
     }
 
@@ -63,6 +65,47 @@ public class RouteMatcherTests
     }
 
     [Fact]
+    public void Lookup_reports_method_not_allowed()
+    {
+        var matcher = CreateMatcher();
+        var lookup = matcher.Lookup("GET", new PathString("/items"));
+        Assert.Equal(RouteLookupStatus.MethodNotAllowed, lookup.Status);
+        Assert.Contains("POST", lookup.AllowedMethods);
+    }
+
+    [Fact]
+    public void Catch_all_captures_remaining_segments()
+    {
+        var matcher = CreateMatcher();
+        Assert.True(matcher.TryMatch("GET", new PathString("/files/a/b/c"), out var match));
+        Assert.Equal("a/b/c", match!.RouteValues["path"]);
+    }
+
+    [Fact]
+    public void Catch_all_allows_empty_remainder()
+    {
+        var matcher = CreateMatcher();
+        Assert.True(matcher.TryMatch("GET", new PathString("/files"), out var match));
+        Assert.Equal(string.Empty, match!.RouteValues["path"]);
+    }
+
+    [Fact]
+    public void Concrete_route_wins_over_catch_all()
+    {
+        var matcher = CreateMatcher();
+        Assert.True(matcher.TryMatch("GET", new PathString("/files/readme"), out var match));
+        Assert.Equal("/files/readme", match!.Route.Template);
+    }
+
+    [Fact]
+    public void Catch_all_not_final_throws_at_compile()
+    {
+        var module = new BadCatchAllModule();
+        var table = RouteTable.FromModules([module]);
+        Assert.Throws<InvalidOperationException>(() => new RouteMatcher(table));
+    }
+
+    [Fact]
     public void Duplicate_routes_throw()
     {
         var module = new DupModule();
@@ -75,6 +118,14 @@ public class RouteMatcherTests
         {
             Get("/x", () => ElsieResult.Text("a"));
             Get("/x", () => ElsieResult.Text("b"));
+        }
+    }
+
+    private sealed class BadCatchAllModule : ElsieModule
+    {
+        public BadCatchAllModule()
+        {
+            Get("/{*path}/tail", ctx => ElsieResult.Text(ctx.RouteValues["path"]));
         }
     }
 }

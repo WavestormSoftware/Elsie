@@ -45,8 +45,11 @@ public sealed class HelloModule : ElsieModule
 
 - Sinatra-style `ElsieModule` route DSL (`Get`/`Post`/`Put`/`Patch`/`Delete`/…)
 - Route parameters and constraints: `{name}`, `{id:int}`, `{id:long}`, `{id:guid}`, `{flag:bool}`
+- Catch-all segments: `/files/{*path}` (concrete routes win over catch-alls)
+- `405 Method Not Allowed` + `Allow` when the path matches another verb
 - `ElsieResult` helpers: text, JSON, bytes, status, redirect, custom headers
-- Module + application before/after pipelines
+- `ElsieOptions.JsonSerializerOptions` (+ `ctx.Json(value)` / `ReadJsonAsync`)
+- Module + application before/after pipelines (`ConfigureElsiePipelines` composes)
 - ASP.NET Core host via `AddElsie` / `MapElsie`
 - `ElsieTestHost` for in-process tests
 

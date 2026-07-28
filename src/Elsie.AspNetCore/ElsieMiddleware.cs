@@ -10,6 +10,7 @@ public sealed class ElsieMiddleware
     private readonly IRouteMatcher _matcher;
     private readonly IElsieResultExecutor _executor;
     private readonly ElsiePipelines _applicationPipelines;
+    private readonly ElsieOptions _options;
     private readonly bool _terminal;
 
     public ElsieMiddleware(
@@ -17,12 +18,14 @@ public sealed class ElsieMiddleware
         IRouteMatcher matcher,
         IElsieResultExecutor executor,
         ElsiePipelines applicationPipelines,
+        ElsieOptions options,
         bool terminal = false)
     {
         _next = next ?? throw new ArgumentNullException(nameof(next));
         _matcher = matcher ?? throw new ArgumentNullException(nameof(matcher));
         _executor = executor ?? throw new ArgumentNullException(nameof(executor));
         _applicationPipelines = applicationPipelines ?? throw new ArgumentNullException(nameof(applicationPipelines));
+        _options = options ?? throw new ArgumentNullException(nameof(options));
         _terminal = terminal;
     }
 
@@ -31,7 +34,9 @@ public sealed class ElsieMiddleware
         ArgumentNullException.ThrowIfNull(context);
 
         var path = context.Request.Path;
-        if (!_matcher.TryMatch(context.Request.Method, path, out var match) || match is null)
+        var lookup = _matcher.Lookup(context.Request.Method, path);
+
+        if (lookup.Status == RouteLookupStatus.NotFound)
         {
             if (_terminal)
             {
@@ -43,7 +48,15 @@ public sealed class ElsieMiddleware
             return;
         }
 
-        var elsieContext = new ElsieContext(context, match.RouteValues);
+        if (lookup.Status == RouteLookupStatus.MethodNotAllowed)
+        {
+            context.Response.StatusCode = StatusCodes.Status405MethodNotAllowed;
+            context.Response.Headers.Allow = string.Join(", ", lookup.AllowedMethods);
+            return;
+        }
+
+        var match = lookup.Match!;
+        var elsieContext = new ElsieContext(context, match.RouteValues, _options.JsonSerializerOptions);
         var ct = context.RequestAborted;
 
         var result = await _applicationPipelines.InvokeBeforeAsync(elsieContext, ct).ConfigureAwait(false);

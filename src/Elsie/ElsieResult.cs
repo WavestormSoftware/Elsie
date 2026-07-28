@@ -90,5 +90,17 @@ public sealed class ElsieResult
 /// <summary>Shared JSON defaults for Elsie.</summary>
 public static class ElsieJson
 {
-    public static JsonSerializerOptions DefaultOptions { get; } = new(JsonSerializerDefaults.Web);
+    private static JsonSerializerOptions _defaultOptions = new(JsonSerializerDefaults.Web);
+
+    public static JsonSerializerOptions DefaultOptions => _defaultOptions;
+
+    /// <summary>
+    /// Replaces the process-wide default used when handlers call <see cref="ElsieResult.Json{T}"/>
+    /// without explicit options. Prefer configuring via <see cref="ElsieOptions.JsonSerializerOptions"/>.
+    /// </summary>
+    public static void Configure(JsonSerializerOptions options)
+    {
+        ArgumentNullException.ThrowIfNull(options);
+        _defaultOptions = options;
+    }
 }

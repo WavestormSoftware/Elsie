@@ -1,7 +1,6 @@
 using System.Net;
 using System.Text.Json;
 using Elsie.AspNetCore;
-using Elsie.Pipelines;
 using Elsie.Testing;
 using Microsoft.Extensions.DependencyInjection;
 using Xunit;
@@ -15,13 +14,15 @@ public class HostingTests
         public HelloModule()
         {
             Get("/hello/{name}", ctx => ElsieResult.Text($"Hello {ctx.RouteValues["name"]}"));
-            Get("/health", () => ElsieResult.Json(new { status = "ok" }));
+            Get("/health", () => ElsieResult.Json(new HealthDto("ok")));
             Get("/items/{id:int}", ctx => ElsieResult.Text(ctx.RouteValues["id"]));
+            Post("/items", () => ElsieResult.Status(201));
+            Get("/files/{*path}", ctx => ElsieResult.Text(ctx.RouteValues["path"]));
             Get("/go", () => ElsieResult.Redirect("/hello/redirected"));
             Post("/echo", async (ctx, ct) =>
             {
                 var body = await ctx.ReadJsonAsync<EchoDto>(ct);
-                return ElsieResult.Json(body);
+                return ctx.Json(body);
             });
         }
     }
@@ -40,6 +41,7 @@ public class HostingTests
     }
 
     private sealed record EchoDto(string Message);
+    private sealed record HealthDto(string Status);
 
     [Fact]
     public async Task Get_hello_returns_text()
@@ -126,5 +128,61 @@ public class HostingTests
 
         await host.GetAsync("/health");
         Assert.True(sawAfter);
+    }
+
+    [Fact]
+    public async Task Method_not_allowed_returns_405_with_allow()
+    {
+        await using var host = ElsieTestHost.Create(s => s.AddElsieModule<HelloModule>());
+        var response = await host.Client.SendAsync(new HttpRequestMessage(HttpMethod.Put, "/items"));
+        Assert.Equal(HttpStatusCode.MethodNotAllowed, response.StatusCode);
+        Assert.True(
+            response.Headers.TryGetValues("Allow", out var allow) ||
+            response.Content.Headers.TryGetValues("Allow", out allow),
+            "Allow header missing");
+        Assert.Contains("POST", string.Join(',', allow), StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task Catch_all_route_works()
+    {
+        await using var host = ElsieTestHost.Create(s => s.AddElsieModule<HelloModule>());
+        var response = await host.GetAsync("/files/docs/readme.md");
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Equal("docs/readme.md", await response.Content.ReadAsStringAsync());
+    }
+
+    [Fact]
+    public async Task Json_options_from_elsie_options_apply()
+    {
+        await using var host = ElsieTestHost.Create(s =>
+        {
+            s.AddElsie(o =>
+            {
+                o.ScanEntryAssembly = false;
+                o.JsonSerializerOptions.PropertyNamingPolicy = null; // PascalCase CLR names
+            });
+            s.AddElsieModule<HelloModule>();
+        });
+
+        var response = await host.GetAsync("/health");
+        response.EnsureSuccessStatusCode();
+        var body = await response.Content.ReadAsStringAsync();
+        Assert.Contains("Status", body, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task ConfigureElsiePipelines_composes_hooks()
+    {
+        var count = 0;
+        await using var host = ElsieTestHost.Create(s =>
+        {
+            s.AddElsieModule<HelloModule>();
+            s.ConfigureElsiePipelines(p => p.AddAfter((_, _) => count++));
+            s.ConfigureElsiePipelines(p => p.AddAfter((_, _) => count++));
+        });
+
+        await host.GetAsync("/health");
+        Assert.Equal(2, count);
     }
 }
