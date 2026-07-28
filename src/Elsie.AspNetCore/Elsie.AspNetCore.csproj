@@ -1,6 +1,6 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
-    <Description>ASP.NET Core host for Elsie — ElsieWeb.Run, MapElsie/UseElsie, quiet console defaults.</Description>
+    <Description>ASP.NET Core host for Elsie — ElsieWeb.Run, MapElsie/UseElsie, OpenAPI + Scalar, quiet console defaults.</Description>
     <RootNamespace>Elsie.AspNetCore</RootNamespace>
     <AssemblyName>Elsie.AspNetCore</AssemblyName>
     <PackageId>Elsie.AspNetCore</PackageId>
@@ -8,5 +8,6 @@
   <ItemGroup>
     <FrameworkReference Include="Microsoft.AspNetCore.App" />
     <ProjectReference Include="..\Elsie\Elsie.csproj" />
+    <PackageReference Include="Scalar.AspNetCore" Version="2.0.18" />
   </ItemGroup>
 </Project>

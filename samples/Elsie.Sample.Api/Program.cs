@@ -17,7 +17,7 @@ using Elsie.Sample.Api;
 //   DELETE /api/todos/{id}
 //
 // Path/Group, DI, BindJsonAsync, problem results, ExceptionHandler,
-// module Before gate, app After headers, request helpers.
+// module Before gate, app After headers, OpenAPI + Scalar (/openapi.json, /scalar).
 // -----------------------------------------------------------------------------
 
 var builder = WebApplication.CreateBuilder(args);
@@ -79,6 +79,12 @@ var store = app.Services.GetRequiredService<ITodoStore>();
 store.Add("Try Elsie BindJsonAsync");
 store.Add("Ship host-agnostic core");
 
+// OpenAPI/Scalar before terminal MapElsie so /openapi.json is not swallowed.
+app.MapElsieOpenApi(o =>
+{
+    o.Title = "Elsie Sample API";
+    o.Description = "Todos demo — mutating routes need X-Api-Key: dev-secret";
+});
 app.MapElsie();
 app.Run();
 

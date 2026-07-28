@@ -3,6 +3,9 @@ using System.Text.Json;
 using Elsie;
 using Elsie.AspNetCore;
 using Elsie.Testing;
+using Microsoft.AspNetCore.Builder;
+using Microsoft.AspNetCore.Hosting;
+using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.DependencyInjection;
 using Xunit;
 
@@ -345,5 +348,46 @@ public class HostingTests
         boom.AssertStatus(HttpStatusCode.InternalServerError);
         var body = await boom.AssertTextAsync();
         Assert.Contains("kaboom", body, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Multi_value_query_preserves_all_values()
+    {
+        await using var host = ElsieTestHost.Create(s => s.AddElsieModule<MultiValueModule>());
+        var response = await host.GetAsync("/tags?tag=a&tag=b");
+        await response.AssertStatus(HttpStatusCode.OK).AssertTextAsync("a|b");
+    }
+
+    [Fact]
+    public async Task OpenApi_document_lists_elsie_routes()
+    {
+        var builder = WebApplication.CreateBuilder();
+        builder.WebHost.UseTestServer();
+        builder.Services.AddElsie(o => o.ScanEntryAssembly = false);
+        builder.Services.AddElsieModule<HelloModule>();
+        await using var app = builder.Build();
+        // OpenAPI endpoint before terminal MapElsie branch.
+        app.MapElsieOpenApi(o => o.EnableScalar = false);
+        app.MapElsie();
+        await app.StartAsync();
+
+        var client = app.GetTestClient();
+        var response = await client.GetAsync("/openapi.json");
+        response.AssertStatus(HttpStatusCode.OK);
+        var json = await response.Content.ReadAsStringAsync();
+        Assert.Contains("/hello/{name}", json, StringComparison.Ordinal);
+        Assert.Contains("\"openapi\"", json, StringComparison.Ordinal);
+    }
+
+    private sealed class MultiValueModule : ElsieModule
+    {
+        public MultiValueModule()
+        {
+            Get("/tags", ctx =>
+            {
+                var tags = ctx.QueryValues("tag");
+                return ElsieResult.Text(string.Join('|', tags));
+            });
+        }
     }
 }

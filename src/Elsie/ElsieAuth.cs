@@ -38,6 +38,82 @@ public static class ElsieAuth
         bool onlyMutatingMethods = true) =>
         RequireHeader(headerName, expectedKey, onlyMutatingMethods);
 
+    /// <summary>
+    /// Require <c>Authorization: Bearer …</c>. Optional <paramref name="validate"/> checks the token.
+    /// JWT/signature validation stays with the host (ASP.NET auth) — this is a thin gate.
+    /// </summary>
+    public static Func<ElsieContext, ElsieResult?> RequireBearer(
+        Func<string, bool>? validate = null,
+        bool onlyMutatingMethods = false)
+    {
+        return ctx =>
+        {
+            if (onlyMutatingMethods && IsSafeMethod(ctx.Request.Method))
+            {
+                return null;
+            }
+
+            if (!TryGetBearerToken(ctx.Request, out var token))
+            {
+                return ElsieResult.Unauthorized("Bearer token required.");
+            }
+
+            return validate is null || validate(token)
+                ? null
+                : ElsieResult.Unauthorized("Invalid bearer token.");
+        };
+    }
+
+    /// <summary>
+    /// Require a named cookie. Optional <paramref name="validate"/> checks the cookie value.
+    /// </summary>
+    public static Func<ElsieContext, ElsieResult?> RequireCookie(
+        string cookieName,
+        Func<string, bool>? validate = null,
+        bool onlyMutatingMethods = false)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(cookieName);
+
+        return ctx =>
+        {
+            if (onlyMutatingMethods && IsSafeMethod(ctx.Request.Method))
+            {
+                return null;
+            }
+
+            var value = ctx.Request.GetCookie(cookieName);
+            if (string.IsNullOrEmpty(value))
+            {
+                return ElsieResult.Unauthorized($"Cookie '{cookieName}' is required.");
+            }
+
+            return validate is null || validate(value)
+                ? null
+                : ElsieResult.Unauthorized($"Cookie '{cookieName}' is invalid.");
+        };
+    }
+
+    /// <summary>Parse <c>Authorization: Bearer …</c> token, or null when absent/malformed.</summary>
+    public static bool TryGetBearerToken(ElsieRequest request, out string token)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        token = string.Empty;
+        var header = request.GetHeader("Authorization");
+        if (string.IsNullOrEmpty(header))
+        {
+            return false;
+        }
+
+        const string prefix = "Bearer ";
+        if (!header.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        token = header[prefix.Length..].Trim();
+        return token.Length > 0;
+    }
+
     private static bool IsSafeMethod(string method) =>
         method is "GET" or "HEAD" or "OPTIONS";
 }

@@ -71,6 +71,30 @@ public sealed class ElsieResult
         return new(statusCode, "application/problem+json; charset=utf-8", bytes, bodyWriter: null, headers: null);
     }
 
+    /// <summary>
+    /// 400 problem+json with an <c>errors</c> object (property → messages), ASP.NET-style.
+    /// </summary>
+    public static ElsieResult ValidationProblem(
+        IReadOnlyDictionary<string, string[]> errors,
+        string? detail = null,
+        JsonSerializerOptions? options = null)
+    {
+        ArgumentNullException.ThrowIfNull(errors);
+        var payload = new Dictionary<string, object?>(StringComparer.Ordinal)
+        {
+            ["status"] = 400,
+            ["title"] = "Validation Failed",
+            ["errors"] = errors
+        };
+        if (!string.IsNullOrWhiteSpace(detail))
+        {
+            payload["detail"] = detail;
+        }
+
+        var bytes = JsonSerializer.SerializeToUtf8Bytes(payload, options ?? ElsieJson.DefaultOptions);
+        return new(400, "application/problem+json; charset=utf-8", bytes, bodyWriter: null, headers: null);
+    }
+
     public static ElsieResult Text(string text, int statusCode = 200, string contentType = "text/plain; charset=utf-8")
     {
         ArgumentNullException.ThrowIfNull(text);

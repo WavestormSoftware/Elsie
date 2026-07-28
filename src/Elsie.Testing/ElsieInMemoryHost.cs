@@ -49,9 +49,10 @@ public sealed class ElsieInMemoryHost : IAsyncDisposable
         Stream? body = null,
         long? contentLength = null,
         string? contentType = null,
-        IReadOnlyDictionary<string, string>? headers = null)
+        IReadOnlyDictionary<string, string>? headers = null,
+        IReadOnlyDictionary<string, IReadOnlyList<string>>? headerValues = null)
     {
-        var (path, query) = SplitPathAndQuery(pathAndQuery);
+        var (path, query, queryValues) = SplitPathAndQuery(pathAndQuery);
         var request = new ElsieRequest(
             method: method,
             path: path,
@@ -60,7 +61,9 @@ public sealed class ElsieInMemoryHost : IAsyncDisposable
             body: body,
             contentLength: contentLength ?? body?.Length,
             contentType: contentType,
-            requestServices: _services);
+            requestServices: _services,
+            queryValues: queryValues,
+            headerValues: headerValues);
 
         var outcome = await _dispatcher.DispatchAsync(request).ConfigureAwait(false);
         return await ElsieInMemoryResponse.FromDispatchAsync(outcome).ConfigureAwait(false);
@@ -78,34 +81,59 @@ public sealed class ElsieInMemoryHost : IAsyncDisposable
             contentType: "application/json; charset=utf-8").ConfigureAwait(false);
     }
 
-    private static (string Path, IReadOnlyDictionary<string, string> Query) SplitPathAndQuery(string pathAndQuery)
+    private static (
+        string Path,
+        IReadOnlyDictionary<string, string> Query,
+        IReadOnlyDictionary<string, IReadOnlyList<string>> QueryValues)
+        SplitPathAndQuery(string pathAndQuery)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(pathAndQuery);
         var qIndex = pathAndQuery.IndexOf('?', StringComparison.Ordinal);
         if (qIndex < 0)
         {
-            return (pathAndQuery, new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase));
+            return (
+                pathAndQuery,
+                new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase),
+                new Dictionary<string, IReadOnlyList<string>>(StringComparer.OrdinalIgnoreCase));
         }
 
         var path = pathAndQuery[..qIndex];
         var queryString = pathAndQuery[(qIndex + 1)..];
-        var query = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        var multi = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
         foreach (var part in queryString.Split('&', StringSplitOptions.RemoveEmptyEntries))
         {
+            string key;
+            string value;
             var eq = part.IndexOf('=');
             if (eq < 0)
             {
-                query[Uri.UnescapeDataString(part)] = string.Empty;
+                key = Uri.UnescapeDataString(part);
+                value = string.Empty;
             }
             else
             {
-                var key = Uri.UnescapeDataString(part[..eq]);
-                var value = Uri.UnescapeDataString(part[(eq + 1)..]);
-                query[key] = value;
+                key = Uri.UnescapeDataString(part[..eq]);
+                value = Uri.UnescapeDataString(part[(eq + 1)..]);
             }
+
+            if (!multi.TryGetValue(key, out var list))
+            {
+                list = [];
+                multi[key] = list;
+            }
+
+            list.Add(value);
         }
 
-        return (path, query);
+        var query = new Dictionary<string, string>(multi.Count, StringComparer.OrdinalIgnoreCase);
+        var queryValues = new Dictionary<string, IReadOnlyList<string>>(multi.Count, StringComparer.OrdinalIgnoreCase);
+        foreach (var (key, list) in multi)
+        {
+            queryValues[key] = list;
+            query[key] = list.Count > 0 ? list[0] : string.Empty;
+        }
+
+        return (path, query, queryValues);
     }
 
     public ValueTask DisposeAsync()

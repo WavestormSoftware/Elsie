@@ -54,24 +54,43 @@ Modules are **singletons**. Ctor-inject singleton-safe services; use `ctx.GetReq
 ## Results & context
 
 ```csharp
-ElsieResult.Text / Json / NoContent / Redirect / Problem / BadRequest / NotFound / ...
+ElsieResult.Text / Json / NoContent / Redirect / Problem / ValidationProblem / ...
 ctx.BindJsonAsync<T>()          // 400 problem+json on bad body
 ctx.ViewAsync("home", model)    // Elsie.Views — HTML + layouts
-ctx.Request.Method / Path / GetHeader / GetQuery
+ctx.Request.Method / Path / GetHeader / GetQuery / GetQueryValues / GetCookie
 ctx.Response.Headers["X-App"] = "1"   // before/after hooks
 ctx.RequestServices / GetRequiredService<T>()
 ```
+
+`Query` / `Headers` stay first-value maps; use `GetQueryValues` / `GetHeaderValues` for multi-value keys.
 
 Optional: `ElsieOptions.ExceptionHandler` maps handler exceptions → results.
 
 ### Auth hooks
 
 ```csharp
-// Module before-hook: require X-Api-Key on mutating verbs
-Before(ElsieAuth.RequireApiKey("dev-secret"));
-
-// Or any header
+Before(ElsieAuth.RequireApiKey("dev-secret"));     // mutating verbs by default
 Before(ElsieAuth.RequireHeader("X-Tenant", "acme"));
+Before(ElsieAuth.RequireBearer(token => token == "ok"));
+Before(ElsieAuth.RequireCookie("session"));
+```
+
+JWT/cookie **auth middleware** stays with ASP.NET — these are thin before-hook gates.
+
+### FluentValidation
+
+```csharp
+builder.Services.AddElsieFluentValidation(typeof(CreateTodoValidator).Assembly);
+// handler:
+var bind = await ctx.BindAndValidateJsonAsync<CreateTodo>(ct);
+if (!bind.IsSuccess) return bind.Error!;
+```
+
+### OpenAPI + Scalar
+
+```csharp
+app.MapElsieOpenApi(o => o.Title = "My API"); // /openapi.json + /scalar
+app.MapElsie();
 ```
 
 ### ASP.NET escape hatch
@@ -106,13 +125,18 @@ Get("/", async (ctx, ct) =>
 
 | Package | Purpose |
 |---------|---------|
-| `Elsie` | Modules, router, dispatcher, results, `ElsieAuth` |
-| `Elsie.AspNetCore` | `ElsieWeb` / `MapElsie` / `UseElsie` |
+| `Elsie` | Modules, router, dispatcher, results, `ElsieAuth`, OpenAPI builder |
+| `Elsie.AspNetCore` | `ElsieWeb` / `MapElsie` / `MapElsieOpenApi` / Scalar |
+| `Elsie.FluentValidation` | `BindAndValidateJsonAsync` + validator DI |
 | `Elsie.Views` | File templates + layouts |
 | `Elsie.Testing` | In-memory + TestServer hosts + asserts |
 
 ```bash
 dotnet pack Elsie.sln -c Release -o artifacts/nuget
+# GitHub Packages (org WavestormSoftware):
+dotnet nuget push artifacts/nuget/*.nupkg \
+  --source https://nuget.pkg.github.com/WavestormSoftware/index.json \
+  --api-key "$GITHUB_TOKEN"
 ```
 
 ## Testing
@@ -133,7 +157,7 @@ response.AssertStatus(200);
 |--------|-------|
 | `samples/Elsie.Sample.HelloWorld` | `ElsieWeb.Run` quickstart |
 | `samples/Elsie.Sample.Hello` | DI, query, constraints, pipelines |
-| `samples/Elsie.Sample.Api` | CRUD + `ElsieAuth.RequireApiKey` |
+| `samples/Elsie.Sample.Api` | CRUD + API key + OpenAPI/Scalar |
 | `samples/Elsie.Sample.Views` | HTML templates + layout |
 
 ## Build

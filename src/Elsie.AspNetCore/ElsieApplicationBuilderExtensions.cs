@@ -15,14 +15,16 @@ public static class ElsieApplicationBuilderExtensions
     }
 
     /// <summary>
-    /// Maps Elsie as a terminal pipeline branch. Unmatched requests return 404.
+    /// Maps Elsie into the pipeline. Unmatched requests fall through to later
+    /// middleware/endpoints (OpenAPI, static files, etc.), then the host 404.
     /// </summary>
     public static IApplicationBuilder MapElsie(this IApplicationBuilder app)
     {
         ArgumentNullException.ThrowIfNull(app);
         // Ensure RouteTable is built (validates conflicts) at startup.
         _ = app.ApplicationServices.GetRequiredService<Routing.RouteTable>();
-        return app.UseMiddleware<ElsieMiddleware>(true);
+        // Non-terminal so MapElsieOpenApi / other endpoints registered alongside still run.
+        return app.UseMiddleware<ElsieMiddleware>(false);
     }
 
     /// <summary>
