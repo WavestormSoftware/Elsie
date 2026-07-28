@@ -2,9 +2,9 @@
 
 Lightweight, low-ceremony HTTP modules for .NET 8 / .NET 9.
 
-Elsie is inspired by Sinatra-style frameworks (small modules, explicit routes, minimal wiring). It is an **original** WavestormSoftware project under the MIT license — not a fork of any other framework.
+Sinatra-style modules, explicit routes, minimal wiring. **Original** WavestormSoftware MIT project — not a fork of any other framework.
 
-**Core is host-agnostic.** Routing, modules, pipelines, and results live in `Elsie` with no ASP.NET Core dependency. `Elsie.AspNetCore` is the first-party host adapter (`MapElsie` / `UseElsie`).
+Apps use ASP.NET Core via `Elsie.AspNetCore`. Core stays host-agnostic (no `HttpContext`).
 
 ## Quick start
 
@@ -12,13 +12,7 @@ Elsie is inspired by Sinatra-style frameworks (small modules, explicit routes, m
 using Elsie;
 using Elsie.AspNetCore;
 
-var builder = WebApplication.CreateBuilder(args);
-builder.Services.AddElsie();
-builder.Services.AddElsieModule<HelloModule>();
-
-var app = builder.Build();
-app.MapElsie();
-app.Run();
+ElsieWeb.Run<HelloModule>(args);
 
 public sealed class HelloModule : ElsieModule
 {
@@ -35,15 +29,17 @@ public sealed class HelloModule : ElsieModule
 dotnet run --project samples/Elsie.Sample.HelloWorld  # simplest
 dotnet run --project samples/Elsie.Sample.Hello       # easy features
 dotnet run --project samples/Elsie.Sample.Api         # advanced API
+dotnet run --project samples/Elsie.Sample.Views       # HTML templates
 ```
 
-Core stays host-agnostic (no `HttpContext`); tests can use `ElsieInMemoryHost` without ASP.NET.
+`ElsieWeb.Run` / `builder.AddElsie()` install quiet **Elsie console logging** by default (no Microsoft.Hosting spam). Opt out: `o.UseElsieConsoleLogging = false`.
 
 ## Module registration
 
 | Approach | How | Notes |
 |----------|-----|--------|
-| **Explicit (recommended)** | `services.AddElsieModule<TModule>()` | Clear, test-friendly |
+| **`ElsieWeb.Run<T>()`** | one-liner host | Apps / demos |
+| **Explicit** | `services.AddElsieModule<TModule>()` | Clear, test-friendly |
 | Entry-assembly scan | `AddElsie()` default `ScanEntryAssembly = true` | Concrete modules in entry assembly |
 | Disable scan | `AddElsie(o => o.ScanEntryAssembly = false)` | Default in test hosts |
 
@@ -60,6 +56,7 @@ Modules are **singletons**. Ctor-inject singleton-safe services; use `ctx.GetReq
 ```csharp
 ElsieResult.Text / Json / NoContent / Redirect / Problem / BadRequest / NotFound / ...
 ctx.BindJsonAsync<T>()          // 400 problem+json on bad body
+ctx.ViewAsync("home", model)    // Elsie.Views — HTML + layouts
 ctx.Request.Method / Path / GetHeader / GetQuery
 ctx.Response.Headers["X-App"] = "1"   // before/after hooks
 ctx.RequestServices / GetRequiredService<T>()
@@ -67,25 +64,40 @@ ctx.RequestServices / GetRequiredService<T>()
 
 Optional: `ElsieOptions.ExceptionHandler` maps handler exceptions → results.
 
-ASP.NET-only escape hatch (core stays free of `HttpContext`):
+ASP.NET escape hatch (core stays free of `HttpContext`):
 
 ```csharp
 using Elsie.AspNetCore;
 
 Get("/trace", ctx =>
-{
-    if (ctx.TryGetHttpContext(out var http))
-        return ElsieResult.Text(http.TraceIdentifier);
-    return ElsieResult.Text("core-only");
-});
+    ctx.TryGetHttpContext(out var http)
+        ? ElsieResult.Text(http.TraceIdentifier)
+        : ElsieResult.Text("core-only"));
 ```
+
+## Views
+
+```csharp
+builder.AddElsie();
+builder.Services.AddElsieViews(o => o.ContentRoot = builder.Environment.ContentRootPath);
+
+Get("/", async (ctx, ct) => await ctx.ViewAsync("home", new { Title = "Hi", Name = "Ada" }, cancellationToken: ct));
+```
+
+```html
+@layout _Layout
+<h1>Hello {{Name}}</h1>
+```
+
+`{{x}}` HTML-encodes; `{{{x}}}` raw; layout uses `{{body}}`.
 
 ## Packages
 
 | Package | Purpose |
 |---------|---------|
 | `Elsie` | Host-agnostic modules, router, dispatcher, results (MS.DI only) |
-| `Elsie.AspNetCore` | `MapElsie` / `UseElsie` adapter over `HttpContext` |
+| `Elsie.AspNetCore` | `ElsieWeb` / `MapElsie` / `UseElsie` + console logging |
+| `Elsie.Views` | Minimal file templates + layouts |
 | `Elsie.Testing` | `ElsieInMemoryHost` + ASP.NET `ElsieTestHost` + asserts |
 
 ## Testing
@@ -106,9 +118,10 @@ response.AssertStatus(200);
 
 | Sample | Level |
 |--------|-------|
-| `samples/Elsie.Sample.HelloWorld` | Simplest quickstart |
-| `samples/Elsie.Sample.Hello` | Easy — DI, query, constraints, pipelines |
-| `samples/Elsie.Sample.Api` | Advanced — Path/Group CRUD, bind, API key, PATCH, ExceptionHandler |
+| `samples/Elsie.Sample.HelloWorld` | `ElsieWeb.Run` quickstart |
+| `samples/Elsie.Sample.Hello` | DI, query, constraints, pipelines |
+| `samples/Elsie.Sample.Api` | Path/Group CRUD, bind, API key, ExceptionHandler |
+| `samples/Elsie.Sample.Views` | HTML templates + layout |
 
 ## Build
 

@@ -1,14 +1,12 @@
 using Elsie;
 using Elsie.AspNetCore;
 
-// -----------------------------------------------------------------------------
 // Easy sample — DI, query, constraints, pipelines (after HelloWorld).
 // Try:  GET /  |  GET /hello/Ada  |  GET /hello/Ada?shout=true  |  GET /health
-// -----------------------------------------------------------------------------
 
 var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddSingleton<IGreeter, Greeter>();
-builder.Services.AddElsie();
+builder.AddElsie();
 builder.Services.AddElsieModule<HelloModule>();
 builder.Services.ConfigureElsiePipelines(p =>
 {
@@ -35,7 +33,6 @@ public sealed class Greeter : IGreeter
 
 public sealed class HelloModule : ElsieModule
 {
-    // Modules are singletons — inject singleton-safe services via ctor.
     public HelloModule(IGreeter greeter)
     {
         Get("/", () => ElsieResult.Text(
@@ -52,7 +49,6 @@ public sealed class HelloModule : ElsieModule
 
         Get("/go", () => ElsieResult.Redirect("/hello/redirected"));
 
-        // Constraint demo — non-integers 404 at the router
         Get("/items/{id:int}", ctx =>
         {
             if (!ctx.RequireRouteInt("id", out var id, out var error))

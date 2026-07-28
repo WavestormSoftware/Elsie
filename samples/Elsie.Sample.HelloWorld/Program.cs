@@ -1,16 +1,11 @@
 using Elsie;
 using Elsie.AspNetCore;
 
-// Smallest Elsie app. Run: dotnet run --project samples/Elsie.Sample.HelloWorld
-// Try: GET /  |  GET /hello/Ada
+// Smallest Elsie app.
+//   dotnet run --project samples/Elsie.Sample.HelloWorld
+//   GET /  |  GET /hello/Ada
 
-var builder = WebApplication.CreateBuilder(args);
-builder.Services.AddElsie();
-builder.Services.AddElsieModule<HelloModule>();
-
-var app = builder.Build();
-app.MapElsie();
-app.Run();
+ElsieWeb.Run<HelloModule>(args);
 
 public sealed class HelloModule : ElsieModule
 {

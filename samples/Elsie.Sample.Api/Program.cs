@@ -24,7 +24,7 @@ var builder = WebApplication.CreateBuilder(args);
 
 builder.Services.AddSingleton<ITodoStore, InMemoryTodoStore>();
 builder.Services.AddSingleton<IRequestClock, SystemRequestClock>();
-builder.Services.AddElsie(o =>
+builder.AddElsie(o =>
 {
     o.ScanEntryAssembly = false; // explicit modules only
     o.ExceptionHandler = (ctx, ex, _) =>

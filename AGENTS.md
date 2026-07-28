@@ -16,7 +16,8 @@ Instructions for coding agents working on this repository.
 | Path | Role |
 |------|------|
 | `src/Elsie` | Host-agnostic core: modules, routing, dispatcher, context, results, pipelines, `AddElsie` |
-| `src/Elsie.AspNetCore` | `MapElsie` / `UseElsie`, `HttpContext` → `ElsieRequest` adapter |
+| `src/Elsie.AspNetCore` | `ElsieWeb` / `MapElsie` / `UseElsie`, logging, `HttpContext` adapter |
+| `src/Elsie.Views` | Minimal file templates + layouts (`ViewAsync`) |
 | `src/Elsie.Testing` | `ElsieInMemoryHost` + ASP.NET `ElsieTestHost` + asserts |
 | `tests/*` | Unit / integration tests |
 | `samples/*` | Runnable samples |
@@ -38,30 +39,36 @@ dotnet test Elsie.sln -c Release
 dotnet run --project samples/Elsie.Sample.HelloWorld
 dotnet run --project samples/Elsie.Sample.Hello
 dotnet run --project samples/Elsie.Sample.Api
+dotnet run --project samples/Elsie.Sample.Views
 dotnet pack Elsie.sln -c Release -o artifacts/nuget
 ```
 
 ## Architecture rules
 
-- **No `HttpContext` in core.** Use `ElsieRequest` / `ElsieResponse` / `ElsieDispatcher`.
+- **No `HttpContext` in core or Views.** Use `ElsieRequest` / `ElsieResponse` / `ElsieDispatcher`.
 - Core package refs: MS.DI only (no `Microsoft.AspNetCore.App`).
 - ASP.NET types stay in `Elsie.AspNetCore` (and Testing’s TestServer host).
+- App DX: prefer `ElsieWeb.Run` / `builder.AddElsie()` (Elsie console logging).
+- Tests: `IServiceCollection.AddElsie` (no log rewiring).
 - Do not reintroduce FrameworkReference on `Elsie` without an explicit product decision.
 
 ## Module registration
 
-- Prefer **explicit** `AddElsieModule<T>()` in apps and tests.
+- Apps: `ElsieWeb.Run<T>()` or `builder.AddElsie()` + `AddElsieModule<T>()`.
+- Prefer **explicit** `AddElsieModule<T>()` in tests.
 - `AddElsie()` defaults `ScanEntryAssembly = true`.
 - Test hosts set `ScanEntryAssembly = false`.
 - Modules are **singletons**. Ctor-inject singleton-safe services; `ctx.GetRequiredService<T>()` for request scope.
 - `Path` / `Group`, `BindJsonAsync`, problem results, optional `ExceptionHandler`.
+- Views: `AddElsieViews` + `ctx.ViewAsync` (`Elsie.Views`).
 
 ## Samples
 
-- HelloWorld (simplest): `samples/Elsie.Sample.HelloWorld`
+- HelloWorld: `ElsieWeb.Run` — `samples/Elsie.Sample.HelloWorld`
 - Easy: `samples/Elsie.Sample.Hello`
 - Advanced API: `samples/Elsie.Sample.Api`
-- All samples use ASP.NET Core (`MapElsie`)
+- Views: `samples/Elsie.Sample.Views`
+- All samples use ASP.NET Core
 
 ## Engineering rules
 
