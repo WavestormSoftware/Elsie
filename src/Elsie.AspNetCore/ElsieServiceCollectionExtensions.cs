@@ -1,4 +1,5 @@
 using System.Reflection;
+using Elsie.Pipelines;
 using Elsie.Routing;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
@@ -15,6 +16,7 @@ public static class ElsieServiceCollectionExtensions
         configure?.Invoke(options);
 
         services.TryAddSingleton(options);
+        services.TryAddSingleton<ElsiePipelines>();
         services.TryAddSingleton<IElsieResultExecutor, ElsieResultExecutor>();
         services.TryAddSingleton<RouteTable>(sp =>
         {
@@ -24,6 +26,27 @@ public static class ElsieServiceCollectionExtensions
         services.TryAddSingleton<IRouteMatcher>(sp => new RouteMatcher(sp.GetRequiredService<RouteTable>()));
 
         RegisterScannedModules(services, options);
+
+        return services;
+    }
+
+    /// <summary>
+    /// Configures application-wide before/after pipelines.
+    /// </summary>
+    public static IServiceCollection ConfigureElsiePipelines(
+        this IServiceCollection services,
+        Action<ElsiePipelines> configure)
+    {
+        ArgumentNullException.ThrowIfNull(services);
+        ArgumentNullException.ThrowIfNull(configure);
+
+        services.AddElsie();
+        services.AddSingleton(sp =>
+        {
+            var pipelines = new ElsiePipelines();
+            configure(pipelines);
+            return pipelines;
+        });
 
         return services;
     }
@@ -51,9 +74,19 @@ public static class ElsieServiceCollectionExtensions
 
         foreach (var assembly in assemblies)
         {
-            foreach (var type in assembly.GetTypes())
+            IEnumerable<Type> types;
+            try
             {
-                if (type.IsAbstract || !typeof(ElsieModule).IsAssignableFrom(type))
+                types = assembly.GetTypes();
+            }
+            catch (ReflectionTypeLoadException ex)
+            {
+                types = ex.Types.Where(t => t is not null)!;
+            }
+
+            foreach (var type in types)
+            {
+                if (type is null || type.IsAbstract || !typeof(ElsieModule).IsAssignableFrom(type))
                 {
                     continue;
                 }

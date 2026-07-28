@@ -1,3 +1,4 @@
+using Elsie.Pipelines;
 using Elsie.Routing;
 using Microsoft.AspNetCore.Http;
 
@@ -8,17 +9,20 @@ public sealed class ElsieMiddleware
     private readonly RequestDelegate _next;
     private readonly IRouteMatcher _matcher;
     private readonly IElsieResultExecutor _executor;
+    private readonly ElsiePipelines _applicationPipelines;
     private readonly bool _terminal;
 
     public ElsieMiddleware(
         RequestDelegate next,
         IRouteMatcher matcher,
         IElsieResultExecutor executor,
+        ElsiePipelines applicationPipelines,
         bool terminal = false)
     {
         _next = next ?? throw new ArgumentNullException(nameof(next));
         _matcher = matcher ?? throw new ArgumentNullException(nameof(matcher));
         _executor = executor ?? throw new ArgumentNullException(nameof(executor));
+        _applicationPipelines = applicationPipelines ?? throw new ArgumentNullException(nameof(applicationPipelines));
         _terminal = terminal;
     }
 
@@ -40,7 +44,24 @@ public sealed class ElsieMiddleware
         }
 
         var elsieContext = new ElsieContext(context, match.RouteValues);
-        var result = await match.Route.Handler(elsieContext, context.RequestAborted).ConfigureAwait(false);
-        await _executor.ExecuteAsync(context, result, context.RequestAborted).ConfigureAwait(false);
+        var ct = context.RequestAborted;
+
+        var result = await _applicationPipelines.InvokeBeforeAsync(elsieContext, ct).ConfigureAwait(false);
+
+        var modulePipelines = match.Route.Module?.Pipelines;
+        if (result is null && modulePipelines is not null)
+        {
+            result = await modulePipelines.InvokeBeforeAsync(elsieContext, ct).ConfigureAwait(false);
+        }
+
+        result ??= await match.Route.Handler(elsieContext, ct).ConfigureAwait(false);
+
+        if (modulePipelines is not null)
+        {
+            await modulePipelines.InvokeAfterAsync(elsieContext, result, ct).ConfigureAwait(false);
+        }
+
+        await _applicationPipelines.InvokeAfterAsync(elsieContext, result, ct).ConfigureAwait(false);
+        await _executor.ExecuteAsync(context, result, ct).ConfigureAwait(false);
     }
 }

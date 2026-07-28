@@ -5,18 +5,20 @@ namespace Elsie.Routing;
 /// </summary>
 public sealed class RouteDescriptor
 {
-    public RouteDescriptor(string method, string template, RouteHandler handler)
+    public RouteDescriptor(string method, string template, RouteHandler handler, ElsieModule? module = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(method);
         ArgumentException.ThrowIfNullOrWhiteSpace(template);
         Method = method.ToUpperInvariant();
         Template = NormalizeTemplate(template);
         Handler = handler ?? throw new ArgumentNullException(nameof(handler));
+        Module = module;
     }
 
     public string Method { get; }
     public string Template { get; }
     public RouteHandler Handler { get; }
+    public ElsieModule? Module { get; }
 
     internal static string NormalizeTemplate(string template)
     {

@@ -1,6 +1,7 @@
 using System.Net;
 using System.Text.Json;
 using Elsie.AspNetCore;
+using Elsie.Pipelines;
 using Elsie.Testing;
 using Microsoft.Extensions.DependencyInjection;
 using Xunit;
@@ -15,11 +16,26 @@ public class HostingTests
         {
             Get("/hello/{name}", ctx => ElsieResult.Text($"Hello {ctx.RouteValues["name"]}"));
             Get("/health", () => ElsieResult.Json(new { status = "ok" }));
+            Get("/items/{id:int}", ctx => ElsieResult.Text(ctx.RouteValues["id"]));
+            Get("/go", () => ElsieResult.Redirect("/hello/redirected"));
             Post("/echo", async (ctx, ct) =>
             {
                 var body = await ctx.ReadJsonAsync<EchoDto>(ct);
                 return ElsieResult.Json(body);
             });
+        }
+    }
+
+    private sealed class GuardedModule : ElsieModule
+    {
+        public GuardedModule()
+        {
+            Before(ctx =>
+                ctx.QueryOrDefault("token") == "secret"
+                    ? null
+                    : ElsieResult.Status(401));
+
+            Get("/secret", () => ElsieResult.Text("ok"));
         }
     }
 
@@ -60,5 +76,55 @@ public class HostingTests
         await using var host = ElsieTestHost.Create(s => s.AddElsieModule<HelloModule>());
         var response = await host.GetAsync("/missing");
         Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task Int_constraint_route_works()
+    {
+        await using var host = ElsieTestHost.Create(s => s.AddElsieModule<HelloModule>());
+        var ok = await host.GetAsync("/items/7");
+        Assert.Equal(HttpStatusCode.OK, ok.StatusCode);
+        Assert.Equal("7", await ok.Content.ReadAsStringAsync());
+
+        var bad = await host.GetAsync("/items/nope");
+        Assert.Equal(HttpStatusCode.NotFound, bad.StatusCode);
+    }
+
+    [Fact]
+    public async Task Redirect_sets_location()
+    {
+        await using var host = ElsieTestHost.Create(s => s.AddElsieModule<HelloModule>());
+        var response = await host.GetAsync("/go");
+        Assert.Equal(HttpStatusCode.Redirect, response.StatusCode);
+        Assert.Equal("/hello/redirected", response.Headers.Location?.ToString());
+    }
+
+    [Fact]
+    public async Task Module_before_pipeline_can_short_circuit()
+    {
+        await using var host = ElsieTestHost.Create(s => s.AddElsieModule<GuardedModule>());
+        var denied = await host.GetAsync("/secret");
+        Assert.Equal(HttpStatusCode.Unauthorized, denied.StatusCode);
+
+        var allowed = await host.GetAsync("/secret?token=secret");
+        Assert.Equal(HttpStatusCode.OK, allowed.StatusCode);
+        Assert.Equal("ok", await allowed.Content.ReadAsStringAsync());
+    }
+
+    [Fact]
+    public async Task Application_pipeline_runs()
+    {
+        var sawAfter = false;
+        await using var host = ElsieTestHost.Create(s =>
+        {
+            s.AddElsieModule<HelloModule>();
+            s.ConfigureElsiePipelines(p =>
+            {
+                p.AddAfter((_, _) => sawAfter = true);
+            });
+        });
+
+        await host.GetAsync("/health");
+        Assert.True(sawAfter);
     }
 }
