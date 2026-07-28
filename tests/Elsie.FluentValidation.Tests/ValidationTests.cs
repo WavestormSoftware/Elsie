@@ -8,7 +8,6 @@ namespace Elsie.FluentValidation.Tests;
 
 public sealed record CreateTodo(string Title);
 
-// Public so AddValidatorsFromAssembly can discover it.
 public sealed class CreateTodoValidator : AbstractValidator<CreateTodo>
 {
     public CreateTodoValidator()
@@ -48,19 +47,6 @@ public class ValidationTests
         var response = await host.PostJsonAsync("/todos", new CreateTodo("x"));
         Assert.Equal(400, response.StatusCode);
         Assert.Contains("errors", response.ReadAsString(), StringComparison.OrdinalIgnoreCase);
-    }
-
-    [Fact]
-    public async Task AddElsieFluentValidation_registers_assembly_validators()
-    {
-        await using var host = ElsieInMemoryHost.Create(s =>
-        {
-            s.AddElsieModule<TodosModule>();
-            s.AddElsieFluentValidation(typeof(CreateTodoValidator).Assembly);
-        });
-
-        var response = await host.PostJsonAsync("/todos", new CreateTodo("x"));
-        Assert.Equal(400, response.StatusCode);
     }
 
     [Fact]

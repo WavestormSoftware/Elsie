@@ -42,9 +42,6 @@ public sealed class ElsieContext
 
     public string? QueryOrDefault(string key) => Request.GetQuery(key);
 
-    /// <summary>All query values for <paramref name="key"/> (empty when absent).</summary>
-    public IReadOnlyList<string> QueryValues(string key) => Request.GetQueryValues(key);
-
     public bool TryGetRouteInt(string key, out int value)
     {
         value = default;

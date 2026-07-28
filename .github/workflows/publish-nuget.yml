@@ -52,17 +52,16 @@ jobs:
 
       - name: Resolve NuGet policy-creator username
         id: who
+        env:
+          INPUT_USER: ${{ inputs.nuget_user }}
+          VAR_USER: ${{ vars.NUGET_USER }}
         run: |
-          user='${{ inputs.nuget_user }}'
+          user="${INPUT_USER:-$VAR_USER}"
           if [ -z "$user" ]; then
-            user='${{ vars.NUGET_USER }}'
-          fi
-          if [ -z "$user" ]; then
-            echo "::error::Set repo variable NUGET_USER (or workflow input nuget_user) to the nuget.org username of the person who created the Trusted Publishing policy — not the org owner WavestormSoftware."
+            echo "::error::Set repo variable NUGET_USER (or workflow input nuget_user) to the nuget.org username of the Trusted Publishing policy creator — not org WavestormSoftware."
             exit 1
           fi
           echo "user=$user" >> "$GITHUB_OUTPUT"
-          echo "Using NuGet policy creator user: $user"
 
       - name: Restore
         run: dotnet restore Elsie.sln

@@ -2,18 +2,17 @@ using Elsie.OpenApi;
 using Elsie.Routing;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
-using Microsoft.AspNetCore.Routing;
 using Microsoft.Extensions.DependencyInjection;
-using Scalar.AspNetCore;
 
 namespace Elsie.AspNetCore;
 
-/// <summary>Map OpenAPI JSON (and optional Scalar UI) for Elsie routes.</summary>
+/// <summary>Map OpenAPI JSON for Elsie routes.</summary>
 public static class ElsieOpenApiExtensions
 {
     /// <summary>
-    /// Serves OpenAPI 3 JSON from the Elsie <see cref="RouteTable"/>.
-    /// When <see cref="ElsieOpenApiOptions.EnableScalar"/> is true (default), also maps Scalar UI.
+    /// Serves OpenAPI 3 JSON from the Elsie <see cref="RouteTable"/> at
+    /// <see cref="ElsieOpenApiOptions.DocumentPath"/> (default <c>/openapi.json</c>).
+    /// Wire Scalar/Swagger UI yourself against that path if wanted.
     /// </summary>
     public static WebApplication MapElsieOpenApi(
         this WebApplication app,
@@ -27,25 +26,9 @@ public static class ElsieOpenApiExtensions
         app.MapGet(documentPath, (HttpContext http) =>
         {
             var table = http.RequestServices.GetRequiredService<RouteTable>();
-            var info = new ElsieOpenApiInfo
-            {
-                Title = options.Title,
-                Version = options.Version,
-                Description = options.Description
-            };
-            var json = ElsieOpenApiDocument.ToUtf8Json(table, info);
+            var json = ElsieOpenApiDocument.ToUtf8Json(table, options.Info);
             return Results.Bytes(json, "application/json; charset=utf-8");
         }).WithDisplayName("Elsie OpenAPI");
-
-        if (options.EnableScalar)
-        {
-            var scalarPath = NormalizePath(options.ScalarPath).TrimStart('/');
-            app.MapScalarApiReference(scalarPath, scalar =>
-            {
-                scalar.WithOpenApiRoutePattern(documentPath);
-                scalar.WithTitle(options.Title);
-            });
-        }
 
         return app;
     }
@@ -60,10 +43,6 @@ public static class ElsieOpenApiExtensions
 /// <summary>Options for <see cref="ElsieOpenApiExtensions.MapElsieOpenApi"/>.</summary>
 public sealed class ElsieOpenApiOptions
 {
-    public string Title { get; set; } = "Elsie API";
-    public string Version { get; set; } = "v1";
-    public string? Description { get; set; }
+    public ElsieOpenApiInfo Info { get; set; } = new();
     public string DocumentPath { get; set; } = "/openapi.json";
-    public bool EnableScalar { get; set; } = true;
-    public string ScalarPath { get; set; } = "/scalar";
 }

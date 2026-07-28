@@ -366,8 +366,7 @@ public class HostingTests
         builder.Services.AddElsie(o => o.ScanEntryAssembly = false);
         builder.Services.AddElsieModule<HelloModule>();
         await using var app = builder.Build();
-        // OpenAPI endpoint before terminal MapElsie branch.
-        app.MapElsieOpenApi(o => o.EnableScalar = false);
+        app.MapElsieOpenApi();
         app.MapElsie();
         await app.StartAsync();
 
@@ -385,7 +384,7 @@ public class HostingTests
         {
             Get("/tags", ctx =>
             {
-                var tags = ctx.QueryValues("tag");
+                var tags = ctx.Request.GetQueryValues("tag");
                 return ElsieResult.Text(string.Join('|', tags));
             });
         }

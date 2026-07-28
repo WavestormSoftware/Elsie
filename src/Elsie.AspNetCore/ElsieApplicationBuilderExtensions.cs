@@ -15,21 +15,17 @@ public static class ElsieApplicationBuilderExtensions
     }
 
     /// <summary>
-    /// Maps Elsie into the pipeline. Unmatched requests fall through to later
-    /// middleware/endpoints (OpenAPI, static files, etc.), then the host 404.
+    /// Warms <see cref="Routing.RouteTable"/> then <see cref="UseElsie"/>.
+    /// Unmatched requests fall through (OpenAPI, static files, host 404).
     /// </summary>
     public static IApplicationBuilder MapElsie(this IApplicationBuilder app)
     {
         ArgumentNullException.ThrowIfNull(app);
-        // Ensure RouteTable is built (validates conflicts) at startup.
         _ = app.ApplicationServices.GetRequiredService<Routing.RouteTable>();
-        // Non-terminal so MapElsieOpenApi / other endpoints registered alongside still run.
-        return app.UseMiddleware<ElsieMiddleware>(false);
+        return app.UseElsie();
     }
 
-    /// <summary>
-    /// Convenience overload for <see cref="WebApplication"/>.
-    /// </summary>
+    /// <summary>Convenience overload for <see cref="WebApplication"/>.</summary>
     public static WebApplication MapElsie(this WebApplication app)
     {
         ArgumentNullException.ThrowIfNull(app);

@@ -1,3 +1,4 @@
+using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using Elsie.Routing;
@@ -29,23 +30,9 @@ public static partial class ElsieOpenApiDocument
                 paths[path] = operations;
             }
 
-            var method = route.Method.ToLowerInvariant();
-            if (method is "head" or "options")
-            {
-                // Still document them — useful for complete surface maps.
-            }
-
-            var operation = new Dictionary<string, object>(StringComparer.Ordinal)
-            {
-                ["operationId"] = MakeOperationId(route.Method, route.Template),
-                ["responses"] = new Dictionary<string, object>(StringComparer.Ordinal)
-                {
-                    ["200"] = new Dictionary<string, object>(StringComparer.Ordinal)
-                    {
-                        ["description"] = "OK"
-                    }
-                }
-            };
+            var operation = Dict(
+                ("operationId", MakeOperationId(route.Method, route.Template)),
+                ("responses", Dict(("200", Dict(("description", "OK"))))));
 
             if (parameters.Count > 0)
             {
@@ -54,23 +41,14 @@ public static partial class ElsieOpenApiDocument
 
             if (route.Method is "POST" or "PUT" or "PATCH")
             {
-                operation["requestBody"] = new Dictionary<string, object>(StringComparer.Ordinal)
-                {
-                    ["required"] = true,
-                    ["content"] = new Dictionary<string, object>(StringComparer.Ordinal)
-                    {
-                        ["application/json"] = new Dictionary<string, object>(StringComparer.Ordinal)
-                        {
-                            ["schema"] = new Dictionary<string, object>(StringComparer.Ordinal)
-                            {
-                                ["type"] = "object"
-                            }
-                        }
-                    }
-                };
+                operation["requestBody"] = Dict(
+                    ("required", true),
+                    ("content", Dict(
+                        ("application/json", Dict(
+                            ("schema", Dict(("type", "object"))))))));
             }
 
-            operations[method] = operation;
+            operations[route.Method.ToLowerInvariant()] = operation;
         }
 
         return new Dictionary<string, object?>(StringComparer.Ordinal)
@@ -92,7 +70,7 @@ public static partial class ElsieOpenApiDocument
 
     /// <summary>Serialize <see cref="Create"/> to a JSON string.</summary>
     public static string ToJson(RouteTable table, ElsieOpenApiInfo? info = null, JsonSerializerOptions? options = null) =>
-        JsonSerializer.Serialize(Create(table, info), options ?? JsonOptions);
+        Encoding.UTF8.GetString(ToUtf8Json(table, info, options));
 
     internal static (string Path, List<Dictionary<string, object>> Parameters) ConvertTemplate(string template)
     {
@@ -100,8 +78,7 @@ public static partial class ElsieOpenApiDocument
         var path = ParamRegex().Replace(template, match =>
         {
             var inner = match.Groups[1].Value;
-            var isCatchAll = inner.StartsWith('*');
-            if (isCatchAll)
+            if (inner.StartsWith('*'))
             {
                 inner = inner[1..];
             }
@@ -114,13 +91,11 @@ public static partial class ElsieOpenApiDocument
                 inner = inner[..colon];
             }
 
-            parameters.Add(new Dictionary<string, object>(StringComparer.Ordinal)
-            {
-                ["name"] = inner,
-                ["in"] = "path",
-                ["required"] = true,
-                ["schema"] = SchemaForConstraint(constraint)
-            });
+            parameters.Add(Dict(
+                ("name", inner),
+                ("in", "path"),
+                ("required", true),
+                ("schema", SchemaForConstraint(constraint))));
 
             return "{" + inner + "}";
         });
@@ -131,31 +106,26 @@ public static partial class ElsieOpenApiDocument
     private static Dictionary<string, object> SchemaForConstraint(string? constraint) =>
         (constraint?.ToLowerInvariant()) switch
         {
-            "int" or "long" => new Dictionary<string, object>(StringComparer.Ordinal)
-            {
-                ["type"] = "integer",
-                ["format"] = constraint!.Equals("long", StringComparison.OrdinalIgnoreCase) ? "int64" : "int32"
-            },
-            "guid" => new Dictionary<string, object>(StringComparer.Ordinal)
-            {
-                ["type"] = "string",
-                ["format"] = "uuid"
-            },
-            "bool" => new Dictionary<string, object>(StringComparer.Ordinal)
-            {
-                ["type"] = "boolean"
-            },
-            _ => new Dictionary<string, object>(StringComparer.Ordinal)
-            {
-                ["type"] = "string"
-            }
+            "int" => Dict(("type", "integer"), ("format", "int32")),
+            "long" => Dict(("type", "integer"), ("format", "int64")),
+            "guid" => Dict(("type", "string"), ("format", "uuid")),
+            "bool" => Dict(("type", "boolean")),
+            _ => Dict(("type", "string"))
         };
 
-    private static string MakeOperationId(string method, string template)
+    private static Dictionary<string, object> Dict(params (string Key, object Value)[] pairs)
     {
-        var cleaned = NonOpIdChars().Replace(template, "_").Trim('_');
-        return $"{method}_{cleaned}";
+        var d = new Dictionary<string, object>(pairs.Length, StringComparer.Ordinal);
+        foreach (var (k, v) in pairs)
+        {
+            d[k] = v;
+        }
+
+        return d;
     }
+
+    private static string MakeOperationId(string method, string template) =>
+        $"{method}_{NonOpIdChars().Replace(template, "_").Trim('_')}";
 
     [GeneratedRegex(@"\{([^}]+)\}", RegexOptions.CultureInvariant)]
     private static partial Regex ParamRegex();

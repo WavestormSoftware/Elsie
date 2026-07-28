@@ -80,17 +80,17 @@ JWT/cookie **auth middleware** stays with ASP.NET — these are thin before-hook
 ### FluentValidation
 
 ```csharp
-builder.Services.AddElsieFluentValidation(typeof(CreateTodoValidator).Assembly);
-// handler:
+// register validators yourself (FV DI package or AddSingleton<IValidator<T>, ...>)
 var bind = await ctx.BindAndValidateJsonAsync<CreateTodo>(ct);
 if (!bind.IsSuccess) return bind.Error!;
 ```
 
-### OpenAPI + Scalar
+### OpenAPI
 
 ```csharp
-app.MapElsieOpenApi(o => o.Title = "My API"); // /openapi.json + /scalar
+app.MapElsieOpenApi(o => o.Info.Title = "My API"); // /openapi.json
 app.MapElsie();
+// optional: wire Scalar/Swagger UI against /openapi.json yourself
 ```
 
 ### ASP.NET escape hatch
@@ -126,8 +126,8 @@ Get("/", async (ctx, ct) =>
 | Package | Purpose |
 |---------|---------|
 | `Elsie` | Modules, router, dispatcher, results, `ElsieAuth`, OpenAPI builder |
-| `Elsie.AspNetCore` | `ElsieWeb` / `MapElsie` / `MapElsieOpenApi` / Scalar |
-| `Elsie.FluentValidation` | `BindAndValidateJsonAsync` + validator DI |
+| `Elsie.AspNetCore` | `ElsieWeb` / `MapElsie` / `MapElsieOpenApi` |
+| `Elsie.FluentValidation` | `BindAndValidateJsonAsync` |
 | `Elsie.Views` | File templates + layouts |
 | `Elsie.Testing` | In-memory + TestServer hosts + asserts |
 
@@ -159,7 +159,7 @@ response.AssertStatus(200);
 |--------|-------|
 | `samples/Elsie.Sample.HelloWorld` | `ElsieWeb.Run` quickstart |
 | `samples/Elsie.Sample.Hello` | DI, query, constraints, pipelines |
-| `samples/Elsie.Sample.Api` | CRUD + API key + OpenAPI/Scalar |
+| `samples/Elsie.Sample.Api` | CRUD + API key + OpenAPI |
 | `samples/Elsie.Sample.Views` | HTML templates + layout |
 
 ## Build

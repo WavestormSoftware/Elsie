@@ -17,7 +17,7 @@ Instructions for coding agents working on this repository.
 |------|------|
 | `src/Elsie` | Host-agnostic core: modules, routing, dispatcher, context, results, pipelines, `AddElsie`, OpenAPI builder, `ElsieAuth` |
 | `src/Elsie.AspNetCore` | `ElsieWeb` / `MapElsie` / `UseElsie` / `MapElsieOpenApi`, logging, `HttpContext` adapter |
-| `src/Elsie.FluentValidation` | `BindAndValidateJsonAsync` + `AddElsieFluentValidation` |
+| `src/Elsie.FluentValidation` | `BindAndValidateJsonAsync` |
 | `src/Elsie.Views` | Minimal file templates + layouts (`ViewAsync`) |
 | `src/Elsie.Testing` | `ElsieInMemoryHost` + ASP.NET `ElsieTestHost` + asserts |
 | `tests/*` | Unit / integration tests |
@@ -52,7 +52,7 @@ dotnet pack Elsie.sln -c Release -o artifacts/nuget
 - App DX: prefer `ElsieWeb.Run` / `builder.AddElsie()` (`quietConsole: true` default).
 - Tests: `IServiceCollection.AddElsie` (no log rewiring).
 - Auth: `ElsieAuth.RequireApiKey` / `RequireHeader` / `RequireBearer` / `RequireCookie` before-hooks.
-- OpenAPI: core `ElsieOpenApiDocument`; host `MapElsieOpenApi` (+ Scalar UI).
+- OpenAPI: core `ElsieOpenApiDocument`; host `MapElsieOpenApi` (JSON only; UI optional).
 - Do not reintroduce FrameworkReference on `Elsie` without an explicit product decision.
 
 ## Module registration

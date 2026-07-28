@@ -1,5 +1,4 @@
 using FluentValidation;
-using Microsoft.Extensions.DependencyInjection;
 
 namespace Elsie.FluentValidation;
 
@@ -9,6 +8,7 @@ public static class ElsieFluentValidationExtensions
     /// <summary>
     /// Deserialize JSON then validate with <paramref name="validator"/> or DI <see cref="IValidator{T}"/>.
     /// When no validator is registered, returns the bind result unchanged.
+    /// Register validators yourself (<c>services.AddValidatorsFromAssembly(...)</c> or <c>AddSingleton&lt;IValidator&lt;T&gt;, ...&gt;</c>).
     /// </summary>
     public static async Task<ElsieBindResult<T>> BindAndValidateJsonAsync<T>(
         this ElsieContext context,
@@ -43,37 +43,5 @@ public static class ElsieFluentValidationExtensions
                 StringComparer.Ordinal);
 
         return ElsieBindResult<T>.Fail(ElsieResult.ValidationProblem(errors));
-    }
-}
-
-/// <summary>DI registration for FluentValidation + Elsie.</summary>
-public static class ElsieFluentValidationServiceExtensions
-{
-    /// <summary>
-    /// Registers FluentValidation validators from <paramref name="assemblies"/> (defaults to entry assembly).
-    /// </summary>
-    public static IServiceCollection AddElsieFluentValidation(
-        this IServiceCollection services,
-        params System.Reflection.Assembly[] assemblies)
-    {
-        ArgumentNullException.ThrowIfNull(services);
-
-        if (assemblies is null || assemblies.Length == 0)
-        {
-            var entry = System.Reflection.Assembly.GetEntryAssembly();
-            if (entry is not null)
-            {
-                services.AddValidatorsFromAssembly(entry);
-            }
-
-            return services;
-        }
-
-        foreach (var assembly in assemblies)
-        {
-            services.AddValidatorsFromAssembly(assembly);
-        }
-
-        return services;
     }
 }
