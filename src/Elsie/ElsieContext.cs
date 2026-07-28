@@ -1,5 +1,6 @@
 using System.Text.Json;
 using Microsoft.AspNetCore.Http;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace Elsie;
 
@@ -28,6 +29,13 @@ public sealed class ElsieContext
 
     /// <summary>JSON options for this request (from <see cref="ElsieOptions"/>).</summary>
     public JsonSerializerOptions JsonSerializerOptions { get; }
+
+    /// <summary>Resolve a required service from the current request scope.</summary>
+    public T GetRequiredService<T>() where T : notnull =>
+        RequestServices.GetRequiredService<T>();
+
+    /// <summary>Resolve an optional service from the current request scope.</summary>
+    public T? GetService<T>() => RequestServices.GetService<T>();
 
     public string? QueryOrDefault(string key) =>
         Request.Query.TryGetValue(key, out var values) ? values.ToString() : null;

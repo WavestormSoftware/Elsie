@@ -9,6 +9,16 @@ namespace Elsie.AspNetCore.Tests;
 
 public class HostingTests
 {
+    private interface IClock
+    {
+        string Stamp { get; }
+    }
+
+    private sealed class FixedClock : IClock
+    {
+        public string Stamp => "t0";
+    }
+
     private sealed class HelloModule : ElsieModule
     {
         public HelloModule()
@@ -24,6 +34,19 @@ public class HostingTests
                 var body = await ctx.ReadJsonAsync<EchoDto>(ct);
                 return ctx.Json(body);
             });
+            Get("/di", ctx =>
+            {
+                var clock = ctx.GetRequiredService<IClock>();
+                return ElsieResult.Text(clock.Stamp);
+            });
+        }
+    }
+
+    private sealed class CtorDiModule : ElsieModule
+    {
+        public CtorDiModule(IClock clock)
+        {
+            Get("/ctor-di", () => ElsieResult.Text(clock.Stamp));
         }
     }
 
@@ -184,5 +207,32 @@ public class HostingTests
 
         await host.GetAsync("/health");
         Assert.Equal(2, count);
+    }
+
+    [Fact]
+    public async Task Handler_resolves_services_from_request_services()
+    {
+        await using var host = ElsieTestHost.Create(s =>
+        {
+            s.AddSingleton<IClock, FixedClock>();
+            s.AddElsieModule<HelloModule>();
+        });
+
+        var response = await host.GetAsync("/di");
+        response.AssertStatus(HttpStatusCode.OK);
+        Assert.Equal("t0", await response.AssertTextAsync());
+    }
+
+    [Fact]
+    public async Task Module_constructor_injection_works()
+    {
+        await using var host = ElsieTestHost.Create(s =>
+        {
+            s.AddSingleton<IClock, FixedClock>();
+            s.AddElsieModule<CtorDiModule>();
+        });
+
+        var response = await host.GetAsync("/ctor-di");
+        await response.AssertStatus(HttpStatusCode.OK).AssertTextAsync("t0");
     }
 }

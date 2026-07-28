@@ -39,6 +39,13 @@ dotnet run --project samples/Elsie.Sample.Hello
 dotnet pack Elsie.sln -c Release -o artifacts/nuget
 ```
 
+## Module registration
+
+- Prefer **explicit** `AddElsieModule<T>()` in apps and tests.
+- `AddElsie()` defaults `ScanEntryAssembly = true` (entry assembly concrete modules).
+- `ElsieTestHost` sets `ScanEntryAssembly = false` — always register modules in the configure callback.
+- Modules are **singletons**. Ctor-inject singleton-safe services; use `ctx.GetRequiredService<T>()` / `ctx.RequestServices` for request scope.
+
 ## Engineering rules
 
 1. YAGNI → reuse Elsie types → BCL / ASP.NET Core → smallest diff.
