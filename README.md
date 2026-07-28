@@ -135,7 +135,11 @@ Get("/", async (ctx, ct) =>
 dotnet pack Elsie.sln -c Release -o artifacts/nuget
 ```
 
-**Publish (nuget.org):** GitHub Actions workflow [`publish-nuget.yml`](.github/workflows/publish-nuget.yml) uses [Trusted Publishing](https://learn.microsoft.com/nuget/nuget-org/trusted-publishing) (OIDC) — no long-lived API key. Create a Trusted Publisher policy per package on nuget.org (repo `WavestormSoftware/Elsie`, workflow `publish-nuget.yml`, environment `nuget`), then run **Actions → publish-nuget** or publish a GitHub Release.
+**Publish (nuget.org):** GitHub Actions [`publish-nuget.yml`](.github/workflows/publish-nuget.yml) uses [Trusted Publishing](https://learn.microsoft.com/nuget/nuget-org/trusted-publishing) (OIDC) — no long-lived API key.
+
+1. nuget.org → Trusted Publishing policy: repo `WavestormSoftware/Elsie`, workflow `publish-nuget.yml`, environment `nuget`, package owner `WavestormSoftware`.
+2. GitHub repo variable **`NUGET_USER`** = nuget.org username of the **person who created the policy** (Account settings → Username) — **not** the org `WavestormSoftware`.
+3. Run **Actions → publish-nuget** or publish a GitHub Release.
 
 ## Testing
 

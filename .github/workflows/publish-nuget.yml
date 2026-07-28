@@ -1,10 +1,15 @@
 # Publish packable projects to nuget.org via Trusted Publishing (OIDC).
-# Requires a Trusted Publishing policy per package on https://www.nuget.org
-# (owner account) matching:
+#
+# nuget.org Trusted Publishing policy must match:
 #   Repository owner : WavestormSoftware
 #   Repository       : Elsie
 #   Workflow         : publish-nuget.yml
-#   Environment      : nuget  (optional but recommended)
+#   Environment      : nuget
+#
+# NuGet/login `user` = nuget.org username of the **person who created the
+# policy** (Account settings → Username). NOT the org Package Owner
+# (WavestormSoftware). Set repo variable NUGET_USER to that username, or pass
+# workflow_dispatch input nuget_user.
 #
 # Docs: https://learn.microsoft.com/nuget/nuget-org/trusted-publishing
 
@@ -19,6 +24,10 @@ on:
         description: "Pack only; skip nuget push"
         type: boolean
         default: false
+      nuget_user:
+        description: "nuget.org username of the Trusted Publishing policy creator (overrides NUGET_USER var)"
+        type: string
+        required: false
 
 permissions:
   contents: read
@@ -41,6 +50,20 @@ jobs:
             8.0.x
             9.0.x
 
+      - name: Resolve NuGet policy-creator username
+        id: who
+        run: |
+          user='${{ inputs.nuget_user }}'
+          if [ -z "$user" ]; then
+            user='${{ vars.NUGET_USER }}'
+          fi
+          if [ -z "$user" ]; then
+            echo "::error::Set repo variable NUGET_USER (or workflow input nuget_user) to the nuget.org username of the person who created the Trusted Publishing policy — not the org owner WavestormSoftware."
+            exit 1
+          fi
+          echo "user=$user" >> "$GITHUB_OUTPUT"
+          echo "Using NuGet policy creator user: $user"
+
       - name: Restore
         run: dotnet restore Elsie.sln
 
@@ -51,7 +74,6 @@ jobs:
         run: |
           rm -rf artifacts/nuget
           dotnet pack Elsie.sln -c Release -o artifacts/nuget --no-restore
-          # Drop symbols from the push set; snupkg push is optional/separate.
           ls -la artifacts/nuget
 
       - name: NuGet login (Trusted Publishing OIDC)
@@ -59,7 +81,8 @@ jobs:
         uses: NuGet/login@v1
         id: nuget
         with:
-          user: WavestormSoftware
+          # Must be policy CREATOR username, not Package Owner org.
+          user: ${{ steps.who.outputs.user }}
 
       - name: Push to nuget.org
         if: ${{ github.event_name == 'release' || inputs.dry_run == false }}
