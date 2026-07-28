@@ -1,0 +1,5 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Elsie.Views\Elsie.Views.csproj" />
+  </ItemGroup>
+</Project>
