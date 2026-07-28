@@ -21,6 +21,14 @@ public sealed class HelloModule : ElsieModule
     {
         Get("/hello/{name}", ctx =>
             ElsieResult.Text($"Hello {ctx.RouteValues["name"]}"));
+
+        Get("/items/{id:int}", ctx =>
+            ElsieResult.Json(new { id = ctx.RouteValues["id"] }));
+
+        // Module pipeline: return a result to short-circuit the handler
+        Before(ctx => ctx.QueryOrDefault("key") is null
+            ? ElsieResult.Status(401)
+            : null);
     }
 }
 ```
@@ -29,9 +37,18 @@ public sealed class HelloModule : ElsieModule
 
 | Package | Purpose |
 |---------|---------|
-| `Elsie` | Modules, routing, context, results |
+| `Elsie` | Modules, routing, pipelines, context, results |
 | `Elsie.AspNetCore` | DI + `MapElsie` / middleware |
 | `Elsie.Testing` | In-process test host |
+
+## Features (0.1.x)
+
+- Sinatra-style `ElsieModule` route DSL (`Get`/`Post`/`Put`/`Patch`/`Delete`/…)
+- Route parameters and constraints: `{name}`, `{id:int}`, `{id:long}`, `{id:guid}`, `{flag:bool}`
+- `ElsieResult` helpers: text, JSON, bytes, status, redirect, custom headers
+- Module + application before/after pipelines
+- ASP.NET Core host via `AddElsie` / `MapElsie`
+- `ElsieTestHost` for in-process tests
 
 ## Build
 
@@ -44,9 +61,7 @@ dotnet run --project samples/Elsie.Sample.Hello
 
 ## Docs
 
-- [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) — design
-- [`docs/PLAN.md`](docs/PLAN.md) — implementation plan
-- [`AGENTS.md`](AGENTS.md) — notes for coding agents
+- [`AGENTS.md`](AGENTS.md) — contributor / coding-agent notes
 
 ## License
 

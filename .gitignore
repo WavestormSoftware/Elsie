@@ -28,7 +28,14 @@ TestResults/
 ## Agent / local
 .pi-subagents/
 .pi/
+.local/
 *.log
+
+## Agent planning docs (local only — do not commit)
+docs/PLAN.md
+docs/ARCHITECTURE.md
+docs/**/PLAN.md
+docs/**/ARCHITECTURE.md
 
 ## Dotnet
 .dotnet/
