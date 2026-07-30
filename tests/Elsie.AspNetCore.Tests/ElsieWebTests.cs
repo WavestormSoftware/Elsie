@@ -31,4 +31,24 @@ public class ElsieWebTests
             await app.StopAsync();
         }
     }
+
+    [Fact]
+    public async Task RunAsync_generic_serves_module()
+    {
+        await using var app = ElsieWeb.CreateApp<PingModule>(
+            args: ["--urls", "http://127.0.0.1:0"],
+            configure: o => o.ScanEntryAssembly = false);
+
+        var runTask = app.RunAsync();
+        try
+        {
+            using var client = new HttpClient { BaseAddress = new Uri(app.Urls.Single()) };
+            Assert.Equal("pong", await client.GetStringAsync("/ping"));
+        }
+        finally
+        {
+            await app.StopAsync();
+            await runTask;
+        }
+    }
 }

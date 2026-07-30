@@ -1,12 +1,15 @@
 using System.Diagnostics;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Logging;
-using Microsoft.Extensions.Primitives;
 
 namespace Elsie.AspNetCore;
 
 public sealed class ElsieMiddleware
 {
+    private static readonly ElsieHttpResponse TerminalNotFound =
+        ElsieHttpResponse.FromDispatch(
+            ElsieDispatchResult.Handled(ElsieResult.NotFound(), new ElsieResponse()))!;
+
     private readonly RequestDelegate _next;
     private readonly ElsieDispatcher _dispatcher;
     private readonly ILogger<ElsieMiddleware> _logger;
@@ -37,8 +40,11 @@ public sealed class ElsieMiddleware
         {
             if (_terminal)
             {
-                context.Response.StatusCode = StatusCodes.Status404NotFound;
-                Log(context, StatusCodes.Status404NotFound, start);
+                await AspNetCoreElsieResponseWriter.WriteAsync(
+                    context,
+                    TerminalNotFound,
+                    context.RequestAborted).ConfigureAwait(false);
+                Log(context, TerminalNotFound.StatusCode, start);
                 return;
             }
 
@@ -46,25 +52,8 @@ public sealed class ElsieMiddleware
             return;
         }
 
-        context.Response.StatusCode = response.StatusCode;
-        foreach (var (name, values) in response.Headers)
-        {
-            if (values.Count == 1)
-            {
-                context.Response.Headers[name] = values[0];
-            }
-            else
-            {
-                context.Response.Headers[name] = new StringValues(values as string[] ?? values.ToArray());
-            }
-        }
-
-        if (!string.IsNullOrEmpty(response.ContentType))
-        {
-            context.Response.ContentType = response.ContentType;
-        }
-
-        await response.WriteBodyAsync(context.Response.Body, context.RequestAborted).ConfigureAwait(false);
+        await AspNetCoreElsieResponseWriter.WriteAsync(context, response, context.RequestAborted)
+            .ConfigureAwait(false);
         Log(context, response.StatusCode, start);
     }
 

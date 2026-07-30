@@ -26,9 +26,18 @@ public sealed class ElsieTestHost : IAsyncDisposable
 
     public HttpClient Client { get; }
 
-    public static ElsieTestHost Create(Action<IServiceCollection> configure)
+    public static ElsieTestHost Create(Action<IServiceCollection> configure) =>
+        Create(configure, app => app.MapElsie());
+
+    /// <summary>
+    /// Create a test host with a custom ASP.NET pipeline (static files, terminal MapElsie, etc.).
+    /// </summary>
+    public static ElsieTestHost Create(
+        Action<IServiceCollection> configure,
+        Action<IApplicationBuilder> configureApp)
     {
         ArgumentNullException.ThrowIfNull(configure);
+        ArgumentNullException.ThrowIfNull(configureApp);
 
         var builder = new HostBuilder()
             .UseDefaultServiceProvider(o =>
@@ -44,7 +53,7 @@ public sealed class ElsieTestHost : IAsyncDisposable
                     services.AddElsie(o => o.ScanEntryAssembly = false);
                     configure(services);
                 });
-                web.Configure(app => app.MapElsie());
+                web.Configure(configureApp);
             });
 
         var host = builder.Start();
