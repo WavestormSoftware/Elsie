@@ -5,6 +5,9 @@ namespace Elsie.Views;
 
 public static class ElsieViewServiceCollectionExtensions
 {
+    /// <summary>
+    /// Registers Fluid-backed <see cref="IElsieViewEngine"/> (singleton) and <see cref="ElsieViewOptions"/>.
+    /// </summary>
     public static IServiceCollection AddElsieViews(
         this IServiceCollection services,
         Action<ElsieViewOptions>? configure = null)
@@ -14,7 +17,7 @@ public static class ElsieViewServiceCollectionExtensions
         var options = new ElsieViewOptions();
         configure?.Invoke(options);
         services.AddSingleton(options);
-        services.TryAddSingleton<ElsieFileViewEngine>();
+        services.TryAddSingleton<IElsieViewEngine, FluidElsieViewEngine>();
         return services;
     }
 }

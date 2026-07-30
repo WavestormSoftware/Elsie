@@ -4,7 +4,7 @@ namespace Elsie.Views;
 
 public static class ElsieViewContextExtensions
 {
-    /// <summary>Render a view (and optional layout) to an HTML <see cref="ElsieResult"/>.</summary>
+    /// <summary>Render a Liquid view (and optional layout) to an HTML <see cref="ElsieResult"/>.</summary>
     public static async Task<ElsieResult> ViewAsync(
         this ElsieContext ctx,
         string viewName,
@@ -15,8 +15,16 @@ public static class ElsieViewContextExtensions
         ArgumentNullException.ThrowIfNull(ctx);
         ArgumentException.ThrowIfNullOrWhiteSpace(viewName);
 
-        var engine = ctx.GetRequiredService<ElsieFileViewEngine>();
-        var html = await engine.RenderAsync(viewName, model, cancellationToken).ConfigureAwait(false);
-        return ElsieResult.Text(html, statusCode, "text/html; charset=utf-8");
+        var engine = ctx.GetRequiredService<IElsieViewEngine>();
+        var ambient = new ElsieViewAmbient
+        {
+            Path = ctx.Request.Path,
+            QueryString = ctx.Request.QueryString,
+            Method = ctx.Request.Method,
+            Scheme = ctx.Request.Scheme,
+            Host = ctx.Request.Host
+        };
+        var html = await engine.RenderAsync(viewName, model, ambient, cancellationToken).ConfigureAwait(false);
+        return ElsieResult.Html(html, statusCode);
     }
 }

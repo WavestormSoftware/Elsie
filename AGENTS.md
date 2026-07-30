@@ -18,7 +18,7 @@ Instructions for coding agents working on this repository.
 | `src/Elsie` | Host-agnostic core: modules, routing, dispatcher, context, results, pipelines, `AddElsie`, OpenAPI builder, `ElsieAuth` |
 | `src/Elsie.AspNetCore` | `ElsieWeb` / `MapElsie` / `UseElsie` / `MapElsieOpenApi`, logging, `HttpContext` adapter |
 | `src/Elsie.FluentValidation` | `BindAndValidateJsonAsync` |
-| `src/Elsie.Views` | Minimal file templates + layouts (`ViewAsync`) |
+| `src/Elsie.Views` | Fluid (Liquid) views + layouts/partials (`ViewAsync`, `IElsieViewEngine`) |
 | `src/Elsie.Testing` | `ElsieInMemoryHost` + ASP.NET `ElsieTestHost` + asserts |
 | `tests/*` | Unit / integration tests |
 | `samples/*` | Runnable samples |
@@ -67,7 +67,8 @@ dotnet pack Elsie.sln -c Release -o artifacts/nuget
 - JSON: static `ElsieResult.Json` → framework defaults (`ElsieJson.DefaultOptions`); `ctx.Json` → app `ElsieOptions.JsonSerializerOptions`.
 - Routing: precedence static > constrained > param > catch-all; startup validates constraints/ambiguity/dup names; `RouteBuilder` metadata + `ctx.UrlFor`.
 - `Path` / `Group`, `BindJsonAsync`, problem results, optional `ExceptionHandler`.
-- Views: `AddElsieViews` + `ctx.ViewAsync` (`Elsie.Views`).
+- Views: `AddElsieViews` + `ctx.ViewAsync` (`Elsie.Views`, Fluid/Liquid `.liquid`; `IElsieViewEngine` seam).
+- OpenAPI: route metadata (`.Named`/`.Accepts`/`.Produces`/`.WithSecurity`/`.AcceptsQuery`) → `ElsieOpenApiDocument`; host `MapElsieOpenApi` (+ optional `UiPath` Scalar CDN page).
 
 ## Samples
 

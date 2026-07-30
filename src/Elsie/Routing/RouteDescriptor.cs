@@ -31,6 +31,7 @@ public sealed class RouteDescriptor
     public string? Description { get; internal set; }
     public IReadOnlyList<string> Tags => _tags;
     public Type? AcceptsType { get; internal set; }
+    public Type? AcceptsQueryType { get; internal set; }
     public IReadOnlyList<RouteProduces> Produces => _produces;
     public IReadOnlyList<string> Security => _security;
 
@@ -129,6 +130,13 @@ public sealed class RouteBuilder
     public RouteBuilder Accepts<T>()
     {
         Descriptor.AcceptsType = typeof(T);
+        return this;
+    }
+
+    /// <summary>Declare query-string DTO shape for OpenAPI (flattened object properties → query params).</summary>
+    public RouteBuilder AcceptsQuery<T>()
+    {
+        Descriptor.AcceptsQueryType = typeof(T);
         return this;
     }
 
