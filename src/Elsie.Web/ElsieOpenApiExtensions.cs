@@ -24,12 +24,11 @@ public static class ElsieOpenApiExtensions
         configure?.Invoke(options);
 
         var documentPath = NormalizePath(options.DocumentPath);
-        app.MapGet(documentPath, (HttpContext http) =>
-        {
-            var table = http.RequestServices.GetRequiredService<RouteTable>();
-            var json = ElsieOpenApiDocument.ToUtf8Json(table, options.Info);
-            return Results.Bytes(json, "application/json; charset=utf-8");
-        }).WithDisplayName("Elsie OpenAPI");
+        // RouteTable is singleton; bake once at map time (MapElsie warms the table).
+        var table = app.Services.GetRequiredService<RouteTable>();
+        var json = ElsieOpenApiDocument.ToUtf8Json(table, options.Info);
+        app.MapGet(documentPath, () => Results.Bytes(json, "application/json; charset=utf-8"))
+            .WithDisplayName("Elsie OpenAPI");
 
         if (!string.IsNullOrWhiteSpace(options.UiPath))
         {

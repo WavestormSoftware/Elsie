@@ -166,17 +166,22 @@ public sealed class RouteTable
             return result;
         }
 
-        var props = values.GetType().GetProperties(BindingFlags.Instance | BindingFlags.Public);
+        var props = s_routeValueProps.GetOrAdd(
+            values.GetType(),
+            static t => t.GetProperties(BindingFlags.Instance | BindingFlags.Public)
+                .Where(static p => p.CanRead && p.GetIndexParameters().Length == 0)
+                .ToArray());
         var bag = new Dictionary<string, string?>(props.Length, StringComparer.OrdinalIgnoreCase);
         foreach (var prop in props)
         {
-            if (!prop.CanRead) continue;
             var v = prop.GetValue(values);
             bag[prop.Name] = v is null ? null : Convert.ToString(v, CultureInfo.InvariantCulture);
         }
 
         return bag;
     }
+
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<Type, PropertyInfo[]> s_routeValueProps = new();
 
     private static void EnsureNoExactDuplicates(List<RouteDescriptor> routes)
     {

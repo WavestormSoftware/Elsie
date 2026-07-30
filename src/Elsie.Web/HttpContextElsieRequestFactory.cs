@@ -18,8 +18,8 @@ internal static class HttpContextElsieRequestFactory
             contentType: request.ContentType,
             requestServices: httpContext.RequestServices,
             requestAborted: httpContext.RequestAborted,
-            queryValues: CopyMulti(request.Query),
-            headerValues: CopyMulti(request.Headers),
+            queryValues: new QueryCollectionMap(request.Query),
+            headerValues: new HeaderDictionaryMap(request.Headers),
             scheme: request.Scheme,
             host: request.Host.Value,
             pathBase: request.PathBase.Value,
@@ -30,22 +30,131 @@ internal static class HttpContextElsieRequestFactory
         return elsieRequest;
     }
 
-    private static Dictionary<string, IReadOnlyList<string>> CopyMulti(
-        IEnumerable<KeyValuePair<string, StringValues>> source)
+    private sealed class QueryCollectionMap : IReadOnlyDictionary<string, IReadOnlyList<string>>
     {
-        var all = new Dictionary<string, IReadOnlyList<string>>(StringComparer.OrdinalIgnoreCase);
-        foreach (var kv in source)
-        {
-            var values = kv.Value;
-            var list = new string[values.Count];
-            for (var i = 0; i < values.Count; i++)
-            {
-                list[i] = values[i] ?? string.Empty;
-            }
+        private readonly IQueryCollection _query;
 
-            all[kv.Key] = list;
+        public QueryCollectionMap(IQueryCollection query) => _query = query;
+
+        public IReadOnlyList<string> this[string key] =>
+            TryGetValue(key, out var value) ? value : throw new KeyNotFoundException(key);
+
+        public IEnumerable<string> Keys => _query.Keys;
+        public IEnumerable<IReadOnlyList<string>> Values
+        {
+            get
+            {
+                foreach (var key in _query.Keys)
+                {
+                    yield return Wrap(_query[key]);
+                }
+            }
         }
 
-        return all;
+        public int Count => _query.Count;
+
+        public bool ContainsKey(string key) => _query.ContainsKey(key);
+
+        public IEnumerator<KeyValuePair<string, IReadOnlyList<string>>> GetEnumerator()
+        {
+            foreach (var kv in _query)
+            {
+                yield return new KeyValuePair<string, IReadOnlyList<string>>(kv.Key, Wrap(kv.Value));
+            }
+        }
+
+        public bool TryGetValue(string key, out IReadOnlyList<string> value)
+        {
+            if (_query.TryGetValue(key, out var values))
+            {
+                value = Wrap(values);
+                return true;
+            }
+
+            value = null!;
+            return false;
+        }
+
+        System.Collections.IEnumerator System.Collections.IEnumerable.GetEnumerator() => GetEnumerator();
+    }
+
+    private sealed class HeaderDictionaryMap : IReadOnlyDictionary<string, IReadOnlyList<string>>
+    {
+        private readonly IHeaderDictionary _headers;
+
+        public HeaderDictionaryMap(IHeaderDictionary headers) => _headers = headers;
+
+        public IReadOnlyList<string> this[string key] =>
+            TryGetValue(key, out var value) ? value : throw new KeyNotFoundException(key);
+
+        public IEnumerable<string> Keys => _headers.Keys;
+        public IEnumerable<IReadOnlyList<string>> Values
+        {
+            get
+            {
+                foreach (var key in _headers.Keys)
+                {
+                    yield return Wrap(_headers[key]);
+                }
+            }
+        }
+
+        public int Count => _headers.Count;
+
+        public bool ContainsKey(string key) => _headers.ContainsKey(key);
+
+        public IEnumerator<KeyValuePair<string, IReadOnlyList<string>>> GetEnumerator()
+        {
+            foreach (var kv in _headers)
+            {
+                yield return new KeyValuePair<string, IReadOnlyList<string>>(kv.Key, Wrap(kv.Value));
+            }
+        }
+
+        public bool TryGetValue(string key, out IReadOnlyList<string> value)
+        {
+            if (_headers.TryGetValue(key, out var values))
+            {
+                value = Wrap(values);
+                return true;
+            }
+
+            value = null!;
+            return false;
+        }
+
+        System.Collections.IEnumerator System.Collections.IEnumerable.GetEnumerator() => GetEnumerator();
+    }
+
+    private static IReadOnlyList<string> Wrap(StringValues values)
+    {
+        // StringValues implements IList<string> / IReadOnlyList on modern TFMs; materialize only if nulls appear.
+        if (values.Count == 0)
+        {
+            return Array.Empty<string>();
+        }
+
+        if (values.Count == 1)
+        {
+            return new[] { values[0] ?? string.Empty };
+        }
+
+        var list = new string[values.Count];
+        var dirty = false;
+        for (var i = 0; i < values.Count; i++)
+        {
+            var v = values[i];
+            if (v is null)
+            {
+                dirty = true;
+                list[i] = string.Empty;
+            }
+            else
+            {
+                list[i] = v;
+            }
+        }
+
+        return dirty ? list : (IReadOnlyList<string>)values;
     }
 }

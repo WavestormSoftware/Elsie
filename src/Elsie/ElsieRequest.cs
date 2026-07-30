@@ -18,6 +18,11 @@ public sealed class ElsieRequest
 
     private readonly IReadOnlyDictionary<string, IReadOnlyList<string>> _queryValues;
     private readonly IReadOnlyDictionary<string, IReadOnlyList<string>> _headerValues;
+    private readonly string? _queryStringRaw;
+    private IReadOnlyDictionary<string, string>? _queryView;
+    private IReadOnlyDictionary<string, string>? _headersView;
+    private IDictionary<object, object?>? _items;
+    private string? _queryString;
     private byte[]? _bufferedBody;
 
     public ElsieRequest(
@@ -45,20 +50,18 @@ public sealed class ElsieRequest
         Path = NormalizePath(path);
         _queryValues = queryValues ?? Promote(query);
         _headerValues = headerValues ?? Promote(headers);
-        Query = FirstWins(_queryValues);
-        Headers = FirstWins(_headerValues);
+        _items = items;
+        _queryStringRaw = queryString;
         Body = body ?? Stream.Null;
         ContentLength = contentLength;
         ContentType = contentType;
         RequestServices = requestServices ?? EmptyServiceProvider.Instance;
         RequestAborted = requestAborted;
-        Items = items ?? new Dictionary<object, object?>();
         Scheme = scheme;
         Host = host;
         PathBase = pathBase;
         Protocol = protocol;
         RemoteIp = remoteIp;
-        QueryString = queryString ?? BuildQueryString(_queryValues);
     }
 
     public string Method { get; }
@@ -80,13 +83,13 @@ public sealed class ElsieRequest
     public string? RemoteIp { get; }
 
     /// <summary>Raw query string including leading <c>?</c>, or empty.</summary>
-    public string QueryString { get; }
+    public string QueryString => _queryString ??= _queryStringRaw ?? BuildQueryString(_queryValues);
 
     /// <summary>First value per key. Prefer <see cref="GetQueryValues"/> for multi-value.</summary>
-    public IReadOnlyDictionary<string, string> Query { get; }
+    public IReadOnlyDictionary<string, string> Query => _queryView ??= FirstWins(_queryValues);
 
     /// <summary>First value per key. Prefer <see cref="GetHeaderValues"/> for multi-value.</summary>
-    public IReadOnlyDictionary<string, string> Headers { get; }
+    public IReadOnlyDictionary<string, string> Headers => _headersView ??= FirstWins(_headerValues);
     public Stream Body { get; }
     public long? ContentLength { get; }
     public string? ContentType { get; }
@@ -96,7 +99,7 @@ public sealed class ElsieRequest
     /// <summary>
     /// Per-request bag for host adapters and middleware (e.g. stashed <c>HttpContext</c>).
     /// </summary>
-    public IDictionary<object, object?> Items { get; }
+    public IDictionary<object, object?> Items => _items ??= new Dictionary<object, object?>();
 
     public string? GetHeader(string name)
     {

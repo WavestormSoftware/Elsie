@@ -48,29 +48,50 @@ public sealed class ElsieDispatcher
             _routes,
             _options.MaxBindBodySize);
 
-        using var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, request.RequestAborted);
-        var ct = linked.Token;
-        var module = match.Route.Module;
-        var modulePipelines = module?.Pipelines;
+        CancellationToken ct;
+        CancellationTokenSource? linked = null;
+        if (cancellationToken.CanBeCanceled && request.RequestAborted.CanBeCanceled)
+        {
+            linked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, request.RequestAborted);
+            ct = linked.Token;
+        }
+        else if (cancellationToken.CanBeCanceled)
+        {
+            ct = cancellationToken;
+        }
+        else
+        {
+            ct = request.RequestAborted;
+        }
 
-        ElsieResult result;
         try
         {
-            var shortCircuit = await _applicationPipelines.InvokeBeforeAsync(context, ct).ConfigureAwait(false);
-            if (shortCircuit is null && modulePipelines is not null)
+            var module = match.Route.Module;
+            var modulePipelines = module?.Pipelines;
+
+            ElsieResult result;
+            try
             {
-                shortCircuit = await modulePipelines.InvokeBeforeAsync(context, ct).ConfigureAwait(false);
+                var shortCircuit = await _applicationPipelines.InvokeBeforeAsync(context, ct).ConfigureAwait(false);
+                if (shortCircuit is null && modulePipelines is not null)
+                {
+                    shortCircuit = await modulePipelines.InvokeBeforeAsync(context, ct).ConfigureAwait(false);
+                }
+
+                result = shortCircuit ?? await match.Route.Handler(context, ct).ConfigureAwait(false);
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                result = await MapErrorAsync(context, module, ex, ct).ConfigureAwait(false);
             }
 
-            result = shortCircuit ?? await match.Route.Handler(context, ct).ConfigureAwait(false);
+            result = await RunAftersAsync(context, modulePipelines, module, result, ct).ConfigureAwait(false);
+            return ElsieDispatchResult.Handled(result, response);
         }
-        catch (Exception ex) when (ex is not OperationCanceledException)
+        finally
         {
-            result = await MapErrorAsync(context, module, ex, ct).ConfigureAwait(false);
+            linked?.Dispose();
         }
-
-        result = await RunAftersAsync(context, modulePipelines, module, result, ct).ConfigureAwait(false);
-        return ElsieDispatchResult.Handled(result, response);
     }
 
     private async Task<ElsieResult> RunAftersAsync(

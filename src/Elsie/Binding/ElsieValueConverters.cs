@@ -34,51 +34,53 @@ internal static class ElsieValueConverters
         }
 
         var converter = s_converters.GetOrAdd(underlying, CreateConverter);
-        try
-        {
-            value = converter(raw);
-            if (value is null && underlying.IsValueType && Nullable.GetUnderlyingType(targetType) is null)
-            {
-                error = $"Cannot convert '{raw}' to {underlying.Name}.";
-                return false;
-            }
-
-            return true;
-        }
-        catch
+        value = converter(raw);
+        if (value is null)
         {
             error = $"Cannot convert '{raw}' to {underlying.Name}.";
             return false;
         }
+
+        return true;
     }
 
     private static Func<string, object?> CreateConverter(Type type)
     {
         if (type == typeof(string)) return static s => s;
-        if (type == typeof(bool)) return static s => bool.Parse(s);
-        if (type == typeof(byte)) return static s => byte.Parse(s, NumberStyles.Integer, CultureInfo.InvariantCulture);
-        if (type == typeof(sbyte)) return static s => sbyte.Parse(s, NumberStyles.Integer, CultureInfo.InvariantCulture);
-        if (type == typeof(short)) return static s => short.Parse(s, NumberStyles.Integer, CultureInfo.InvariantCulture);
-        if (type == typeof(ushort)) return static s => ushort.Parse(s, NumberStyles.Integer, CultureInfo.InvariantCulture);
-        if (type == typeof(int)) return static s => int.Parse(s, NumberStyles.Integer, CultureInfo.InvariantCulture);
-        if (type == typeof(uint)) return static s => uint.Parse(s, NumberStyles.Integer, CultureInfo.InvariantCulture);
-        if (type == typeof(long)) return static s => long.Parse(s, NumberStyles.Integer, CultureInfo.InvariantCulture);
-        if (type == typeof(ulong)) return static s => ulong.Parse(s, NumberStyles.Integer, CultureInfo.InvariantCulture);
-        if (type == typeof(float)) return static s => float.Parse(s, NumberStyles.Float | NumberStyles.AllowThousands, CultureInfo.InvariantCulture);
-        if (type == typeof(double)) return static s => double.Parse(s, NumberStyles.Float | NumberStyles.AllowThousands, CultureInfo.InvariantCulture);
-        if (type == typeof(decimal)) return static s => decimal.Parse(s, NumberStyles.Number, CultureInfo.InvariantCulture);
-        if (type == typeof(Guid)) return static s => Guid.Parse(s);
-        if (type == typeof(DateTime)) return static s => DateTime.Parse(s, CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind);
-        if (type == typeof(DateTimeOffset)) return static s => DateTimeOffset.Parse(s, CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind);
-        if (type == typeof(DateOnly)) return static s => DateOnly.Parse(s, CultureInfo.InvariantCulture);
-        if (type == typeof(TimeOnly)) return static s => TimeOnly.Parse(s, CultureInfo.InvariantCulture);
-        if (type == typeof(TimeSpan)) return static s => TimeSpan.Parse(s, CultureInfo.InvariantCulture);
+        if (type == typeof(bool)) return static s => bool.TryParse(s, out var v) ? v : null;
+        if (type == typeof(byte)) return static s => byte.TryParse(s, NumberStyles.Integer, CultureInfo.InvariantCulture, out var v) ? v : null;
+        if (type == typeof(sbyte)) return static s => sbyte.TryParse(s, NumberStyles.Integer, CultureInfo.InvariantCulture, out var v) ? v : null;
+        if (type == typeof(short)) return static s => short.TryParse(s, NumberStyles.Integer, CultureInfo.InvariantCulture, out var v) ? v : null;
+        if (type == typeof(ushort)) return static s => ushort.TryParse(s, NumberStyles.Integer, CultureInfo.InvariantCulture, out var v) ? v : null;
+        if (type == typeof(int)) return static s => int.TryParse(s, NumberStyles.Integer, CultureInfo.InvariantCulture, out var v) ? v : null;
+        if (type == typeof(uint)) return static s => uint.TryParse(s, NumberStyles.Integer, CultureInfo.InvariantCulture, out var v) ? v : null;
+        if (type == typeof(long)) return static s => long.TryParse(s, NumberStyles.Integer, CultureInfo.InvariantCulture, out var v) ? v : null;
+        if (type == typeof(ulong)) return static s => ulong.TryParse(s, NumberStyles.Integer, CultureInfo.InvariantCulture, out var v) ? v : null;
+        if (type == typeof(float)) return static s => float.TryParse(s, NumberStyles.Float | NumberStyles.AllowThousands, CultureInfo.InvariantCulture, out var v) ? v : null;
+        if (type == typeof(double)) return static s => double.TryParse(s, NumberStyles.Float | NumberStyles.AllowThousands, CultureInfo.InvariantCulture, out var v) ? v : null;
+        if (type == typeof(decimal)) return static s => decimal.TryParse(s, NumberStyles.Number, CultureInfo.InvariantCulture, out var v) ? v : null;
+        if (type == typeof(Guid)) return static s => Guid.TryParse(s, out var v) ? v : null;
+        if (type == typeof(DateTime)) return static s => DateTime.TryParse(s, CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind, out var v) ? v : null;
+        if (type == typeof(DateTimeOffset)) return static s => DateTimeOffset.TryParse(s, CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind, out var v) ? v : null;
+        if (type == typeof(DateOnly)) return static s => DateOnly.TryParse(s, CultureInfo.InvariantCulture, DateTimeStyles.None, out var v) ? v : null;
+        if (type == typeof(TimeOnly)) return static s => TimeOnly.TryParse(s, CultureInfo.InvariantCulture, DateTimeStyles.None, out var v) ? v : null;
+        if (type == typeof(TimeSpan)) return static s => TimeSpan.TryParse(s, CultureInfo.InvariantCulture, out var v) ? v : null;
         if (type.IsEnum)
         {
-            return s => Enum.Parse(type, s, ignoreCase: true);
+            return s => Enum.TryParse(type, s, ignoreCase: true, out var e) ? e : null;
         }
 
-        return s => Convert.ChangeType(s, type, CultureInfo.InvariantCulture);
+        return s =>
+        {
+            try
+            {
+                return Convert.ChangeType(s, type, CultureInfo.InvariantCulture);
+            }
+            catch
+            {
+                return null;
+            }
+        };
     }
 }
 
