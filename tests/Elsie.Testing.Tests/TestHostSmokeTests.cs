@@ -16,8 +16,9 @@ public class TestHostSmokeTests
             Delete("/ping", () => ElsieResult.NoContent());
             Put("/echo", async (ctx, ct) =>
             {
-                var body = await ctx.ReadJsonAsync<EchoDto>(ct);
-                return ctx.Json(body);
+                var bind = await ctx.BindJsonAsync<EchoDto>(ct);
+                if (!bind.IsSuccess) return bind.Error!;
+                return ctx.Json(bind.Value);
             });
             Get("/hdr", () => ElsieResult.Text("x").WithHeader("X-Test", "yes"));
         }

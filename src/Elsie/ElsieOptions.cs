@@ -34,18 +34,21 @@ public sealed class ElsieOptions
     public bool ScanEntryAssembly { get; set; } = true;
 
     /// <summary>
-    /// JSON serializer options used by <see cref="ElsieContext.ReadJsonAsync{T}"/>,
+    /// JSON serializer options used by <see cref="ElsieContext.BindJsonAsync{T}"/>,
     /// <see cref="ElsieContext.Json{T}"/>, and binding helpers when no explicit options are passed.
     /// Static <see cref="ElsieResult.Json{T}"/> uses <see cref="ElsieJson.DefaultOptions"/> (framework defaults).
     /// </summary>
     public JsonSerializerOptions JsonSerializerOptions { get; set; } = new(JsonSerializerDefaults.Web);
 
     /// <summary>
-    /// Optional handler for exceptions thrown by before hooks, handlers, or after hooks
+    /// Handler for exceptions thrown by before hooks, handlers, or after hooks
     /// after typed <see cref="MapException{TException}(Func{ElsieContext, TException, ElsieResult})"/> maps and module <c>OnError</c>.
-    /// When null (and no map/OnError matches), exceptions propagate to the host pipeline.
+    /// Defaults to a safe 500 problem without exception detail. Set to <c>null</c> to rethrow to the host pipeline.
     /// </summary>
-    public ElsieExceptionHandler? ExceptionHandler { get; set; }
+    public ElsieExceptionHandler? ExceptionHandler { get; set; } = DefaultExceptionHandler;
+
+    private static Task<ElsieResult> DefaultExceptionHandler(ElsieContext ctx, Exception ex, CancellationToken ct)
+        => Task.FromResult(ElsieResult.Problem(500, "Internal Server Error"));
 
     /// <summary>
     /// When true (default), a HEAD request that has no explicit HEAD route falls back to a matching GET handler.

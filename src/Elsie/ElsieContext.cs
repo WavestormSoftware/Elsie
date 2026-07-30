@@ -302,14 +302,6 @@ public sealed class ElsieContext
         return _routes.GetPathByName(name, values);
     }
 
-    public async Task<T?> ReadJsonAsync<T>(CancellationToken cancellationToken = default)
-    {
-        return await JsonSerializer.DeserializeAsync<T>(
-            Request.Body,
-            JsonSerializerOptions,
-            cancellationToken).ConfigureAwait(false);
-    }
-
     /// <summary>
     /// Deserialize JSON body. Returns a failed bind result (400 problem+json) when missing/invalid.
     /// Honors <see cref="ElsieOptions.MaxBindBodySize"/>.

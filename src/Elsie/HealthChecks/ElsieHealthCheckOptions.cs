@@ -8,6 +8,12 @@ public sealed class ElsieHealthCheckOptions
     /// <summary>Path prefix for health endpoints. Default <c>/healthz</c>.</summary>
     public string PathPrefix { get; set; } = "/healthz";
 
+    /// <summary>When false (default), exception messages are not placed in the public report.</summary>
+    public bool IncludeExceptionDetails { get; set; } = false;
+
+    /// <summary>Optional default timeout per check. Null = no extra timeout.</summary>
+    public TimeSpan? DefaultTimeout { get; set; }
+
     public IReadOnlyList<ElsieHealthCheckRegistration> Checks => _checks;
 
     public ElsieHealthCheckOptions AddCheck(

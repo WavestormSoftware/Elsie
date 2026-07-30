@@ -44,6 +44,27 @@ public class AuthTests
         Assert.Null(hook(ctx));
     }
 
+
+    [Fact]
+    public void RequireApiKey_blocks_wrong_key()
+    {
+        var hook = ElsieAuth.RequireApiKey("secret");
+        var ctx = Context(
+            "POST",
+            "/",
+            headers: new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["X-Api-Key"] = "wrong"
+            });
+        Assert.Equal(401, hook(ctx)!.StatusCode);
+    }
+
+    [Fact]
+    public void RequireHeader_missing_is_unauthorized()
+    {
+        var hook = ElsieAuth.RequireHeader("X-Tenant", "acme");
+        Assert.Equal(401, hook(Context("GET", "/"))!.StatusCode);
+    }
     [Fact]
     public void RequireBearer_blocks_without_token()
     {

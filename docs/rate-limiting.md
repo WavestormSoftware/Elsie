@@ -42,3 +42,9 @@ Pass a fake **`TimeProvider`** for deterministic windows. Bounded partition coun
 
 - [pipelines-and-errors.md](pipelines-and-errors.md)
 - [auth.md](auth.md)
+
+## Security notes
+
+1. Default partition uses `RemoteIp`, else first `X-Forwarded-For` hop — **XFF is spoofable** unless a trusted proxy overwrites it. Prefer an explicit `partitionKey` (API key, user id).
+2. In-memory stores **evict** partitions under `maxPartitions` (default 10_000) — eviction is **fail-open** for that key (fresh budget).
+

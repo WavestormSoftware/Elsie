@@ -50,7 +50,7 @@ public class HealthCheckTests
     }
 
     [Fact]
-    public async Task Exception_in_check_is_unhealthy()
+    public async Task Exception_in_check_is_unhealthy_without_details_by_default()
     {
         await using var host = ElsieInMemoryHost.Create(s => s.AddElsieHealthChecks(o =>
         {
@@ -59,7 +59,41 @@ public class HealthCheckTests
 
         var res = await host.GetAsync("/healthz");
         Assert.Equal(503, res.StatusCode);
+        var body = res.ReadAsString();
+        Assert.Contains("Check failed.", body, StringComparison.Ordinal);
+        Assert.DoesNotContain("explode", body, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Exception_details_included_when_enabled()
+    {
+        await using var host = ElsieInMemoryHost.Create(s => s.AddElsieHealthChecks(o =>
+        {
+            o.IncludeExceptionDetails = true;
+            o.AddCheck("boom", () => throw new InvalidOperationException("explode"));
+        }));
+
+        var res = await host.GetAsync("/healthz");
+        Assert.Equal(503, res.StatusCode);
         Assert.Contains("explode", res.ReadAsString(), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Default_timeout_marks_slow_check_unhealthy()
+    {
+        await using var host = ElsieInMemoryHost.Create(s => s.AddElsieHealthChecks(o =>
+        {
+            o.DefaultTimeout = TimeSpan.FromMilliseconds(50);
+            o.AddCheck("slow", async ct =>
+            {
+                await Task.Delay(TimeSpan.FromSeconds(5), ct);
+                return ElsieHealthCheckResult.Healthy();
+            });
+        }));
+
+        var res = await host.GetAsync("/healthz");
+        Assert.Equal(503, res.StatusCode);
+        Assert.Contains("Check timed out.", res.ReadAsString(), StringComparison.Ordinal);
     }
 
     [Fact]

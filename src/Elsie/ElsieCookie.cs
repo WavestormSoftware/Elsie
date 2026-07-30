@@ -14,9 +14,10 @@ public sealed class ElsieCookieOptions
 {
     public string? Path { get; set; } = "/";
     public string? Domain { get; set; }
-    public bool HttpOnly { get; set; }
-    public bool Secure { get; set; }
-    public ElsieSameSite SameSite { get; set; } = ElsieSameSite.Unspecified;
+    public bool HttpOnly { get; set; } = true;
+    /// <summary>Keep false for local HTTP dev; set true under HTTPS in production.</summary>
+    public bool Secure { get; set; } = false;
+    public ElsieSameSite SameSite { get; set; } = ElsieSameSite.Lax;
     public DateTimeOffset? Expires { get; set; }
     public TimeSpan? MaxAge { get; set; }
 }

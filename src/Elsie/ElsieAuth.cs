@@ -23,7 +23,12 @@ public static class ElsieAuth
             }
 
             var actual = ctx.Request.GetHeader(headerName);
-            return string.Equals(actual, expectedValue, StringComparison.Ordinal)
+            if (actual is null)
+            {
+                return ElsieResult.Unauthorized($"Provide header {headerName}.");
+            }
+
+            return FixedTimeEquals(actual, expectedValue)
                 ? null
                 : ElsieResult.Unauthorized($"Provide header {headerName}.");
         };
@@ -113,6 +118,13 @@ public static class ElsieAuth
 
         token = header[prefix.Length..].Trim();
         return token.Length > 0;
+    }
+
+    private static bool FixedTimeEquals(string a, string b)
+    {
+        var ba = System.Text.Encoding.UTF8.GetBytes(a);
+        var bb = System.Text.Encoding.UTF8.GetBytes(b);
+        return System.Security.Cryptography.CryptographicOperations.FixedTimeEquals(ba, bb);
     }
 
     private static bool IsSafeMethod(string method) =>

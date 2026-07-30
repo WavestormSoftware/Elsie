@@ -36,12 +36,30 @@ public sealed class ElsieHealthCheckRunner
             ElsieHealthCheckResult result;
             try
             {
-                result = await registration.Check(services, cancellationToken).ConfigureAwait(false)
-                    ?? ElsieHealthCheckResult.Unhealthy("Check returned null.");
+                if (_options.DefaultTimeout is { } timeout && timeout > TimeSpan.Zero)
+                {
+                    using var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+                    linked.CancelAfter(timeout);
+                    try
+                    {
+                        result = await registration.Check(services, linked.Token).ConfigureAwait(false)
+                            ?? ElsieHealthCheckResult.Unhealthy("Check returned null.");
+                    }
+                    catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+                    {
+                        result = ElsieHealthCheckResult.Unhealthy("Check timed out.");
+                    }
+                }
+                else
+                {
+                    result = await registration.Check(services, cancellationToken).ConfigureAwait(false)
+                        ?? ElsieHealthCheckResult.Unhealthy("Check returned null.");
+                }
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
             {
-                result = ElsieHealthCheckResult.Unhealthy(ex.Message);
+                var message = _options.IncludeExceptionDetails ? ex.Message : "Check failed.";
+                result = ElsieHealthCheckResult.Unhealthy(message);
             }
 
             sw.Stop();

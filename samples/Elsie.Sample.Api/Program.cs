@@ -32,10 +32,7 @@ builder.AddElsie(o =>
     o.ExceptionHandler = (ctx, ex, _) =>
     {
         ctx.Response.Headers["X-Elsie-Error"] = ex.GetType().Name;
-        return Task.FromResult(ElsieResult.Problem(
-            statusCode: 500,
-            title: "Server Error",
-            detail: builder.Environment.IsDevelopment() ? ex.Message : "An unexpected error occurred."));
+        return Task.FromResult(ElsieResult.Problem(500, "Internal Server Error"));
     };
 });
 builder.Services.AddElsieModule<HomeModule>();

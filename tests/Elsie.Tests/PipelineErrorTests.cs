@@ -39,6 +39,14 @@ public class PipelineErrorTests
         }
     }
 
+    private sealed class BareBoomModule : ElsieModule
+    {
+        public BareBoomModule()
+        {
+            Get("/boom", _ => throw new InvalidOperationException("secret-leak"));
+        }
+    }
+
     [Fact]
     public async Task After_can_transform_result()
     {
@@ -107,6 +115,40 @@ public class PipelineErrorTests
         var onError = await dispatcher.DispatchAsync(new ElsieRequest("GET", "/boom"));
         Assert.Equal(418, onError.Result!.StatusCode);
         Assert.Equal("mod:InvalidOperationException", Encoding.UTF8.GetString(onError.Result.Body!.Value.Span));
+    }
+
+
+    [Fact]
+    public async Task Default_exception_handler_hides_message()
+    {
+        var services = new ServiceCollection();
+        services.AddElsie(o => o.ScanEntryAssembly = false);
+        services.AddElsieModule<BareBoomModule>();
+        await using var sp = services.BuildServiceProvider();
+        var dispatcher = sp.GetRequiredService<ElsieDispatcher>();
+
+        var outcome = await dispatcher.DispatchAsync(new ElsieRequest("GET", "/boom"));
+        Assert.Equal(500, outcome.Result!.StatusCode);
+        var body = Encoding.UTF8.GetString(outcome.Result.Body!.Value.Span);
+        Assert.Contains("Internal Server Error", body, StringComparison.Ordinal);
+        Assert.DoesNotContain("secret-leak", body, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Null_exception_handler_rethrows()
+    {
+        var services = new ServiceCollection();
+        services.AddElsie(o =>
+        {
+            o.ScanEntryAssembly = false;
+            o.ExceptionHandler = null;
+        });
+        services.AddElsieModule<BareBoomModule>();
+        await using var sp = services.BuildServiceProvider();
+        var dispatcher = sp.GetRequiredService<ElsieDispatcher>();
+
+        await Assert.ThrowsAsync<InvalidOperationException>(
+            () => dispatcher.DispatchAsync(new ElsieRequest("GET", "/boom")));
     }
 
     [Fact]

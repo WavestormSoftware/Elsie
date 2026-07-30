@@ -59,8 +59,9 @@ Rate limits: [rate-limiting.md](rate-limiting.md).
 builder.AddElsie(o =>
 {
     o.MapException<KeyNotFoundException>((_, ex) => ElsieResult.NotFound(ex.Message));
+    // Default ExceptionHandler returns 500 without ex.Message. Set null to rethrow.
     o.ExceptionHandler = (ctx, ex, ct) =>
-        Task.FromResult(ElsieResult.Problem(500, "Server Error", ex.Message));
+        Task.FromResult(ElsieResult.Problem(500, "Server Error"));
 });
 
 // module:

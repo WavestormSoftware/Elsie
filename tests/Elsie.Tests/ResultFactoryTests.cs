@@ -80,6 +80,16 @@ public class ResultFactoryTests
     }
 
     [Fact]
+    public void Cookie_defaults_httponly_and_lax()
+    {
+        var r = ElsieResult.Text("x").WithCookie("sid", "v");
+        var set = r.Headers.GetValues("Set-Cookie")[0];
+        Assert.Contains("HttpOnly", set, StringComparison.Ordinal);
+        Assert.Contains("SameSite=Lax", set, StringComparison.Ordinal);
+        Assert.DoesNotContain("Secure", set, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void WithHeaders_and_WithCookie()
     {
         var r = ElsieResult.Text("x")
