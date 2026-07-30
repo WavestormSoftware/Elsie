@@ -233,7 +233,7 @@ app.UseElsieCors(); // before MapElsie
 // optional: Get(...).WithCors("policy-name")
 ```
 
-### Health — `Elsie.HealthChecks`
+### Health checks (in `Elsie.Core`)
 
 ```csharp
 builder.Services.AddElsieHealthChecks(o =>
@@ -244,7 +244,7 @@ builder.Services.AddElsieHealthChecks(o =>
 // GET /healthz | /healthz/live | /healthz/ready  (unhealthy → 503)
 ```
 
-### Rate limiting — `Elsie.RateLimiting`
+### Rate limiting (in `Elsie.Core`)
 
 ```csharp
 Before(ElsieRateLimit.FixedWindow(100, TimeSpan.FromMinutes(1)));
@@ -281,15 +281,18 @@ return await ctx.ViewAsync("home", new { Title = "Hi", Name = "Ada" }, cancellat
 ### Static files (host)
 
 ```csharp
-app.MapElsieStaticFiles("/assets", Path.Combine(contentRoot, "wwwroot"));
-// ETag / Last-Modified + 304; no range requests
+app.UseStaticFiles(new StaticFileOptions
+{
+    RequestPath = "/assets",
+    FileProvider = new Microsoft.Extensions.FileProviders.PhysicalFileProvider(
+        Path.Combine(contentRoot, "wwwroot"))
+});
+// ASP.NET static files (sendfile, caching, etc.)
 ```
 
-### Validation — `Elsie.FluentValidation`
+### Validation (app-level FluentValidation)
 
-```csharp
-var bind = await ctx.BindAndValidateJsonAsync<CreateTodo>(ct);
-```
+Reference FluentValidation in the app; see recipe in [docs/binding.md](docs/binding.md).
 
 ### Testing — `Elsie.Testing`
 
@@ -312,14 +315,11 @@ In tests, set `ScanEntryAssembly = false` and register modules explicitly.
 | Package | Contents |
 |---------|----------|
 | **[Elsie](https://www.nuget.org/packages/Elsie)** | Meta-package for apps → `Elsie.Web` → `Elsie.Core` |
-| [Elsie.Web](https://www.nuget.org/packages/Elsie.Web) | `ElsieWeb`, `AddElsie`, `MapElsie`, OpenAPI, static files |
-| [Elsie.Core](https://www.nuget.org/packages/Elsie.Core) | Host-agnostic modules, routing, dispatcher, results, pipelines |
+| [Elsie.Web](https://www.nuget.org/packages/Elsie.Web) | `ElsieWeb`, `AddElsie`, `MapElsie`, OpenAPI |
+| [Elsie.Core](https://www.nuget.org/packages/Elsie.Core) | Host-agnostic modules, routing, dispatcher, results, pipelines, health checks, rate limiting |
 | [Elsie.Auth](https://www.nuget.org/packages/Elsie.Auth) | Cookie/JWT + auth gates |
 | [Elsie.Cors](https://www.nuget.org/packages/Elsie.Cors) | Elsie-native CORS |
-| [Elsie.HealthChecks](https://www.nuget.org/packages/Elsie.HealthChecks) | `/healthz` live/ready |
-| [Elsie.RateLimiting](https://www.nuget.org/packages/Elsie.RateLimiting) | Before-hook rate limits |
 | [Elsie.Views](https://www.nuget.org/packages/Elsie.Views) | Fluid/Liquid views |
-| [Elsie.FluentValidation](https://www.nuget.org/packages/Elsie.FluentValidation) | `BindAndValidateJsonAsync` |
 | [Elsie.Testing](https://www.nuget.org/packages/Elsie.Testing) | In-memory + TestServer hosts |
 | [Elsie.Templates](https://www.nuget.org/packages/Elsie.Templates) | `dotnet new elsie` / `elsie-api` |
 
@@ -360,7 +360,7 @@ HTTP request
 | [Health checks](docs/health-checks.md) | Live/ready |
 | [OpenAPI](docs/openapi.md) | Document + Scalar |
 | [Views](docs/views.md) | Fluid/Liquid |
-| [Static files](docs/static-files.md) | `MapElsieStaticFiles` |
+| [Static files](docs/static-files.md) | ASP.NET `UseStaticFiles` |
 | [Testing](docs/testing.md) | In-memory + TestServer |
 | [Hosting & AOT](docs/hosting-and-aot.md) | Host notes |
 

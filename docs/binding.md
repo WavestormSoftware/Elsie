@@ -37,14 +37,30 @@ var json = await ctx.BindJsonAsync<CreateTodo>(ct);
 - Failures → **400** validation-style problem listing bad fields
 - JSON: max body size `ElsieOptions.MaxBindBodySize` (default **4 MB**); path-rich errors
 
-## FluentValidation
+## FluentValidation (app-level recipe)
+
+Elsie does not ship a FluentValidation package. Reference FluentValidation in the app and add a small extension:
 
 ```csharp
-// package Elsie.FluentValidation
-services.AddSingleton<IValidator<CreateTodo>, CreateTodoValidator>();
-
-var bind = await ctx.BindAndValidateJsonAsync<CreateTodo>(ct);
-if (!bind.IsSuccess) return bind.Error!;
+// App references FluentValidation itself. Example extension in your app:
+public static class MyBind
+{
+    public static async Task<ElsieBindResult<T>> BindAndValidateJsonAsync<T>(
+        this ElsieContext ctx, CancellationToken ct = default)
+        where T : class
+    {
+        var bind = await ctx.BindJsonAsync<T>(ct);
+        if (!bind.IsSuccess) return bind;
+        var validator = ctx.GetService<FluentValidation.IValidator<T>>();
+        if (validator is null) return bind;
+        var result = await validator.ValidateAsync(bind.Value!, ct);
+        if (result.IsValid) return bind;
+        var errors = result.Errors
+            .GroupBy(e => e.PropertyName)
+            .ToDictionary(g => g.Key, g => g.Select(e => e.ErrorMessage).ToArray());
+        return ElsieBindResult<T>.Fail(ElsieResult.ValidationProblem(errors));
+    }
+}
 ```
 
 ## Multipart

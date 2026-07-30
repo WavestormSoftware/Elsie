@@ -101,7 +101,13 @@ var app = builder.Build();
 app.UseElsieCors();
 app.UseElsieAuth();
 
-app.MapElsieStaticFiles("/assets", Path.Combine(app.Environment.ContentRootPath, "wwwroot"));
+// Static files via ASP.NET (before MapElsie so /assets wins on overlap).
+app.UseStaticFiles(new StaticFileOptions
+{
+    RequestPath = "/assets",
+    FileProvider = new Microsoft.Extensions.FileProviders.PhysicalFileProvider(
+        Path.Combine(app.Environment.ContentRootPath, "wwwroot"))
+});
 app.MapElsieOpenApi(o =>
 {
     o.Info.Title = "Elsie Full Sample";

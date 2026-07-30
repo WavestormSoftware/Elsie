@@ -20,14 +20,18 @@ ElsieWeb.Run(args); // scan-based
 | `app.MapElsie(terminal: true)` | Unmatched → 404 problem+json |
 | `app.UseElsie(terminal)` | Middleware form |
 | `app.MapElsieOpenApi` | OpenAPI JSON (+ optional UI) |
-| `app.MapElsieStaticFiles` | Static files |
+| `app.UseStaticFiles()` | Static files (ASP.NET) |
 
 ## Pipeline order (typical full app)
 
 ```csharp
 app.UseElsieCors();
 app.UseElsieAuth();
-app.MapElsieStaticFiles("/assets", wwwroot);
+app.UseStaticFiles(new StaticFileOptions
+{
+    RequestPath = "/assets",
+    FileProvider = new Microsoft.Extensions.FileProviders.PhysicalFileProvider(wwwroot)
+});
 app.MapElsieOpenApi(o => o.UiPath = "/scalar");
 app.MapElsie();
 ```

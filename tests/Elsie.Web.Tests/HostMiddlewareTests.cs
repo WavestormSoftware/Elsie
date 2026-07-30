@@ -125,93 +125,6 @@ public class HostMiddlewareTests
         Assert.Equal("teapot", await response.Content.ReadAsStringAsync());
     }
 
-    [Fact]
-    public async Task Static_files_serve_content_and_head()
-    {
-        var root = CreateTempContent();
-        try
-        {
-            await File.WriteAllTextAsync(Path.Combine(root, "hello.txt"), "static-hi");
-            await using var host = ElsieTestHost.Create(
-                s => s.AddElsieModule<CookieModule>(),
-                app =>
-                {
-                    app.MapElsieStaticFiles("/assets", root);
-                    app.MapElsie();
-                });
-
-            var get = await host.GetAsync("/assets/hello.txt");
-            get.AssertStatus(HttpStatusCode.OK);
-            Assert.Equal("static-hi", await get.Content.ReadAsStringAsync());
-            Assert.Equal(9, get.Content.Headers.ContentLength);
-            Assert.NotNull(get.Headers.ETag);
-
-            using var headReq = new HttpRequestMessage(HttpMethod.Head, "/assets/hello.txt");
-            var head = await host.SendAsync(headReq);
-            head.AssertStatus(HttpStatusCode.OK);
-            Assert.Equal(9, head.Content.Headers.ContentLength);
-            Assert.Empty(await head.Content.ReadAsByteArrayAsync());
-        }
-        finally
-        {
-            Directory.Delete(root, recursive: true);
-        }
-    }
-
-    [Fact]
-    public async Task Static_files_default_document_and_304()
-    {
-        var root = CreateTempContent();
-        try
-        {
-            await File.WriteAllTextAsync(Path.Combine(root, "index.html"), "<h1>idx</h1>");
-            await using var host = ElsieTestHost.Create(
-                s => s.AddElsieModule<CookieModule>(),
-                app =>
-                {
-                    app.MapElsieStaticFiles("/assets", root);
-                    app.MapElsie();
-                });
-
-            var get = await host.GetAsync("/assets/");
-            get.AssertStatus(HttpStatusCode.OK);
-            Assert.Equal("<h1>idx</h1>", await get.Content.ReadAsStringAsync());
-            var etag = get.Headers.ETag?.ToString();
-            Assert.False(string.IsNullOrEmpty(etag));
-
-            using var conditional = new HttpRequestMessage(HttpMethod.Get, "/assets/");
-            conditional.Headers.TryAddWithoutValidation("If-None-Match", etag);
-            var notModified = await host.SendAsync(conditional);
-            Assert.Equal(HttpStatusCode.NotModified, notModified.StatusCode);
-            Assert.Empty(await notModified.Content.ReadAsByteArrayAsync());
-        }
-        finally
-        {
-            Directory.Delete(root, recursive: true);
-        }
-    }
-
-    [Fact]
-    public void Static_path_rejects_traversal_and_absolute_segments()
-    {
-        var root = Path.GetFullPath(CreateTempContent());
-        try
-        {
-            File.WriteAllText(Path.Combine(root, "ok.txt"), "ok");
-
-            Assert.True(ElsieStaticPath.TryResolve(root, "ok.txt", out var ok));
-            Assert.True(File.Exists(ok));
-
-            Assert.False(ElsieStaticPath.TryResolve(root, "../secret.txt", out _));
-            Assert.False(ElsieStaticPath.TryResolve(root, "a/../../secret.txt", out _));
-            Assert.False(ElsieStaticPath.TryResolve(root, "/etc/passwd", out _));
-            Assert.False(ElsieStaticPath.TryResolve(root, "..\\secret.txt", out _));
-        }
-        finally
-        {
-            Directory.Delete(root, recursive: true);
-        }
-    }
 
     [Fact]
     public async Task Request_factory_fills_scheme_host_pathbase_protocol()
@@ -248,10 +161,4 @@ public class HostMiddlewareTests
         }
     }
 
-    private static string CreateTempContent()
-    {
-        var root = Path.Combine(Path.GetTempPath(), "elsie-static-" + Guid.NewGuid().ToString("N"));
-        Directory.CreateDirectory(root);
-        return root;
-    }
 }

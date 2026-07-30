@@ -1,42 +1,40 @@
 # Static files
 
-Host helper on **`Elsie.Web`** (not a separate package).
+Elsie does not ship custom static-file middleware. Use ASP.NET Core **`UseStaticFiles`** (and optionally **`UseDefaultFiles`**) on the host.
 
-## Map
+## Default `wwwroot`
 
 ```csharp
-app.MapElsieStaticFiles(
-    requestPath: "/assets",
-    contentRoot: Path.Combine(app.Environment.ContentRootPath, "wwwroot"));
+var app = builder.Build();
+
+app.UseDefaultFiles(); // optional
+app.UseStaticFiles();  // serves wwwroot at /
+
+app.MapElsie();
+app.Run();
 ```
 
-Optional configure:
+Place static middleware **before** `MapElsie` so static paths win on overlap (normal ASP.NET pattern).
+
+## Mount under a request path
 
 ```csharp
-app.MapElsieStaticFiles("/assets", root, o =>
+using Microsoft.Extensions.FileProviders;
+
+app.UseStaticFiles(new StaticFileOptions
 {
-    o.DefaultFileName = "index.html";
-    o.ServeDefaultFile = true;
-    o.ContentTypes[".webmanifest"] = "application/manifest+json";
+    RequestPath = "/assets",
+    FileProvider = new PhysicalFileProvider(
+        Path.Combine(app.Environment.ContentRootPath, "wwwroot"))
 });
+
+app.MapElsie();
 ```
 
-## Behavior
-
-| Feature | Support |
-|---------|---------|
-| GET / HEAD | Yes |
-| Content-Type map | ~30 common extensions |
-| Weak ETag + `Last-Modified` | Yes |
-| Conditional **304** | `If-None-Match` / `If-Modified-Since` |
-| Default document | Optional (`index.html`) |
-| Path traversal | Rejected (404 problem+json under mount) |
-| Missing file | **Fall through** to next middleware / Elsie |
-| Range requests | **No** (explicit non-goal) |
-
-Place **before** or **after** `MapElsie` depending on whether you want static files to take priority for overlapping paths. Typical: static middleware first for `/assets`, then `MapElsie`.
+`GET /assets/app.css` → `wwwroot/app.css`.
 
 ## See also
 
 - [views.md](views.md)
+- [hosting-and-aot.md](hosting-and-aot.md)
 - [getting-started.md](getting-started.md)

@@ -15,13 +15,10 @@ Instructions for coding agents working on this repository.
 
 | Path | Role |
 |------|------|
-| `src/Elsie` | Host-agnostic core (package **`Elsie.Core`**): modules, routing, dispatcher, context, results, pipelines, OpenAPI builder, `ElsieAuth` |
+| `src/Elsie` | Host-agnostic core (package **`Elsie.Core`**): modules, routing, dispatcher, context, results, pipelines, OpenAPI builder, `ElsieAuth`, HealthChecks, RateLimiting |
 | `src/Elsie.Web` | Host package: `ElsieWeb` / `MapElsie` / `UseElsie` / `MapElsieOpenApi`, logging, `HttpContext` adapter |
 | `src/Elsie.Meta` | App meta-package **`Elsie`** → pulls `Elsie.Web` (+ transitive `Elsie.Core`) |
-| `src/Elsie.FluentValidation` | `BindAndValidateJsonAsync` |
 | `src/Elsie.Views` | Fluid (Liquid) views + layouts/partials (`ViewAsync`, `IElsieViewEngine`) |
-| `src/Elsie.HealthChecks` | Host-agnostic `/healthz` + live/ready module |
-| `src/Elsie.RateLimiting` | Fixed/sliding window before-hook gates (429 + Retry-After) |
 | `src/Elsie.Auth` | Cookie/JWT wiring + RequireAuthenticated/Role/Claim/Policy gates |
 | `src/Elsie.Cors` | Elsie-native CORS (preflight middleware + after-hook ACAO) |
 | `src/Elsie.Testing` | `ElsieInMemoryHost` + ASP.NET `ElsieTestHost` + asserts |
