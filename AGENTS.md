@@ -25,9 +25,12 @@ Instructions for coding agents working on this repository.
 | `src/Elsie.Cors` | Elsie-native CORS (preflight middleware + after-hook ACAO) |
 | `src/Elsie.Testing` | `ElsieInMemoryHost` + ASP.NET `ElsieTestHost` + asserts |
 | `templates/` | `dotnet new` templates (`elsie`, `elsie-api`) → `Elsie.Templates` |
+| `benchmarks/Elsie.Benchmarks` | BenchmarkDotNet (route/dispatch/views); not CI-gated |
 | `tests/*` | Unit / integration tests |
 | `samples/*` | Runnable samples |
+| `docs/*.md` | Committed guides (not PLAN/ARCHITECTURE) |
 | `README.md` | Public product docs |
+| `CHANGELOG.md` | Release notes |
 | `AGENTS.md` | This file |
 
 ## Do not commit
@@ -46,9 +49,13 @@ dotnet run --project samples/Elsie.Sample.HelloWorld
 dotnet run --project samples/Elsie.Sample.Hello
 dotnet run --project samples/Elsie.Sample.Api
 dotnet run --project samples/Elsie.Sample.Views
+dotnet run --project samples/Elsie.Sample.Full
 dotnet pack Elsie.sln -c Release -o artifacts/nuget
 dotnet pack templates/Elsie.Templates.csproj -c Release -o artifacts/nuget
 ```
+
+Guides (committed): `docs/*.md` — not `docs/PLAN.md` / `docs/ARCHITECTURE.md` (gitignored).
+Changelog: `CHANGELOG.md`.
 
 ## Architecture rules
 
@@ -82,6 +89,7 @@ dotnet pack templates/Elsie.Templates.csproj -c Release -o artifacts/nuget
 - Easy: `samples/Elsie.Sample.Hello`
 - Advanced API: `samples/Elsie.Sample.Api`
 - Views: `samples/Elsie.Sample.Views`
+- Full kitchen sink: `samples/Elsie.Sample.Full` (auth, CORS, rate limit, health, static, views)
 - All samples use ASP.NET Core
 
 ## Engineering rules
