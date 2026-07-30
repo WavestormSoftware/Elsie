@@ -1,0 +1,17 @@
+{% layout '_Layout.liquid' %}
+<h1>Hello {{ Name }}!</h1>
+<p>Kitchen-sink sample: cookie auth, CORS, rate limits, health checks, static files, Fluid views, OpenAPI.</p>
+
+{% if Authenticated %}
+  <p class="ok">Signed in as <strong>{{ Name }}</strong>.</p>
+  <pre>GET /me
+GET /api/notes
+POST /api/notes  {"title":"ship it"}</pre>
+{% else %}
+  <p class="muted">Not signed in. Demo credentials: <code>ada</code> / <code>pass</code>.</p>
+  <pre>POST /login  {"user":"ada","password":"pass"}
+GET  /me
+GET  /api/notes</pre>
+{% endif %}
+
+<p class="muted">Path: {{ Request.Path }}</p>

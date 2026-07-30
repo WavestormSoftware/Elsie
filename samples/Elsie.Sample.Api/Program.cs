@@ -16,8 +16,8 @@ using Elsie.Sample.Api;
 //   PATCH /api/todos/{id}          JSON { "done": true }    (partial)
 //   DELETE /api/todos/{id}
 //
-// Path/Group, DI, BindJsonAsync, problem results, ExceptionHandler,
-// module Before gate, app After headers, OpenAPI (/openapi.json).
+// Path/Group, DI, BindJsonAsync, MapException, module Before gate,
+// app After headers, OpenAPI (+ optional Scalar UI).
 // -----------------------------------------------------------------------------
 
 var builder = WebApplication.CreateBuilder(args);
@@ -27,20 +27,11 @@ builder.Services.AddSingleton<IRequestClock, SystemRequestClock>();
 builder.AddElsie(o =>
 {
     o.ScanEntryAssembly = false; // explicit modules only
+    o.MapException<KeyNotFoundException>((_, ex) => ElsieResult.NotFound(ex.Message));
+    o.MapException<ArgumentException>((_, ex) => ElsieResult.BadRequest(ex.Message));
     o.ExceptionHandler = (ctx, ex, _) =>
     {
         ctx.Response.Headers["X-Elsie-Error"] = ex.GetType().Name;
-
-        if (ex is KeyNotFoundException)
-        {
-            return Task.FromResult(ElsieResult.NotFound(ex.Message));
-        }
-
-        if (ex is ArgumentException arg)
-        {
-            return Task.FromResult(ElsieResult.BadRequest(arg.Message));
-        }
-
         return Task.FromResult(ElsieResult.Problem(
             statusCode: 500,
             title: "Server Error",
@@ -53,7 +44,6 @@ builder.Services.ConfigureElsiePipelines(p =>
 {
     p.AddBefore((ctx, _) =>
     {
-        // Correlation id on every request (before hooks can short-circuit by returning a result).
         if (string.IsNullOrEmpty(ctx.Request.GetHeader("X-Request-Id")))
         {
             ctx.Response.Headers["X-Request-Id"] = Guid.NewGuid().ToString("n");
@@ -69,21 +59,22 @@ builder.Services.ConfigureElsiePipelines(p =>
     {
         ctx.Response.Headers["X-Elsie-Sample"] = "api";
         ctx.Response.Headers["X-Elsie-Status"] = result.StatusCode.ToString();
+        return result;
     });
 });
 
 var app = builder.Build();
 
-// Seed a couple todos so GET /api/todos is interesting on first run.
 var store = app.Services.GetRequiredService<ITodoStore>();
 store.Add("Try Elsie BindJsonAsync");
 store.Add("Ship host-agnostic core");
 
-// OpenAPI before MapElsie so /openapi.json is not swallowed.
 app.MapElsieOpenApi(o =>
 {
     o.Info.Title = "Elsie Sample API";
     o.Info.Description = "Todos demo — mutating routes need X-Api-Key: dev-secret";
+    o.Info.Version = "v1";
+    o.UiPath = "/scalar";
 });
 app.MapElsie();
 app.Run();
@@ -94,6 +85,8 @@ namespace Elsie.Sample.Api
     public sealed record CreateTodo(string Title);
     public sealed record UpdateTodo(string Title, bool Done);
     public sealed record PatchTodo(bool? Done, string? Title);
+    public sealed record TodoListQuery(string? Q, bool? Done);
+    public sealed record TodoList(IReadOnlyList<Todo> Items, TodoListQuery Filter);
 
     public interface ITodoStore
     {
@@ -168,7 +161,6 @@ namespace Elsie.Sample.Api
         public bool Delete(Guid id) => _items.TryRemove(id, out _);
     }
 
-    /// <summary>Public unauthenticated routes.</summary>
     public sealed class HomeModule : ElsieModule
     {
         public HomeModule()
@@ -183,25 +175,24 @@ namespace Elsie.Sample.Api
                     health = "/health",
                     todos = "/api/todos",
                     docs = "/docs/getting-started",
+                    openapi = "/openapi.json",
+                    scalar = "/scalar",
                     note = "Mutating /api/todos/* requires header X-Api-Key: dev-secret"
                 }
-            }));
+            })).WithTags("catalog");
 
             Get("/health", ctx =>
             {
                 var clock = ctx.GetRequiredService<IRequestClock>();
                 return ctx.Json(new { status = "ok", at = clock.UtcNow });
-            });
+            }).WithTags("health");
 
-            // Catch-all — concrete routes win when both match.
             Get("/docs/{*path}", ctx =>
-                ElsieResult.Text($"Doc path: '{ctx.RouteOrDefault("path")}' (method {ctx.Request.Method})"));
+                ElsieResult.Text($"Doc path: '{ctx.RouteOrDefault("path")}' (method {ctx.Request.Method})"))
+                .WithTags("docs");
         }
     }
 
-    /// <summary>
-    /// Path/Group prefixes, ctor DI, JSON bind, query filters, API-key Before gate, PATCH.
-    /// </summary>
     public sealed class TodosModule : ElsieModule
     {
         public TodosModule(ITodoStore store)
@@ -215,24 +206,29 @@ namespace Elsie.Sample.Api
             {
                 Get("/", ctx =>
                 {
-                    var q = ctx.QueryOrDefault("q") ?? ctx.Request.GetQuery("q");
-                    bool? done = ctx.TryGetQueryBool("done", out var d) ? d : null;
-                    return ctx.Json(new
-                    {
-                        items = store.List(q, done),
-                        filter = new { q, done }
-                    });
-                });
+                    var q = ctx.QueryOrDefault("q");
+                    bool? done = ctx.TryQuery<bool>("done", out var d) ? d : null;
+                    var filter = new TodoListQuery(q, done);
+                    return ctx.Json(new TodoList(store.List(q, done), filter));
+                })
+                .Named("listTodos")
+                .AcceptsQuery<TodoListQuery>()
+                .Produces<TodoList>()
+                .WithSummary("List todos")
+                .WithTags("todos");
 
                 Get("/{id:guid}", ctx =>
                 {
-                    if (!ctx.RequireRouteGuid("id", out var id, out var error))
+                    if (!ctx.RequireRoute("id", out Guid id, out var error))
                     {
                         return error!;
                     }
 
                     return ctx.Json(store.Get(id));
-                });
+                })
+                .Named("getTodo")
+                .Produces<Todo>()
+                .WithTags("todos");
 
                 Post("/", async (ctx, ct) =>
                 {
@@ -249,13 +245,16 @@ namespace Elsie.Sample.Api
                     }
 
                     var created = store.Add(title);
-                    return ctx.Json(created, statusCode: 201)
-                        .WithHeader("Location", $"/api/todos/{created.Id}");
-                });
+                    return ElsieResult.Created(ctx.UrlFor("getTodo", new { id = created.Id }), created);
+                })
+                .Accepts<CreateTodo>()
+                .Produces<Todo>(201)
+                .WithSecurity("ApiKey")
+                .WithTags("todos");
 
                 Put("/{id:guid}", async (ctx, ct) =>
                 {
-                    if (!ctx.RequireRouteGuid("id", out var id, out var error))
+                    if (!ctx.RequireRoute("id", out Guid id, out var error))
                     {
                         return error!;
                     }
@@ -273,11 +272,15 @@ namespace Elsie.Sample.Api
                     }
 
                     return ctx.Json(store.Update(id, title, bind.Value.Done));
-                });
+                })
+                .Accepts<UpdateTodo>()
+                .Produces<Todo>()
+                .WithSecurity("ApiKey")
+                .WithTags("todos");
 
                 Patch("/{id:guid}", async (ctx, ct) =>
                 {
-                    if (!ctx.RequireRouteGuid("id", out var id, out var error))
+                    if (!ctx.RequireRoute("id", out Guid id, out var error))
                     {
                         return error!;
                     }
@@ -301,11 +304,15 @@ namespace Elsie.Sample.Api
                     }
 
                     return ctx.Json(store.Patch(id, title, body.Done));
-                });
+                })
+                .Accepts<PatchTodo>()
+                .Produces<Todo>()
+                .WithSecurity("ApiKey")
+                .WithTags("todos");
 
                 Delete("/{id:guid}", ctx =>
                 {
-                    if (!ctx.RequireRouteGuid("id", out var id, out var error))
+                    if (!ctx.RequireRoute("id", out Guid id, out var error))
                     {
                         return error!;
                     }
@@ -313,10 +320,12 @@ namespace Elsie.Sample.Api
                     return store.Delete(id)
                         ? ElsieResult.NoContent()
                         : ElsieResult.NotFound($"Todo '{id}' was not found.");
-                });
+                })
+                .WithSecurity("ApiKey")
+                .WithTags("todos");
 
-                // Deliberate boom — ExceptionHandler maps to problem+json
-                Get("/_boom", _ => throw new InvalidOperationException("Demonstrating ExceptionHandler"));
+                Get("/_boom", _ => throw new InvalidOperationException("Demonstrating ExceptionHandler"))
+                    .WithTags("debug");
             });
         }
     }

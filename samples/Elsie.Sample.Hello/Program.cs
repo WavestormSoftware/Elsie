@@ -1,16 +1,20 @@
 using Elsie;
 using Elsie.AspNetCore;
 
-// Easy sample — DI, query, constraints, pipelines (after HelloWorld).
-// Try:  GET /  |  GET /hello/Ada  |  GET /hello/Ada?shout=true  |  GET /health
+// Easy sample — DI, typed route/query, constraints, pipelines (after HelloWorld).
+// Try:  GET /  |  GET /hello/Ada  |  GET /hello/Ada?shout=true  |  GET /health  |  GET /items/42
 
 var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddSingleton<IGreeter, Greeter>();
-builder.AddElsie();
+builder.AddElsie(o => o.ScanEntryAssembly = false);
 builder.Services.AddElsieModule<HelloModule>();
 builder.Services.ConfigureElsiePipelines(p =>
 {
-    p.AddAfter((ctx, _) => ctx.Response.Headers["X-Elsie-Sample"] = "hello");
+    p.AddAfter((ctx, result) =>
+    {
+        ctx.Response.Headers["X-Elsie-Sample"] = "hello";
+        return result;
+    });
 });
 
 var app = builder.Build();
@@ -36,22 +40,22 @@ public sealed class HelloModule : ElsieModule
     public HelloModule(IGreeter greeter)
     {
         Get("/", () => ElsieResult.Text(
-            "Elsie Hello sample. Try GET /hello/Ada , /hello/Ada?shout=true , /health , /go"));
+            "Elsie Hello sample. Try GET /hello/Ada , /hello/Ada?shout=true , /health , /go , /items/42"));
 
         Get("/hello/{name}", ctx =>
         {
             var name = ctx.RouteOrDefault("name") ?? "world";
-            var shout = ctx.TryGetQueryBool("shout", out var s) && s;
+            var shout = ctx.Query<bool>("shout");
             return ElsieResult.Text(greeter.Greet(name, shout));
-        });
+        }).Named("hello").WithSummary("Greet someone");
 
         Get("/health", () => ElsieResult.Json(new { status = "ok", sample = "hello" }));
 
-        Get("/go", () => ElsieResult.Redirect("/hello/redirected"));
+        Get("/go", ctx => ElsieResult.Redirect(ctx.UrlFor("hello", new { name = "redirected" })));
 
         Get("/items/{id:int}", ctx =>
         {
-            if (!ctx.RequireRouteInt("id", out var id, out var error))
+            if (!ctx.RequireRoute("id", out int id, out var error))
             {
                 return error!;
             }
