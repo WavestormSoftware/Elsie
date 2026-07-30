@@ -11,14 +11,26 @@ Elsie is **unreleased** software; alphas may include breaking API changes.
 
 ### Changed
 - Package rename: **Elsie.AspNetCore → Elsie.Web** (namespace `Elsie.Web`)
-- Package layout: HealthChecks + RateLimiting folded into Elsie.Core
-- Elsie.FluentValidation removed (app-level recipe in docs/binding.md)
-- Custom static files removed; use ASP.NET UseStaticFiles
-- Meta package Elsie → depends on Elsie.Web → Elsie.Core
+- Package layout: HealthChecks + RateLimiting folded into **Elsie.Core** (namespaces unchanged)
+- Meta package **Elsie** → **Elsie.Web** → **Elsie.Core**
+- Default `ExceptionHandler` returns 500 problem+json without exception detail (set `null` to rethrow)
+- Cookie defaults: `HttpOnly = true`, `SameSite = Lax` (`Secure` still false for local HTTP)
+- Health checks hide exception details by default; optional `DefaultTimeout`
+- Routing: precompiled constraint predicates + first-segment candidate index
+- Request adapter: lazy first-wins views; ASP.NET query/header wrappers (no full copy)
+- OpenAPI JSON baked once at `MapElsieOpenApi`
+- `BindJsonAsync` returns **415** for non-JSON Content-Type (empty type still accepted)
+- Query/form binding supports repeated keys → `string[]` / `List<T>`
+- `ctx.Problem(...)` adds `instance` + optional `traceId`
+
+### Security
+- Constant-time compare for `ElsieAuth.RequireHeader` / `RequireApiKey`
 
 ### Removed
-- Package IDs: Elsie.AspNetCore (renamed), Elsie.HealthChecks, Elsie.RateLimiting, Elsie.FluentValidation
-- MapElsieStaticFiles / ElsieStaticFileOptions
+- Package IDs: **Elsie.AspNetCore** (renamed), **Elsie.HealthChecks**, **Elsie.RateLimiting**, **Elsie.FluentValidation**
+- `MapElsieStaticFiles` / `ElsieStaticFileOptions` (use ASP.NET `UseStaticFiles`)
+- `ctx.Negotiate`, legacy typed route/query helpers, `ReadJsonAsync`
+- Dead `ElsieOptionsSetup` registration
 
 ## [0.2.0-alpha.2] — 2026-07-30
 
