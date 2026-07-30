@@ -1,0 +1,11 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <Description>Fixed/sliding window rate-limit before-hooks for Elsie (429 + Retry-After).</Description>
+    <RootNamespace>Elsie.RateLimiting</RootNamespace>
+    <AssemblyName>Elsie.RateLimiting</AssemblyName>
+    <PackageId>Elsie.RateLimiting</PackageId>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\Elsie\Elsie.csproj" />
+  </ItemGroup>
+</Project>

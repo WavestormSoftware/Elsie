@@ -19,6 +19,8 @@ Instructions for coding agents working on this repository.
 | `src/Elsie.AspNetCore` | `ElsieWeb` / `MapElsie` / `UseElsie` / `MapElsieOpenApi`, logging, `HttpContext` adapter |
 | `src/Elsie.FluentValidation` | `BindAndValidateJsonAsync` |
 | `src/Elsie.Views` | Fluid (Liquid) views + layouts/partials (`ViewAsync`, `IElsieViewEngine`) |
+| `src/Elsie.HealthChecks` | Host-agnostic `/healthz` + live/ready module |
+| `src/Elsie.RateLimiting` | Fixed/sliding window before-hook gates (429 + Retry-After) |
 | `src/Elsie.Testing` | `ElsieInMemoryHost` + ASP.NET `ElsieTestHost` + asserts |
 | `tests/*` | Unit / integration tests |
 | `samples/*` | Runnable samples |
