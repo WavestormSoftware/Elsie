@@ -31,14 +31,22 @@ public sealed class ElsiePipelines
         return this;
     }
 
+    /// <summary>Side-effect after hook; returns the incoming result unchanged.</summary>
     public ElsiePipelines AddAfter(Action<ElsieContext, ElsieResult> hook)
     {
         ArgumentNullException.ThrowIfNull(hook);
         return AddAfter((ctx, result, _) =>
         {
             hook(ctx, result);
-            return Task.CompletedTask;
+            return Task.FromResult(result);
         });
+    }
+
+    /// <summary>Transforming after hook (sync).</summary>
+    public ElsiePipelines AddAfter(Func<ElsieContext, ElsieResult, ElsieResult> hook)
+    {
+        ArgumentNullException.ThrowIfNull(hook);
+        return AddAfter((ctx, result, _) => Task.FromResult(hook(ctx, result)));
     }
 
     public async Task<ElsieResult?> InvokeBeforeAsync(ElsieContext context, CancellationToken cancellationToken)
@@ -55,11 +63,21 @@ public sealed class ElsiePipelines
         return null;
     }
 
-    public async Task InvokeAfterAsync(ElsieContext context, ElsieResult result, CancellationToken cancellationToken)
+    /// <summary>
+    /// Run after hooks in order, threading the (possibly replaced) result.
+    /// </summary>
+    public async Task<ElsieResult> InvokeAfterAsync(
+        ElsieContext context,
+        ElsieResult result,
+        CancellationToken cancellationToken)
     {
+        ArgumentNullException.ThrowIfNull(result);
         foreach (var hook in _after)
         {
-            await hook(context, result, cancellationToken).ConfigureAwait(false);
+            result = await hook(context, result, cancellationToken).ConfigureAwait(false)
+                ?? throw new InvalidOperationException("After hook returned a null ElsieResult.");
         }
+
+        return result;
     }
 }

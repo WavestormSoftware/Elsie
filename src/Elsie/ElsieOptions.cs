@@ -21,6 +21,8 @@ public delegate bool ElsieRouteConstraint(string value);
 /// </summary>
 public sealed class ElsieOptions
 {
+    private readonly List<ExceptionMapping> _exceptionMaps = [];
+
     /// <summary>
     /// Assemblies scanned for <see cref="ElsieModule"/> subclasses when AddElsie enables scanning.
     /// </summary>
@@ -39,8 +41,9 @@ public sealed class ElsieOptions
     public JsonSerializerOptions JsonSerializerOptions { get; set; } = new(JsonSerializerDefaults.Web);
 
     /// <summary>
-    /// Optional handler for exceptions thrown by before hooks or route handlers.
-    /// When null, exceptions propagate to the host pipeline.
+    /// Optional handler for exceptions thrown by before hooks, handlers, or after hooks
+    /// after typed <see cref="MapException{TException}(Func{ElsieContext, TException, ElsieResult})"/> maps and module <c>OnError</c>.
+    /// When null (and no map/OnError matches), exceptions propagate to the host pipeline.
     /// </summary>
     public ElsieExceptionHandler? ExceptionHandler { get; set; }
 
@@ -50,9 +53,72 @@ public sealed class ElsieOptions
     public bool ImplicitHead { get; set; } = true;
 
     /// <summary>
+    /// Max request body size accepted by <see cref="ElsieContext.BindJsonAsync{T}"/> / form binding (default 4 MB).
+    /// </summary>
+    public long MaxBindBodySize { get; set; } = 4 * 1024 * 1024;
+
+    /// <summary>
     /// Custom route constraints keyed by name (case-insensitive). Built-ins cannot be overwritten.
     /// Example: <c>options.RouteConstraints["slug"] = v =&gt; v.All(char.IsLetterOrDigit);</c>
     /// </summary>
     public IDictionary<string, ElsieRouteConstraint> RouteConstraints { get; } =
         new Dictionary<string, ElsieRouteConstraint>(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// Map <typeparamref name="TException"/> (and assignable subclasses) to a result.
+    /// First matching registration wins (registration order). Checked before module OnError and <see cref="ExceptionHandler"/>.
+    /// </summary>
+    public ElsieOptions MapException<TException>(Func<ElsieContext, TException, ElsieResult> handler)
+        where TException : Exception
+    {
+        ArgumentNullException.ThrowIfNull(handler);
+        _exceptionMaps.Add(new ExceptionMapping(
+            typeof(TException),
+            (ctx, ex, _) => Task.FromResult(handler(ctx, (TException)ex))));
+        return this;
+    }
+
+    /// <summary>Async variant of <see cref="MapException{TException}(Func{ElsieContext, TException, ElsieResult})"/>.</summary>
+    public ElsieOptions MapException<TException>(
+        Func<ElsieContext, TException, CancellationToken, Task<ElsieResult>> handler)
+        where TException : Exception
+    {
+        ArgumentNullException.ThrowIfNull(handler);
+        _exceptionMaps.Add(new ExceptionMapping(
+            typeof(TException),
+            (ctx, ex, ct) => handler(ctx, (TException)ex, ct)));
+        return this;
+    }
+
+    internal async Task<ElsieResult?> TryMapExceptionAsync(
+        ElsieContext context,
+        Exception exception,
+        CancellationToken cancellationToken)
+    {
+        foreach (var map in _exceptionMaps)
+        {
+            if (!map.ExceptionType.IsAssignableFrom(exception.GetType()))
+            {
+                continue;
+            }
+
+            return await map.Handler(context, exception, cancellationToken).ConfigureAwait(false);
+        }
+
+        return null;
+    }
+
+    private sealed class ExceptionMapping
+    {
+        public ExceptionMapping(
+            Type exceptionType,
+            Func<ElsieContext, Exception, CancellationToken, Task<ElsieResult>> handler)
+        {
+            ExceptionType = exceptionType;
+            Handler = handler;
+        }
+
+        public Type ExceptionType { get; }
+        public Func<ElsieContext, Exception, CancellationToken, Task<ElsieResult>> Handler { get; }
+    }
 }

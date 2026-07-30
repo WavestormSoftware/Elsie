@@ -5,6 +5,10 @@ namespace Elsie;
 
 /// <summary>
 /// Host-agnostic route dispatch: match → pipelines → handler → result.
+/// Order: app.Before → module.Before → handler → module.After → app.After.
+/// Short-circuits still run afters. After hooks may replace the result.
+/// Errors: options.MapException → module.OnError → ExceptionHandler → rethrow.
+/// After-hook exceptions re-enter the same error chain; remaining afters continue.
 /// </summary>
 public sealed class ElsieDispatcher
 {
@@ -41,11 +45,13 @@ public sealed class ElsieDispatcher
             response,
             match.RouteValues,
             _options.JsonSerializerOptions,
-            _routes);
+            _routes,
+            _options.MaxBindBodySize);
 
         using var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, request.RequestAborted);
         var ct = linked.Token;
-        var modulePipelines = match.Route.Module?.Pipelines;
+        var module = match.Route.Module;
+        var modulePipelines = module?.Pipelines;
 
         ElsieResult result;
         try
@@ -58,17 +64,85 @@ public sealed class ElsieDispatcher
 
             result = shortCircuit ?? await match.Route.Handler(context, ct).ConfigureAwait(false);
         }
-        catch (Exception ex) when (_options.ExceptionHandler is not null && ex is not OperationCanceledException)
+        catch (Exception ex) when (ex is not OperationCanceledException)
         {
-            result = await _options.ExceptionHandler(context, ex, ct).ConfigureAwait(false);
+            result = await MapErrorAsync(context, module, ex, ct).ConfigureAwait(false);
         }
 
+        result = await RunAftersAsync(context, modulePipelines, module, result, ct).ConfigureAwait(false);
+        return ElsieDispatchResult.Handled(result, response);
+    }
+
+    private async Task<ElsieResult> RunAftersAsync(
+        ElsieContext context,
+        ElsiePipelines? modulePipelines,
+        ElsieModule? module,
+        ElsieResult result,
+        CancellationToken ct)
+    {
         if (modulePipelines is not null)
         {
-            await modulePipelines.InvokeAfterAsync(context, result, ct).ConfigureAwait(false);
+            result = await RunAfterListAsync(context, modulePipelines.After, module, result, ct).ConfigureAwait(false);
         }
 
-        await _applicationPipelines.InvokeAfterAsync(context, result, ct).ConfigureAwait(false);
-        return ElsieDispatchResult.Handled(result, response);
+        result = await RunAfterListAsync(context, _applicationPipelines.After, module, result, ct).ConfigureAwait(false);
+        return result;
+    }
+
+    private async Task<ElsieResult> RunAfterListAsync(
+        ElsieContext context,
+        IReadOnlyList<ElsieAfterDelegate> hooks,
+        ElsieModule? module,
+        ElsieResult result,
+        CancellationToken ct)
+    {
+        for (var i = 0; i < hooks.Count; i++)
+        {
+            try
+            {
+                result = await hooks[i](context, result, ct).ConfigureAwait(false)
+                    ?? throw new InvalidOperationException("After hook returned a null ElsieResult.");
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                result = await MapErrorAsync(context, module, ex, ct).ConfigureAwait(false);
+                // continue remaining after hooks with the error-mapped result
+            }
+        }
+
+        return result;
+    }
+
+    private async Task<ElsieResult> MapErrorAsync(
+        ElsieContext context,
+        ElsieModule? module,
+        Exception exception,
+        CancellationToken cancellationToken)
+    {
+        var mapped = await _options.TryMapExceptionAsync(context, exception, cancellationToken).ConfigureAwait(false);
+        if (mapped is not null)
+        {
+            return mapped;
+        }
+
+        if (module?.OnErrorHandler is not null)
+        {
+            try
+            {
+                return await module.OnErrorHandler(context, exception, cancellationToken).ConfigureAwait(false);
+            }
+            catch (Exception rethrown) when (rethrown is not OperationCanceledException)
+            {
+                // OnError threw — fall through to global handler / rethrow original? use rethrown
+                exception = rethrown;
+            }
+        }
+
+        if (_options.ExceptionHandler is not null)
+        {
+            return await _options.ExceptionHandler(context, exception, cancellationToken).ConfigureAwait(false);
+        }
+
+        throw exception;
     }
 }
