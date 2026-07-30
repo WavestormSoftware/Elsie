@@ -1,0 +1,16 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- App-facing meta-package: dotnet add package Elsie → Elsie.AspNetCore → Elsie.Core -->
+  <PropertyGroup>
+    <Description>Elsie — Sinatra-style HTTP modules for ASP.NET Core. Meta-package that pulls Elsie.AspNetCore (and transitively Elsie.Core).</Description>
+    <PackageId>Elsie</PackageId>
+    <IncludeBuildOutput>false</IncludeBuildOutput>
+    <IncludeSymbols>false</IncludeSymbols>
+    <GenerateDocumentationFile>false</GenerateDocumentationFile>
+    <NoWarn>$(NoWarn);NU5128</NoWarn>
+    <!-- Avoid compiling an empty assembly; dependency graph is the product. -->
+    <NoBuild>false</NoBuild>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\Elsie.AspNetCore\Elsie.AspNetCore.csproj" />
+  </ItemGroup>
+</Project>

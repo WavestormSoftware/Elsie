@@ -1,9 +1,9 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
-    <Description>Host-agnostic HTTP modules, routing, results, auth hooks, and OpenAPI document builder for Elsie.</Description>
+    <Description>Host-agnostic HTTP modules, routing, results, auth hooks, and OpenAPI document builder for Elsie. Apps normally reference the Elsie meta-package instead.</Description>
     <RootNamespace>Elsie</RootNamespace>
     <AssemblyName>Elsie</AssemblyName>
-    <PackageId>Elsie</PackageId>
+    <PackageId>Elsie.Core</PackageId>
   </PropertyGroup>
   <ItemGroup Condition="'$(TargetFramework)' == 'net8.0'">
     <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" VersionOverride="8.0.2" />

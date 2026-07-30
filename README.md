@@ -1,10 +1,10 @@
 # Elsie
 
-**A lightweight, Sinatra-style web framework for .NET 8 / .NET 10.**
+HTTP module framework for **.NET 8** and **.NET 10**. Define routes in small modules, return results, host on ASP.NET Core.
 
-Define routes in small modules. Ship JSON APIs, HTML pages, or both. Low ceremony, explicit control, no controller hierarchy required.
-
-MIT © [WavestormSoftware](https://github.com/WavestormSoftware) — original greenfield project, **not** a fork of any other framework.
+```bash
+dotnet add package Elsie          # 0.2.0-alpha.2 — pulls Elsie.AspNetCore + Elsie.Core
+```
 
 ```csharp
 using Elsie;
@@ -24,102 +24,54 @@ public sealed class App : ElsieModule
 ```
 
 ```bash
-dotnet add package Elsie.AspNetCore
-dotnet run --project samples/Elsie.Sample.HelloWorld
-# or:  dotnet new install ./artifacts/nuget/Elsie.Templates.*.nupkg
-#      dotnet new elsie -n MyApp
+dotnet run
+# GET /           → Hello, Elsie!
+# GET /hello/Ada  → Hello Ada!
 ```
 
-| Sample | What it shows |
-|--------|----------------|
-| [`HelloWorld`](samples/Elsie.Sample.HelloWorld) | One-liner `ElsieWeb.Run` |
-| [`Hello`](samples/Elsie.Sample.Hello) | DI, typed route/query, pipelines, link gen |
-| [`Api`](samples/Elsie.Sample.Api) | CRUD, API-key gate, OpenAPI + Scalar |
-| [`Views`](samples/Elsie.Sample.Views) | Fluid/Liquid templates + layouts |
-| [`Full`](samples/Elsie.Sample.Full) | Auth + CORS + rate limit + health + static + views |
-
-**Guides:** [docs/](docs/) — getting started, modules, routing, results, binding, pipelines, auth, CORS, rate limiting, health checks, OpenAPI, views, static files, testing, hosting/AOT.
-
----
-
-## Why Elsie
-
-| | |
-|--|--|
-| **Framework, not glue** | Router, dispatcher, results, pipelines, OpenAPI — first-class. ASP.NET Core is the default host, not the programming model. |
-| **Module-shaped apps** | Feature modules with `Get` / `Post` / `Path` / `Group` / `Before` / `After`. Compose by registering modules. |
-| **Host-agnostic core** | `Elsie` has no `HttpContext`. Same handlers run on ASP.NET Core or the in-memory test host. |
-| **Honest surface** | Explicit routes, problem+json helpers, thin auth gates. Escape to ASP.NET when you need it. |
-
----
-
-## Install
+Templates:
 
 ```bash
-dotnet add package Elsie.AspNetCore          # apps (pulls core)
-dotnet add package Elsie.Auth               # cookie/JWT gates
-dotnet add package Elsie.Cors               # Elsie-native CORS
-dotnet add package Elsie.HealthChecks       # /healthz live/ready
-dotnet add package Elsie.RateLimiting       # before-hook rate limits
-dotnet add package Elsie.Views              # Fluid/Liquid HTML
-dotnet add package Elsie.FluentValidation   # BindAndValidateJsonAsync
-dotnet add package Elsie.Testing            # in-memory + TestServer hosts
+dotnet new install Elsie.Templates
+dotnet new elsie -n HelloApp        # minimal app
+dotnet new elsie-api -n TodosApi    # CRUD + API key + OpenAPI
 ```
 
-NuGet: [Elsie](https://www.nuget.org/packages/Elsie) · current `0.2.0-alpha.1`
-
-Templates (after packing):
-
-```bash
-dotnet pack templates/Elsie.Templates.csproj -c Release -o artifacts/nuget
-dotnet new install artifacts/nuget/Elsie.Templates.0.2.0-alpha.1.nupkg
-dotnet new elsie -n HelloApp
-dotnet new elsie-api -n TodosApi
-```
+Guides: [docs/](docs/) · Samples: [HelloWorld](samples/Elsie.Sample.HelloWorld) · [Hello](samples/Elsie.Sample.Hello) · [Api](samples/Elsie.Sample.Api) · [Views](samples/Elsie.Sample.Views) · [Full](samples/Elsie.Sample.Full) · NuGet: [Elsie](https://www.nuget.org/packages/Elsie)
 
 ---
 
-## Application model
-
-### One-liner
-
-```csharp
-ElsieWeb.Run<HelloModule>(args);
-```
-
-Quiets noisy framework console logs by default. Opt out: `ElsieWeb.Run<HelloModule>(args, quietConsole: false)`.
-
-### Builder (full control)
+## Quickstart (builder)
 
 ```csharp
 var builder = WebApplication.CreateBuilder(args);
-builder.AddElsie();                              // DI + quiet console
-builder.Services.AddElsieModule<TodosModule>();
+builder.AddElsie();                              // DI + quieter console logs
+builder.Services.AddElsieModule<TodosModule>();  // or rely on entry-assembly scan
 
 var app = builder.Build();
 app.MapElsieOpenApi(o =>
 {
     o.Info.Title = "My API";
-    o.UiPath = "/scalar";                        // optional Scalar CDN page
+    o.UiPath = "/scalar";                        // optional Scalar CDN UI
 });
 app.MapElsie();
 app.Run();
 ```
 
-| Registration | When |
-|--------------|------|
-| `ElsieWeb.Run<T>()` | Smallest apps |
-| `AddElsieModule<T>()` | Explicit, test-friendly |
-| `AddElsie()` scan | `ScanEntryAssembly = true` (default) picks up concrete modules in the entry assembly |
-| Tests | `ScanEntryAssembly = false` + explicit modules |
+| API | Use |
+|-----|-----|
+| `ElsieWeb.Run<T>(args)` | Smallest host |
+| `builder.AddElsie()` | Wire DI (`ScanEntryAssembly = true` by default) |
+| `AddElsieModule<T>()` | Explicit module registration (prefer in tests) |
+| `app.MapElsie()` | Map Elsie into the pipeline (non-terminal by default) |
 
-Modules are **singletons**. Ctor-inject singleton-safe services; resolve request-scoped services with `ctx.GetRequiredService<T>()` / `ctx.Services`.
+Modules are **singletons**. Inject singleton-safe services in the ctor; resolve request-scoped services with `ctx.GetRequiredService<T>()` / `ctx.Services`.
 
-**JSON rule:** static `ElsieResult.Json` uses framework defaults (`ElsieJson.DefaultOptions`); `ctx.Json` uses app `ElsieOptions.JsonSerializerOptions`.
+JSON: `ElsieResult.Json(...)` uses framework defaults (`ElsieJson.DefaultOptions`); `ctx.Json(...)` uses app `ElsieOptions.JsonSerializerOptions`.
 
 ---
 
-## Routing
+## Modules and routing
 
 ```csharp
 public sealed class TodosModule : ElsieModule
@@ -154,19 +106,17 @@ public sealed class TodosModule : ElsieModule
 }
 ```
 
-- Parameters: `{name}`, optional `{name?}`, defaults `{name=5}`, constraints `{id:int}`, catch-all `{*path}` (final only)
-- Built-in constraints: `int`, `long`, `guid`, `bool`, `alpha`, `datetime`, `decimal`, `double`, `minlength(n)`, `maxlength(n)`, `length(n|min,max)`, `min(n)`, `max(n)`, `range(a,b)`, `regex(...)`
-- Precedence per segment: **static > constrained > param > catch-all** (deterministic; registration order does not decide ties)
-- Startup validates unknown constraints, duplicate param names, catch-all position, **ambiguity**, and duplicate route names
-- Wrong verb on a known path → **405** + `Allow` + problem+json
-- HEAD falls back to GET by default (`ElsieOptions.ImplicitHead`)
+**Route templates:** `{name}`, optional `{name?}`, default `{name=5}`, constraints `{id:int}`, catch-all `{*path}` (last segment only).
+
+**Built-in constraints:** `int`, `long`, `guid`, `bool`, `alpha`, `datetime`, `decimal`, `double`, `minlength(n)`, `maxlength(n)`, `length(n|min,max)`, `min(n)`, `max(n)`, `range(a,b)`, `regex(...)`.
+
+**Matching:** per segment, **static > constrained > param > catch-all**. Startup fails on unknown constraints, duplicate param names, bad catch-all placement, ambiguous routes, and duplicate route names. Wrong verb on a known path → **405** + `Allow` + problem+json. HEAD maps to GET when `ElsieOptions.ImplicitHead` is on (default).
 
 ---
 
-## Handlers, results, context
+## Results, binding, context
 
 ```csharp
-// Results
 ElsieResult.Text("ok")
 ElsieResult.Html("<p>hi</p>")
 ElsieResult.Json(payload, statusCode: 201)   // framework JSON defaults
@@ -174,35 +124,29 @@ ctx.Json(payload)                            // app JsonSerializerOptions
 ElsieResult.Created("/items/1", body)
 ElsieResult.Accepted()
 ElsieResult.File(bytes, "application/pdf", downloadName: "a.pdf")
-ElsieResult.Redirect("/elsewhere")           // 302; also 307/308 helpers
+ElsieResult.Redirect("/elsewhere")           // 302; 307/308 helpers also
 ElsieResult.NoContent()
 ElsieResult.NotModified()
 ElsieResult.Problem(400, "Bad Request", detail)
 ElsieResult.ValidationProblem(errors)
 ElsieResult.ServerSentEvents(async (w, ct) => await w.WriteEventAsync("tick", "1", ct))
 
-// Binding
 var bind = await ctx.BindJsonAsync<CreateTodo>(ct);
 var form = await ctx.BindFormAsync<LoginForm>(ct);
 var query = ctx.BindQuery<SearchQuery>();
-ctx.Route<int>("id");  ctx.Query<bool>("shout");
+ctx.Route<int>("id");
+ctx.Query<bool>("shout");
 ctx.RequireRoute("id", out Guid id, out var error);
 
-// Request
 ctx.Request.Method / Path / Scheme / Host / PathBase / Protocol / RemoteIp
 ctx.Request.GetHeader / GetQuery / GetCookie
 ctx.UrlFor("getTodo", new { id })
-
-// Response hooks
 ctx.Response.Headers["X-App"] = "1";
 ctx.Response.SetCookie("sid", value, new ElsieCookieOptions { HttpOnly = true });
-
-// DI
-ctx.GetRequiredService<IMyService>()
-ctx.Services   // request scope
+ctx.GetRequiredService<IMyService>();
 ```
 
-Typed exception maps and optional process-wide handler:
+Exception handling (first match wins):
 
 ```csharp
 builder.AddElsie(o =>
@@ -211,15 +155,24 @@ builder.AddElsie(o =>
     o.ExceptionHandler = (ctx, ex, ct) =>
         Task.FromResult(ElsieResult.Problem(500, "Server Error", ex.Message));
 });
+// MapException → module OnError → ExceptionHandler → rethrow
+// After-hooks still run when the exception is mapped to a result
 ```
 
-Order: `MapException` → module `OnError` → `ExceptionHandler` → rethrow. After-hooks still run for mapped results.
+Need `HttpContext`? Host escape hatch (core stays free of it):
+
+```csharp
+Get("/trace", ctx =>
+    ctx.TryGetHttpContext(out var http)
+        ? ElsieResult.Text(http!.TraceIdentifier)
+        : ElsieResult.Text("no-host"));
+```
 
 ---
 
 ## Pipelines
 
-Application-wide or per-module **before** / **after** hooks. After-hooks may **transform** the result.
+App-wide or per-module **before** / **after** hooks. After-hooks may transform the result.
 
 ```csharp
 builder.Services.ConfigureElsiePipelines(p =>
@@ -235,31 +188,29 @@ builder.Services.ConfigureElsiePipelines(p =>
         return result;
     });
 });
+// Order: app.Before → module.Before → handler → module.After → app.After
 ```
 
-Order: app.Before → module.Before → handler → module.After → app.After.
-
-Thin core gates (no ASP.NET auth middleware):
+Core gates (no ASP.NET auth stack):
 
 ```csharp
-Before(ElsieAuth.RequireApiKey("dev-secret"));          // all methods by default
+Before(ElsieAuth.RequireApiKey("dev-secret"));                    // all methods (default)
 Before(ElsieAuth.RequireApiKey("dev-secret", onlyMutatingMethods: true));
 Before(ElsieAuth.RequireHeader("X-Tenant", "acme"));
 Before(ElsieAuth.RequireBearer(token => token == "ok"));
 Before(ElsieAuth.RequireCookie("session"));
 ```
 
-Full cookie/JWT → package **`Elsie.Auth`** (`AddElsieAuth` / `UseElsieAuth` + `ElsieAuthGates`).
+Cookie/JWT policies → **`Elsie.Auth`**.
 
 ---
 
-## Feature packages (tour)
+## Optional packages
 
-### Auth (`Elsie.Auth`)
+### Auth — `Elsie.Auth`
 
 ```csharp
 builder.Services.AddElsieAuth(o => o.Cookie = c => c.Cookie.Name = "elsie-auth");
-// ...
 app.UseElsieAuth(); // before MapElsie
 
 Before(ElsieAuthGates.RequireAuthenticated());
@@ -268,9 +219,9 @@ await ctx.SignInCookieAsync("ada", roles: ["user"]);
 var user = ctx.GetUser();
 ```
 
-### CORS (`Elsie.Cors`)
+### CORS — `Elsie.Cors`
 
-Elsie answers **OPTIONS preflight** itself (ASP.NET `UseCors` never sees Elsie-handled OPTIONS).
+Elsie handles **OPTIONS preflight** itself (ASP.NET `UseCors` does not see those requests).
 
 ```csharp
 builder.Services.AddElsieCors(o => o.AddDefaultPolicy(p => p
@@ -279,10 +230,10 @@ builder.Services.AddElsieCors(o => o.AddDefaultPolicy(p => p
     .AllowHeaders("Content-Type")
     .AllowCredentials()));
 app.UseElsieCors(); // before MapElsie
-// optional per-route: Get(...).WithCors("name")
+// optional: Get(...).WithCors("policy-name")
 ```
 
-### Health checks (`Elsie.HealthChecks`)
+### Health — `Elsie.HealthChecks`
 
 ```csharp
 builder.Services.AddElsieHealthChecks(o =>
@@ -290,21 +241,21 @@ builder.Services.AddElsieHealthChecks(o =>
     o.AddCheck("self", () => ElsieHealthCheckResult.Healthy(), ElsieHealthCheckTags.Live);
     o.AddCheck("db", ct => CheckDbAsync(ct), ElsieHealthCheckTags.Ready);
 });
-// GET /healthz  |  /healthz/live  |  /healthz/ready   (unhealthy → 503)
+// GET /healthz | /healthz/live | /healthz/ready  (unhealthy → 503)
 ```
 
-### Rate limiting (`Elsie.RateLimiting`)
+### Rate limiting — `Elsie.RateLimiting`
 
 ```csharp
 Before(ElsieRateLimit.FixedWindow(100, TimeSpan.FromMinutes(1)));
 Before(ElsieRateLimit.SlidingWindow(30, TimeSpan.FromSeconds(10),
     partitionKey: ctx => ctx.Request.GetHeader("X-Api-Key") ?? "anon"));
-// 429 problem+json + Retry-After; TimeProvider-friendly
+// 429 problem+json + Retry-After; uses TimeProvider
 ```
 
-### OpenAPI
+### OpenAPI (in host)
 
-Route metadata → document. Optional Scalar CDN page via `UiPath`.
+Route metadata (`.Named` / `.Accepts` / `.Produces` / `.WithSecurity` / …) builds the document.
 
 ```csharp
 app.MapElsieOpenApi(o =>
@@ -315,11 +266,10 @@ app.MapElsieOpenApi(o =>
 });
 ```
 
-### Views (`Elsie.Views` — Fluid / Liquid)
+### Views — `Elsie.Views` (Fluid / Liquid)
 
 ```csharp
 builder.Services.AddElsieViews(o => o.ContentRoot = builder.Environment.ContentRootPath);
-// handler:
 return await ctx.ViewAsync("home", new { Title = "Hi", Name = "Ada" }, cancellationToken: ct);
 ```
 
@@ -328,31 +278,20 @@ return await ctx.ViewAsync("home", new { Title = "Hi", Name = "Ada" }, cancellat
 <h1>Hello {{ Name }}!</h1>
 ```
 
-### Static files
+### Static files (host)
 
 ```csharp
 app.MapElsieStaticFiles("/assets", Path.Combine(contentRoot, "wwwroot"));
 // ETag / Last-Modified + 304; no range requests
 ```
 
----
-
-## ASP.NET Core when you need it
+### Validation — `Elsie.FluentValidation`
 
 ```csharp
-using Elsie.AspNetCore;
-
-Get("/trace", ctx =>
-    ctx.TryGetHttpContext(out var http)
-        ? ElsieResult.Text(http.TraceIdentifier)
-        : ElsieResult.Text("no-host"));
+var bind = await ctx.BindAndValidateJsonAsync<CreateTodo>(ct);
 ```
 
-Core types stay free of `HttpContext`. Multipart: use the host escape hatch + `Elsie.Testing` multipart builder.
-
----
-
-## Testing
+### Testing — `Elsie.Testing`
 
 ```csharp
 await using var mem = ElsieInMemoryHost.Create(s => s.AddElsieModule<HelloModule>());
@@ -364,65 +303,71 @@ var response = await host.GetAsync("/hello/Ada");
 response.AssertStatus(200);
 ```
 
----
-
-## Packages
-
-| Package | Role |
-|---------|------|
-| **`Elsie`** | Core — modules, routing, dispatcher, results, pipelines, auth hooks, OpenAPI builder |
-| **`Elsie.AspNetCore`** | Host — `ElsieWeb`, `AddElsie`, `MapElsie`, `MapElsieOpenApi`, static files |
-| **`Elsie.Auth`** | Cookie/JWT + `RequireAuthenticated` / Role / Claim / Policy |
-| **`Elsie.Cors`** | Elsie-native CORS (preflight + ACAO) |
-| **`Elsie.HealthChecks`** | `/healthz`, live, ready |
-| **`Elsie.RateLimiting`** | Fixed/sliding window before-hooks |
-| **`Elsie.Views`** | Fluid/Liquid views |
-| **`Elsie.FluentValidation`** | `BindAndValidateJsonAsync` |
-| **`Elsie.Testing`** | In-memory host, TestServer host, asserts |
-| **`Elsie.Templates`** | `dotnet new elsie` / `elsie-api` |
-
-```bash
-dotnet test Elsie.sln -c Release
-dotnet pack Elsie.sln -c Release -o artifacts/nuget
-dotnet pack templates/Elsie.Templates.csproj -c Release -o artifacts/nuget
-```
-
-### Publishing packages
-
-GitHub Actions [`publish-nuget.yml`](.github/workflows/publish-nuget.yml) pushes to nuget.org with [Trusted Publishing](https://learn.microsoft.com/nuget/nuget-org/trusted-publishing) (OIDC).
-
-1. nuget.org **Trusted Publishing** policy (per package or owner):
-   - Repository: `WavestormSoftware/Elsie`
-   - Workflow: `publish-nuget.yml`
-   - Environment: `nuget`
-   - Package owner: `WavestormSoftware`
-2. Repo variable **`NUGET_USER`** = nuget.org username of the **policy creator** (not the org name). Currently expected: policy creator account.
-3. GitHub Environment **`nuget`** on this repo (OIDC `id-token: write`).
-4. Run **Actions → publish-nuget** (workflow_dispatch) or publish a GitHub Release.
-
-Published IDs: `Elsie`, `Elsie.AspNetCore`, `Elsie.Auth`, `Elsie.Cors`, `Elsie.FluentValidation`, `Elsie.HealthChecks`, `Elsie.RateLimiting`, `Elsie.Testing`, `Elsie.Views`, `Elsie.Templates`.
-
-**New package IDs** (first push) must be allowed for the trusted-publishing owner — confirm policies on nuget.org if a push is rejected for Auth/Cors/HealthChecks/RateLimiting/Templates.
+In tests, set `ScanEntryAssembly = false` and register modules explicitly.
 
 ---
 
-## Architecture (short)
+## Package layout
+
+| Package | Contents |
+|---------|----------|
+| **[Elsie](https://www.nuget.org/packages/Elsie)** | Meta-package for apps → `Elsie.AspNetCore` → `Elsie.Core` |
+| [Elsie.AspNetCore](https://www.nuget.org/packages/Elsie.AspNetCore) | `ElsieWeb`, `AddElsie`, `MapElsie`, OpenAPI, static files |
+| [Elsie.Core](https://www.nuget.org/packages/Elsie.Core) | Host-agnostic modules, routing, dispatcher, results, pipelines |
+| [Elsie.Auth](https://www.nuget.org/packages/Elsie.Auth) | Cookie/JWT + auth gates |
+| [Elsie.Cors](https://www.nuget.org/packages/Elsie.Cors) | Elsie-native CORS |
+| [Elsie.HealthChecks](https://www.nuget.org/packages/Elsie.HealthChecks) | `/healthz` live/ready |
+| [Elsie.RateLimiting](https://www.nuget.org/packages/Elsie.RateLimiting) | Before-hook rate limits |
+| [Elsie.Views](https://www.nuget.org/packages/Elsie.Views) | Fluid/Liquid views |
+| [Elsie.FluentValidation](https://www.nuget.org/packages/Elsie.FluentValidation) | `BindAndValidateJsonAsync` |
+| [Elsie.Testing](https://www.nuget.org/packages/Elsie.Testing) | In-memory + TestServer hosts |
+| [Elsie.Templates](https://www.nuget.org/packages/Elsie.Templates) | `dotnet new elsie` / `elsie-api` |
+
+Current version: **`0.2.0-alpha.2`** (prerelease; APIs may still change).
+
+Namespaces stay `Elsie` / `Elsie.AspNetCore` regardless of package id. Library authors who want the host-agnostic surface only should reference **`Elsie.Core`**.
+
+---
+
+## Request flow
 
 ```
 HTTP request
-  → host adapter (ASP.NET / in-memory)
+  → host (ASP.NET Core or in-memory test host)
   → ElsieRequest
-  → RouteTable.Lookup → pipelines → handler → ElsieResult
-  → ElsieHttpResponse.FromDispatch   // single bake path
+  → RouteTable.Lookup → before hooks → handler → after hooks → ElsieResult
+  → ElsieHttpResponse.FromDispatch
   → host writes status / headers / body
 ```
 
-- Unmatched routes fall through (`MapElsie` is non-terminal by default) so OpenAPI and other endpoints coexist
-- `MapElsie(terminal: true)` answers unmatched with 404 problem+json
-- Multi-value query/headers are first-class
+`MapElsie` is non-terminal by default so OpenAPI, static files, and other endpoints can coexist. `MapElsie(terminal: true)` returns 404 problem+json for unmatched routes.
+
+---
+
+## Docs
+
+| Topic | |
+|-------|--|
+| [Getting started](docs/getting-started.md) | Install, smallest app, samples |
+| [Modules](docs/modules.md) | Registration, DI lifetimes |
+| [Routing](docs/routing.md) | Templates, constraints, precedence |
+| [Results](docs/results.md) | Response factories |
+| [Binding](docs/binding.md) | Route/query/JSON/form |
+| [Pipelines & errors](docs/pipelines-and-errors.md) | Before/after, exception maps |
+| [Auth](docs/auth.md) | Core gates + `Elsie.Auth` |
+| [CORS](docs/cors.md) | `Elsie.Cors` |
+| [Rate limiting](docs/rate-limiting.md) | Fixed/sliding windows |
+| [Health checks](docs/health-checks.md) | Live/ready |
+| [OpenAPI](docs/openapi.md) | Document + Scalar |
+| [Views](docs/views.md) | Fluid/Liquid |
+| [Static files](docs/static-files.md) | `MapElsieStaticFiles` |
+| [Testing](docs/testing.md) | In-memory + TestServer |
+| [Hosting & AOT](docs/hosting-and-aot.md) | Host notes |
+
+Changelog: [CHANGELOG.md](CHANGELOG.md)
 
 ---
 
 ## License
 
-MIT © WavestormSoftware — see [LICENSE](LICENSE).
+MIT © [WavestormSoftware](https://github.com/WavestormSoftware) — [LICENSE](LICENSE)

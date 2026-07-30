@@ -35,7 +35,7 @@ builder.Services.ConfigureElsiePipelines(p =>
 
 ## Core auth-style gates
 
-In package **`Elsie`** (no ASP.NET auth middleware):
+In package **`Elsie.Core`** (no ASP.NET auth middleware):
 
 | Gate | Behavior |
 |------|----------|

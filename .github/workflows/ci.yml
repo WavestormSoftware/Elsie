@@ -43,6 +43,7 @@ jobs:
           projects=(
             src/Elsie/Elsie.csproj
             src/Elsie.AspNetCore/Elsie.AspNetCore.csproj
+            src/Elsie.Meta/Elsie.Meta.csproj
             src/Elsie.Auth/Elsie.Auth.csproj
             src/Elsie.Cors/Elsie.Cors.csproj
             src/Elsie.FluentValidation/Elsie.FluentValidation.csproj
@@ -60,16 +61,17 @@ jobs:
         run: |
           set -euo pipefail
           required=(
-            Elsie.0.2.0-alpha.1.nupkg
-            Elsie.AspNetCore.0.2.0-alpha.1.nupkg
-            Elsie.Auth.0.2.0-alpha.1.nupkg
-            Elsie.Cors.0.2.0-alpha.1.nupkg
-            Elsie.HealthChecks.0.2.0-alpha.1.nupkg
-            Elsie.RateLimiting.0.2.0-alpha.1.nupkg
-            Elsie.Views.0.2.0-alpha.1.nupkg
-            Elsie.FluentValidation.0.2.0-alpha.1.nupkg
-            Elsie.Testing.0.2.0-alpha.1.nupkg
-            Elsie.Templates.0.2.0-alpha.1.nupkg
+            Elsie.0.2.0-alpha.2.nupkg
+            Elsie.Core.0.2.0-alpha.2.nupkg
+            Elsie.AspNetCore.0.2.0-alpha.2.nupkg
+            Elsie.Auth.0.2.0-alpha.2.nupkg
+            Elsie.Cors.0.2.0-alpha.2.nupkg
+            Elsie.HealthChecks.0.2.0-alpha.2.nupkg
+            Elsie.RateLimiting.0.2.0-alpha.2.nupkg
+            Elsie.Views.0.2.0-alpha.2.nupkg
+            Elsie.FluentValidation.0.2.0-alpha.2.nupkg
+            Elsie.Testing.0.2.0-alpha.2.nupkg
+            Elsie.Templates.0.2.0-alpha.2.nupkg
           )
           missing=0
           for f in "${required[@]}"; do

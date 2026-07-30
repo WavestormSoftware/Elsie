@@ -15,8 +15,9 @@ Instructions for coding agents working on this repository.
 
 | Path | Role |
 |------|------|
-| `src/Elsie` | Host-agnostic core: modules, routing, dispatcher, context, results, pipelines, `AddElsie`, OpenAPI builder, `ElsieAuth` |
-| `src/Elsie.AspNetCore` | `ElsieWeb` / `MapElsie` / `UseElsie` / `MapElsieOpenApi`, logging, `HttpContext` adapter |
+| `src/Elsie` | Host-agnostic core (package **`Elsie.Core`**): modules, routing, dispatcher, context, results, pipelines, OpenAPI builder, `ElsieAuth` |
+| `src/Elsie.AspNetCore` | Host package: `ElsieWeb` / `MapElsie` / `UseElsie` / `MapElsieOpenApi`, logging, `HttpContext` adapter |
+| `src/Elsie.Meta` | App meta-package **`Elsie`** → pulls `Elsie.AspNetCore` (+ transitive `Elsie.Core`) |
 | `src/Elsie.FluentValidation` | `BindAndValidateJsonAsync` |
 | `src/Elsie.Views` | Fluid (Liquid) views + layouts/partials (`ViewAsync`, `IElsieViewEngine`) |
 | `src/Elsie.HealthChecks` | Host-agnostic `/healthz` + live/ready module |

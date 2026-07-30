@@ -1,20 +1,19 @@
 # Getting started
 
-Elsie is a Sinatra-style HTTP module framework for **.NET 8** and **.NET 10**. Core is host-agnostic; **`Elsie.AspNetCore`** is the default host.
+Elsie is a Sinatra-style HTTP module framework for **.NET 8** and **.NET 10**. Core is host-agnostic; the **`Elsie`** package pulls the ASP.NET Core host.
 
 ## Install
 
 ```bash
 dotnet new web -n HelloElsie
 cd HelloElsie
-dotnet add package Elsie.AspNetCore   # 0.2.0-alpha.1
+dotnet add package Elsie
 ```
 
-Or from a local pack:
+Or scaffold:
 
 ```bash
-dotnet pack templates/Elsie.Templates.csproj -c Release -o artifacts/nuget
-dotnet new install artifacts/nuget/Elsie.Templates.0.2.0-alpha.1.nupkg
+dotnet new install Elsie.Templates
 dotnet new elsie -n HelloElsie
 dotnet new elsie-api -n TodosApi
 ```
