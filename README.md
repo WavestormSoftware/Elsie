@@ -391,9 +391,18 @@ dotnet pack templates/Elsie.Templates.csproj -c Release -o artifacts/nuget
 
 GitHub Actions [`publish-nuget.yml`](.github/workflows/publish-nuget.yml) pushes to nuget.org with [Trusted Publishing](https://learn.microsoft.com/nuget/nuget-org/trusted-publishing) (OIDC).
 
-1. nuget.org policy: repo `WavestormSoftware/Elsie`, workflow `publish-nuget.yml`, environment `nuget`, owner `WavestormSoftware`
-2. Repo variable **`NUGET_USER`** = nuget.org username of the **policy creator**
-3. Run **Actions → publish-nuget** or publish a GitHub Release
+1. nuget.org **Trusted Publishing** policy (per package or owner):
+   - Repository: `WavestormSoftware/Elsie`
+   - Workflow: `publish-nuget.yml`
+   - Environment: `nuget`
+   - Package owner: `WavestormSoftware`
+2. Repo variable **`NUGET_USER`** = nuget.org username of the **policy creator** (not the org name). Currently expected: policy creator account.
+3. GitHub Environment **`nuget`** on this repo (OIDC `id-token: write`).
+4. Run **Actions → publish-nuget** (workflow_dispatch) or publish a GitHub Release.
+
+Published IDs: `Elsie`, `Elsie.AspNetCore`, `Elsie.Auth`, `Elsie.Cors`, `Elsie.FluentValidation`, `Elsie.HealthChecks`, `Elsie.RateLimiting`, `Elsie.Testing`, `Elsie.Views`, `Elsie.Templates`.
+
+**New package IDs** (first push) must be allowed for the trusted-publishing owner — confirm policies on nuget.org if a push is rejected for Auth/Cors/HealthChecks/RateLimiting/Templates.
 
 ---
 

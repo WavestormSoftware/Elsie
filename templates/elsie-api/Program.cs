@@ -35,6 +35,7 @@ app.MapElsieOpenApi(o =>
 {
     o.Info.Title = "ElsieApi";
     o.Info.Description = "CRUD + cookie auth sample from dotnet new elsie-api";
+    o.UiPath = "/scalar";
 });
 app.MapElsie();
 app.Run();

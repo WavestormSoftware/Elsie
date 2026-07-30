@@ -34,10 +34,27 @@ jobs:
           --collect:"XPlat Code Coverage"
           --results-directory TestResults
           --verbosity minimal
-      - name: Pack libraries
-        run: dotnet pack Elsie.sln -c Release --no-build -o artifacts/nuget
-      - name: Pack templates
-        run: dotnet pack templates/Elsie.Templates.csproj -c Release -o artifacts/nuget
+      - name: Pack libraries + templates
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf artifacts/nuget
+          mkdir -p artifacts/nuget
+          projects=(
+            src/Elsie/Elsie.csproj
+            src/Elsie.AspNetCore/Elsie.AspNetCore.csproj
+            src/Elsie.Auth/Elsie.Auth.csproj
+            src/Elsie.Cors/Elsie.Cors.csproj
+            src/Elsie.FluentValidation/Elsie.FluentValidation.csproj
+            src/Elsie.HealthChecks/Elsie.HealthChecks.csproj
+            src/Elsie.RateLimiting/Elsie.RateLimiting.csproj
+            src/Elsie.Testing/Elsie.Testing.csproj
+            src/Elsie.Views/Elsie.Views.csproj
+            templates/Elsie.Templates.csproj
+          )
+          for proj in "${projects[@]}"; do
+            dotnet pack "$proj" -c Release -o artifacts/nuget --no-build
+          done
       - name: Validate packs
         shell: bash
         run: |

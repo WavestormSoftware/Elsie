@@ -1,0 +1,7 @@
+<Project>
+  <PropertyGroup>
+    <IsPackable>false</IsPackable>
+    <!-- Samples are demo apps; never pack from solution pack. -->
+    <GeneratePackageOnBuild>false</GeneratePackageOnBuild>
+  </PropertyGroup>
+</Project>
