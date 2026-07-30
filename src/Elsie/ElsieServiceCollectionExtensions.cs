@@ -10,12 +10,18 @@ public static class ElsieServiceCollectionExtensions
 {
     /// <summary>
     /// Registers core Elsie services (modules, routes, dispatcher). Host packages add transport adapters.
+    /// Repeat calls compose <paramref name="configure"/> onto the single registered <see cref="ElsieOptions"/> instance.
     /// </summary>
     public static IServiceCollection AddElsie(this IServiceCollection services, Action<ElsieOptions>? configure = null)
     {
         ArgumentNullException.ThrowIfNull(services);
 
-        var options = GetOrAddOptions(services, configure);
+        var options = GetOrCreateOptionsInstance(services);
+        if (configure is not null)
+        {
+            services.AddSingleton(new ElsieOptionsSetup(configure));
+            configure(options);
+        }
 
         services.TryAddSingleton<ElsiePipelines>(sp =>
         {
@@ -30,7 +36,8 @@ public static class ElsieServiceCollectionExtensions
         services.TryAddSingleton<RouteTable>(sp =>
         {
             var modules = sp.GetServices<ElsieModule>().ToArray();
-            return RouteTable.FromModules(modules);
+            var opts = sp.GetRequiredService<ElsieOptions>();
+            return RouteTable.FromModules(modules, opts);
         });
         services.TryAddSingleton<ElsieDispatcher>();
 
@@ -64,7 +71,11 @@ public static class ElsieServiceCollectionExtensions
         return services;
     }
 
-    private static ElsieOptions GetOrAddOptions(IServiceCollection services, Action<ElsieOptions>? configure)
+    /// <summary>
+    /// Returns the single registered <see cref="ElsieOptions"/> ImplementationInstance.
+    /// Registers a fresh instance when missing. Never returns a detached options object.
+    /// </summary>
+    private static ElsieOptions GetOrCreateOptionsInstance(IServiceCollection services)
     {
         foreach (var descriptor in services)
         {
@@ -75,25 +86,16 @@ public static class ElsieServiceCollectionExtensions
 
             if (descriptor.ImplementationInstance is ElsieOptions existing)
             {
-                configure?.Invoke(existing);
-                ElsieJson.Configure(existing.JsonSerializerOptions);
                 return existing;
             }
 
-            if (configure is not null)
-            {
-                var fallback = new ElsieOptions();
-                configure(fallback);
-                ElsieJson.Configure(fallback.JsonSerializerOptions);
-                return fallback;
-            }
-
-            return new ElsieOptions();
+            throw new InvalidOperationException(
+                "ElsieOptions is registered without an ImplementationInstance. " +
+                "Call AddElsie() before custom ElsieOptions registrations, or register " +
+                "ServiceDescriptor.Singleton(new ElsieOptions()).");
         }
 
         var options = new ElsieOptions();
-        configure?.Invoke(options);
-        ElsieJson.Configure(options.JsonSerializerOptions);
         services.AddSingleton(options);
         return options;
     }
@@ -134,6 +136,17 @@ public static class ElsieServiceCollectionExtensions
             }
         }
     }
+}
+
+/// <summary>Internal registration hook so options configures compose (mirrors <see cref="ElsiePipelineSetup"/>).</summary>
+internal sealed class ElsieOptionsSetup
+{
+    public ElsieOptionsSetup(Action<ElsieOptions> configure)
+    {
+        Configure = configure ?? throw new ArgumentNullException(nameof(configure));
+    }
+
+    public Action<ElsieOptions> Configure { get; }
 }
 
 /// <summary>Internal registration hook so pipeline configures compose on one singleton.</summary>

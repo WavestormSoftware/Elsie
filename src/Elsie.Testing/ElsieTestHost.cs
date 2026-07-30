@@ -12,6 +12,7 @@ namespace Elsie.Testing;
 /// <summary>
 /// Lightweight in-process host for exercising Elsie modules in tests.
 /// Disables entry-assembly module scan by default; register modules explicitly.
+/// Uses <c>ValidateScopes = true</c>.
 /// </summary>
 public sealed class ElsieTestHost : IAsyncDisposable
 {
@@ -30,6 +31,11 @@ public sealed class ElsieTestHost : IAsyncDisposable
         ArgumentNullException.ThrowIfNull(configure);
 
         var builder = new HostBuilder()
+            .UseDefaultServiceProvider(o =>
+            {
+                o.ValidateScopes = true;
+                o.ValidateOnBuild = true;
+            })
             .ConfigureWebHost(web =>
             {
                 web.UseTestServer();

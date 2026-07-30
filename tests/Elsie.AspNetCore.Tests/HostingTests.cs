@@ -28,7 +28,7 @@ public class HostingTests
         public HelloModule()
         {
             Get("/hello/{name}", ctx => ElsieResult.Text($"Hello {ctx.RouteValues["name"]}"));
-            Get("/health", () => ElsieResult.Json(new HealthDto("ok")));
+            Get("/health", ctx => ctx.Json(new HealthDto("ok")));
             Get("/items/{id:int}", ctx => ElsieResult.Text(ctx.RouteValues["id"]));
             Post("/items", () => ElsieResult.Status(201));
             Get("/files/{*path}", ctx => ElsieResult.Text(ctx.RouteValues["path"]));

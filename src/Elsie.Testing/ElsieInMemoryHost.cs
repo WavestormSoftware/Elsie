@@ -8,6 +8,7 @@ namespace Elsie.Testing;
 
 /// <summary>
 /// Host-agnostic in-process Elsie runner (no ASP.NET). Uses <see cref="ElsieDispatcher"/>.
+/// Creates an <see cref="IServiceScope"/> per request (ValidateScopes = true).
 /// </summary>
 public sealed class ElsieInMemoryHost : IAsyncDisposable
 {
@@ -26,7 +27,11 @@ public sealed class ElsieInMemoryHost : IAsyncDisposable
         var services = new ServiceCollection();
         services.AddElsie(o => o.ScanEntryAssembly = false);
         configure(services);
-        var sp = services.BuildServiceProvider();
+        var sp = services.BuildServiceProvider(new ServiceProviderOptions
+        {
+            ValidateScopes = true,
+            ValidateOnBuild = true
+        });
         var dispatcher = sp.GetRequiredService<ElsieDispatcher>();
         return new ElsieInMemoryHost(sp, dispatcher);
     }
@@ -52,16 +57,19 @@ public sealed class ElsieInMemoryHost : IAsyncDisposable
         IReadOnlyDictionary<string, string>? headers = null,
         IReadOnlyDictionary<string, IReadOnlyList<string>>? headerValues = null)
     {
-        var (path, queryValues) = SplitPathAndQuery(pathAndQuery);
+        var (path, queryValues, queryString) = SplitPathAndQuery(pathAndQuery);
+
+        await using var scope = _services.CreateAsyncScope();
         var request = new ElsieRequest(
             method: method,
             path: path,
             body: body,
             contentLength: contentLength ?? body?.Length,
             contentType: contentType,
-            requestServices: _services,
+            requestServices: scope.ServiceProvider,
             queryValues: queryValues,
-            headerValues: headerValues ?? Promote(headers));
+            headerValues: headerValues ?? Promote(headers),
+            queryString: queryString);
 
         var outcome = await _dispatcher.DispatchAsync(request).ConfigureAwait(false);
         return await ElsieInMemoryResponse.FromDispatchAsync(outcome).ConfigureAwait(false);
@@ -81,7 +89,8 @@ public sealed class ElsieInMemoryHost : IAsyncDisposable
 
     private static (
         string Path,
-        IReadOnlyDictionary<string, IReadOnlyList<string>> QueryValues)
+        IReadOnlyDictionary<string, IReadOnlyList<string>> QueryValues,
+        string QueryString)
         SplitPathAndQuery(string pathAndQuery)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(pathAndQuery);
@@ -90,13 +99,15 @@ public sealed class ElsieInMemoryHost : IAsyncDisposable
         {
             return (
                 pathAndQuery,
-                new Dictionary<string, IReadOnlyList<string>>(StringComparer.OrdinalIgnoreCase));
+                new Dictionary<string, IReadOnlyList<string>>(StringComparer.OrdinalIgnoreCase),
+                string.Empty);
         }
 
         var path = pathAndQuery[..qIndex];
-        var queryString = pathAndQuery[(qIndex + 1)..];
+        var queryString = pathAndQuery[qIndex..]; // includes '?'
+        var raw = pathAndQuery[(qIndex + 1)..];
         var multi = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
-        foreach (var part in queryString.Split('&', StringSplitOptions.RemoveEmptyEntries))
+        foreach (var part in raw.Split('&', StringSplitOptions.RemoveEmptyEntries))
         {
             string key;
             string value;
@@ -127,7 +138,7 @@ public sealed class ElsieInMemoryHost : IAsyncDisposable
             queryValues[key] = list;
         }
 
-        return (path, queryValues);
+        return (path, queryValues, queryString);
     }
 
     private static IReadOnlyDictionary<string, IReadOnlyList<string>>? Promote(
@@ -161,7 +172,7 @@ public sealed class ElsieInMemoryResponse
         int statusCode,
         string? contentType,
         byte[] body,
-        IReadOnlyDictionary<string, string> headers,
+        ElsieHeaders headers,
         ElsieDispatchStatus dispatchStatus,
         IReadOnlyList<string> allowedMethods)
     {
@@ -176,7 +187,7 @@ public sealed class ElsieInMemoryResponse
     public int StatusCode { get; }
     public string? ContentType { get; }
     public byte[] Body { get; }
-    public IReadOnlyDictionary<string, string> Headers { get; }
+    public ElsieHeaders Headers { get; }
     public ElsieDispatchStatus DispatchStatus { get; }
     public IReadOnlyList<string> AllowedMethods { get; }
 
@@ -187,7 +198,13 @@ public sealed class ElsieInMemoryResponse
         var baked = ElsieHttpResponse.FromDispatch(outcome);
         if (baked is null)
         {
-            return new(404, null, Array.Empty<byte>(), new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase), outcome.Status, outcome.AllowedMethods);
+            return new(
+                404,
+                null,
+                Array.Empty<byte>(),
+                new ElsieHeaders(),
+                outcome.Status,
+                outcome.AllowedMethods);
         }
 
         var body = await baked.BufferBodyAsync().ConfigureAwait(false);
