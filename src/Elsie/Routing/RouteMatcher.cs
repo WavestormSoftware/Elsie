@@ -7,8 +7,13 @@ namespace Elsie.Routing;
 /// </summary>
 internal sealed class RouteMatcher
 {
-    private readonly IReadOnlyList<CompiledRoute> _routes;
+    private static readonly IReadOnlyDictionary<string, string> EmptyRouteValues =
+        new Dictionary<string, string>(0, StringComparer.OrdinalIgnoreCase);
+
     private readonly bool _implicitHead;
+    private readonly CompiledRoute[] _dynamic;
+    private readonly CompiledRoute[] _emptyCandidates;
+    private readonly Dictionary<string, CompiledRoute[]> _staticBuckets;
 
     public RouteMatcher(
         IReadOnlyList<RouteDescriptor> routes,
@@ -21,26 +26,69 @@ internal sealed class RouteMatcher
 
         var compiled = routes.Select(r => CompiledRoute.Compile(r, constraints)).ToList();
         // Deterministic order: precedence vector, then template ordinal (stable tie-break for non-ambiguous).
-        _routes = compiled
+        var ordered = compiled
             .OrderBy(static r => r.Precedence, PrecedenceComparer.Instance)
             .ThenBy(static r => r.Descriptor.Template, StringComparer.Ordinal)
             .ThenBy(static r => r.Descriptor.Method, StringComparer.Ordinal)
             .ToArray();
+
+        var dynamic = new List<CompiledRoute>();
+        var empty = new List<CompiledRoute>();
+        var buckets = new Dictionary<string, List<CompiledRoute>>(StringComparer.OrdinalIgnoreCase);
+
+        foreach (var route in ordered)
+        {
+            if (route.Segments.Length == 0)
+            {
+                empty.Add(route);
+                continue;
+            }
+
+            var first = route.Segments[0];
+            if (first.Kind == SegmentKind.Static)
+            {
+                var key = first.Literal!;
+                if (!buckets.TryGetValue(key, out var list))
+                {
+                    buckets[key] = list = [];
+                }
+
+                list.Add(route);
+            }
+            else
+            {
+                dynamic.Add(route);
+            }
+        }
+
+        _dynamic = dynamic.ToArray();
+        _emptyCandidates = MergePreserveOrder(empty, dynamic);
+        _staticBuckets = new Dictionary<string, CompiledRoute[]>(buckets.Count, StringComparer.OrdinalIgnoreCase);
+        foreach (var (key, list) in buckets)
+        {
+            _staticBuckets[key] = MergePreserveOrder(list, dynamic);
+        }
     }
 
     public RouteLookup Lookup(string method, string path)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(method);
-        method = method.ToUpperInvariant();
+        if (NeedsUpper(method))
+        {
+            method = method.ToUpperInvariant();
+        }
+
         var pathValue = ElsieRequest.NormalizePath(path);
+        var parts = SplitPath(pathValue);
+        var candidates = SelectCandidates(parts);
 
         CompiledRoute? best = null;
         IReadOnlyDictionary<string, string>? bestValues = null;
         List<string>? allowed = null;
 
-        foreach (var route in _routes)
+        foreach (var route in candidates)
         {
-            if (!route.TryMatch(pathValue, out var values))
+            if (!route.TryMatch(parts, out var values))
             {
                 continue;
             }
@@ -63,14 +111,14 @@ internal sealed class RouteMatcher
 
         if (best is null && _implicitHead && method == "HEAD")
         {
-            foreach (var route in _routes)
+            foreach (var route in candidates)
             {
                 if (!string.Equals(route.Descriptor.Method, "GET", StringComparison.Ordinal))
                 {
                     continue;
                 }
 
-                if (!route.TryMatch(pathValue, out var values))
+                if (!route.TryMatch(parts, out var values))
                 {
                     continue;
                 }
@@ -112,6 +160,75 @@ internal sealed class RouteMatcher
 
         match = null;
         return false;
+    }
+
+    private CompiledRoute[] SelectCandidates(string[] parts)
+    {
+        if (parts.Length == 0)
+        {
+            return _emptyCandidates;
+        }
+
+        var first = DecodeIfNeeded(parts[0]);
+        if (_staticBuckets.TryGetValue(first, out var bucket))
+        {
+            return bucket;
+        }
+
+        return _dynamic;
+    }
+
+    private static string[] SplitPath(string path)
+    {
+        var raw = path.Trim('/');
+        if (raw.Length == 0)
+        {
+            return [];
+        }
+
+        return raw.Split('/', StringSplitOptions.RemoveEmptyEntries);
+    }
+
+    private static bool NeedsUpper(string method)
+    {
+        foreach (var c in method)
+        {
+            if (char.IsAsciiLetterLower(c))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private static string DecodeIfNeeded(string raw) =>
+        raw.Contains('%') ? Uri.UnescapeDataString(raw) : raw;
+
+    /// <summary>
+    /// Merge two precedence-sorted lists into one sorted array (stable by original order).
+    /// </summary>
+    private static CompiledRoute[] MergePreserveOrder(List<CompiledRoute> primary, List<CompiledRoute> dynamic)
+    {
+        if (dynamic.Count == 0)
+        {
+            return primary.ToArray();
+        }
+
+        if (primary.Count == 0)
+        {
+            return dynamic.ToArray();
+        }
+
+        // Re-sort union with same comparer as global order.
+        var all = new List<CompiledRoute>(primary.Count + dynamic.Count);
+        all.AddRange(primary);
+        all.AddRange(dynamic);
+        return all
+            .OrderBy(static r => r.Precedence, PrecedenceComparer.Instance)
+            .ThenBy(static r => r.Descriptor.Template, StringComparer.Ordinal)
+            .ThenBy(static r => r.Descriptor.Method, StringComparer.Ordinal)
+            .ToArray();
     }
 
     internal static int[] ComputePrecedence(IReadOnlyList<SegmentKind> kinds)
@@ -157,10 +274,6 @@ internal sealed class RouteMatcher
                 if (c != 0) return c;
             }
 
-            // Fewer segments preferred when shared prefix equal? Prefer more-specific (longer) when ranks tie on prefix.
-            // Actually for match we only compare among routes that already matched the path.
-            // For sort order of candidates of different lengths: shorter fixed templates with better ranks come first
-            // via segment-by-segment. Remaining length: prefer routes without catch-all already encoded in rank.
             return x.Length.CompareTo(y.Length);
         }
     }
@@ -170,24 +283,30 @@ internal sealed class RouteMatcher
         private readonly Segment[] _segments;
         private readonly int _fixedCount;
         private readonly bool _hasCatchAll;
-        private readonly RouteConstraintResolver _constraints;
+        private readonly int _paramCount;
 
         private CompiledRoute(
             RouteDescriptor descriptor,
             Segment[] segments,
             int[] precedence,
-            string?[] staticLiterals,
-            RouteConstraintResolver constraints)
+            string?[] staticLiterals)
         {
             Descriptor = descriptor;
             _segments = segments;
             Precedence = precedence;
             StaticLiterals = staticLiterals;
-            _constraints = constraints;
             _hasCatchAll = segments.Length > 0 && segments[^1].Kind == SegmentKind.CatchAll;
             _fixedCount = _hasCatchAll ? segments.Length - 1 : segments.Length;
             RequiredSegmentCount = segments.Count(static s => !s.IsOptional && s.Kind != SegmentKind.CatchAll);
             MaxSegmentCount = _hasCatchAll ? int.MaxValue : segments.Length;
+            _paramCount = 0;
+            foreach (var s in segments)
+            {
+                if (s.Kind != SegmentKind.Static)
+                {
+                    _paramCount++;
+                }
+            }
         }
 
         public RouteDescriptor Descriptor { get; }
@@ -207,8 +326,7 @@ internal sealed class RouteMatcher
                     descriptor,
                     Array.Empty<Segment>(),
                     Array.Empty<int>(),
-                    Array.Empty<string?>(),
-                    constraints);
+                    Array.Empty<string?>());
             }
 
             var parts = raw.Split('/', StringSplitOptions.RemoveEmptyEntries);
@@ -317,13 +435,18 @@ internal sealed class RouteMatcher
                                 $"Optional parameters must be trailing in template '{descriptor.Template}'.");
                         }
 
+                        ElsieRouteConstraint? predicate = null;
                         if (!string.IsNullOrEmpty(constraint))
                         {
-                            constraints.ValidateKnown(constraint, descriptor.Template);
+                            if (!constraints.TryCreate(constraint, out predicate, out var error))
+                            {
+                                throw new InvalidOperationException(
+                                    $"Unknown or invalid route constraint '{constraint}' in template '{descriptor.Template}'. {error}");
+                            }
                         }
 
                         var kind = string.IsNullOrEmpty(constraint) ? SegmentKind.Param : SegmentKind.Constrained;
-                        segments[i] = Segment.Param(name, constraint, optional, defaultValue);
+                        segments[i] = Segment.Param(name, constraint, optional, defaultValue, predicate);
                         kinds[i] = kind;
                     }
                 }
@@ -342,27 +465,16 @@ internal sealed class RouteMatcher
             }
 
             var precedence = ComputePrecedence(kinds);
-            return new CompiledRoute(descriptor, segments, precedence, statics, constraints);
+            return new CompiledRoute(descriptor, segments, precedence, statics);
         }
 
-        public bool TryMatch(string path, out IReadOnlyDictionary<string, string> values)
+        public bool TryMatch(string[] parts, out IReadOnlyDictionary<string, string> values)
         {
-            var raw = path.Trim('/');
-            string[] parts;
-            if (raw.Length == 0)
-            {
-                parts = Array.Empty<string>();
-            }
-            else
-            {
-                parts = raw.Split('/', StringSplitOptions.RemoveEmptyEntries);
-            }
-
             if (_segments.Length == 0)
             {
                 if (parts.Length == 0)
                 {
-                    values = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+                    values = EmptyRouteValues;
                     return true;
                 }
 
@@ -378,7 +490,7 @@ internal sealed class RouteMatcher
                     return false;
                 }
 
-                var map = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+                var map = new Dictionary<string, string>(_paramCount, StringComparer.OrdinalIgnoreCase);
                 for (var i = 0; i < _fixedCount; i++)
                 {
                     if (!MatchSegment(_segments[i], parts[i], map))
@@ -398,7 +510,7 @@ internal sealed class RouteMatcher
                     var rest = new string[parts.Length - _fixedCount];
                     for (var i = 0; i < rest.Length; i++)
                     {
-                        rest[i] = Uri.UnescapeDataString(parts[_fixedCount + i]);
+                        rest[i] = DecodeIfNeeded(parts[_fixedCount + i]);
                     }
 
                     map[catchAll.Name!] = string.Join('/', rest);
@@ -415,7 +527,23 @@ internal sealed class RouteMatcher
                 return false;
             }
 
-            var exact = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            // All-static and exact segment count → empty values if no params.
+            if (_paramCount == 0)
+            {
+                for (var i = 0; i < _segments.Length; i++)
+                {
+                    if (!MatchSegment(_segments[i], parts[i], null))
+                    {
+                        values = null!;
+                        return false;
+                    }
+                }
+
+                values = EmptyRouteValues;
+                return true;
+            }
+
+            var exact = new Dictionary<string, string>(_paramCount, StringComparer.OrdinalIgnoreCase);
             for (var i = 0; i < _segments.Length; i++)
             {
                 var segment = _segments[i];
@@ -447,29 +575,35 @@ internal sealed class RouteMatcher
             return true;
         }
 
-        private bool MatchSegment(Segment segment, string rawPart, Dictionary<string, string> map)
+        private static bool MatchSegment(Segment segment, string rawPart, Dictionary<string, string>? map)
         {
-            var value = Uri.UnescapeDataString(rawPart);
+            var value = DecodeIfNeeded(rawPart);
 
             if (segment.Kind == SegmentKind.Static)
             {
                 return string.Equals(value, segment.Literal, StringComparison.OrdinalIgnoreCase);
             }
 
-            if (!string.IsNullOrEmpty(segment.Constraint)
-                && !_constraints.Matches(segment.Constraint!, value))
+            if (segment.Predicate is not null && !segment.Predicate(value))
             {
                 return false;
             }
 
-            map[segment.Name!] = value;
+            map![segment.Name!] = value;
             return true;
         }
     }
 
     internal readonly struct Segment
     {
-        private Segment(SegmentKind kind, string? literal, string? name, string? constraint, bool optional, string? defaultValue)
+        private Segment(
+            SegmentKind kind,
+            string? literal,
+            string? name,
+            string? constraint,
+            bool optional,
+            string? defaultValue,
+            ElsieRouteConstraint? predicate)
         {
             Kind = kind;
             Literal = literal;
@@ -477,6 +611,7 @@ internal sealed class RouteMatcher
             Constraint = constraint;
             IsOptional = optional;
             DefaultValue = defaultValue;
+            Predicate = predicate;
         }
 
         public SegmentKind Kind { get; }
@@ -485,16 +620,22 @@ internal sealed class RouteMatcher
         public string? Constraint { get; }
         public bool IsOptional { get; }
         public string? DefaultValue { get; }
+        public ElsieRouteConstraint? Predicate { get; }
 
         public static Segment Static(string literal) =>
-            new(SegmentKind.Static, literal, null, null, false, null);
+            new(SegmentKind.Static, literal, null, null, false, null, null);
 
-        public static Segment Param(string name, string? constraint, bool optional, string? defaultValue) =>
+        public static Segment Param(
+            string name,
+            string? constraint,
+            bool optional,
+            string? defaultValue,
+            ElsieRouteConstraint? predicate) =>
             new(string.IsNullOrEmpty(constraint) ? SegmentKind.Param : SegmentKind.Constrained,
-                null, name, constraint, optional, defaultValue);
+                null, name, constraint, optional, defaultValue, predicate);
 
         public static Segment CatchAll(string name) =>
-            new(SegmentKind.CatchAll, null, name, null, false, null);
+            new(SegmentKind.CatchAll, null, name, null, false, null, null);
     }
 
     /// <summary>Expose compile for RouteTable ambiguity checks.</summary>

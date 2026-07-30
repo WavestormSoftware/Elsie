@@ -25,17 +25,6 @@ internal sealed class RouteConstraintResolver
         }
     }
 
-    public bool Matches(string expression, string value)
-    {
-        if (!TryCreate(expression, out var predicate, out _))
-        {
-            // Should have been caught at startup.
-            return false;
-        }
-
-        return predicate(value);
-    }
-
     public bool TryCreate(string expression, out ElsieRouteConstraint predicate, out string? error)
     {
         predicate = null!;

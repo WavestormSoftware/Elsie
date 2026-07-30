@@ -41,3 +41,4 @@ docs/**/ARCHITECTURE.md
 .dotnet/
 *.swp
 *~
+BenchmarkDotNet.Artifacts/

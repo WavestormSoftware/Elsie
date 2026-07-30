@@ -19,8 +19,20 @@ public class DispatchBenchmarks
         services.AddElsieModule<BenchModule>();
         _sp = services.BuildServiceProvider();
         _dispatcher = _sp.GetRequiredService<ElsieDispatcher>();
-        _ping = new ElsieRequest("GET", "/ping");
-        _item = new ElsieRequest("GET", "/items/7");
+
+        var headers = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["Accept"] = "application/json",
+            ["X-Request-Id"] = "bench-1"
+        };
+        var query = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["q"] = "elsie",
+            ["page"] = "1"
+        };
+
+        _ping = new ElsieRequest("GET", "/ping", query: query, headers: headers);
+        _item = new ElsieRequest("GET", "/items/7", query: query, headers: headers);
     }
 
     [GlobalCleanup]
