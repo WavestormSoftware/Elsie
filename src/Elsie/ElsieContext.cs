@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.Text.Json;
+using Elsie.Routing;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace Elsie;
@@ -9,22 +10,30 @@ namespace Elsie;
 /// </summary>
 public sealed class ElsieContext
 {
+    private readonly RouteTable? _routes;
+
     public ElsieContext(
         ElsieRequest request,
         ElsieResponse response,
         IReadOnlyDictionary<string, string> routeValues,
-        JsonSerializerOptions? jsonSerializerOptions = null)
+        JsonSerializerOptions? jsonSerializerOptions = null,
+        RouteTable? routes = null)
     {
         Request = request ?? throw new ArgumentNullException(nameof(request));
         Response = response ?? throw new ArgumentNullException(nameof(response));
         RouteValues = routeValues ?? throw new ArgumentNullException(nameof(routeValues));
         JsonSerializerOptions = jsonSerializerOptions ?? ElsieJson.DefaultOptions;
+        _routes = routes;
     }
 
     public ElsieRequest Request { get; }
     public ElsieResponse Response { get; }
     public IReadOnlyDictionary<string, string> RouteValues { get; }
     public IServiceProvider RequestServices => Request.RequestServices;
+
+    /// <summary>Alias for <see cref="RequestServices"/>.</summary>
+    public IServiceProvider Services => Request.RequestServices;
+
     public CancellationToken RequestAborted => Request.RequestAborted;
 
     /// <summary>JSON options for this request (from <see cref="ElsieOptions"/>).</summary>
@@ -113,6 +122,20 @@ public sealed class ElsieContext
         return false;
     }
 
+    /// <summary>
+    /// Build a path for a named route. Values may be a dictionary or an anonymous object.
+    /// </summary>
+    public string UrlFor(string name, object? values = null)
+    {
+        if (_routes is null)
+        {
+            throw new InvalidOperationException(
+                "Link generation requires a RouteTable on the context (normal dispatcher path).");
+        }
+
+        return _routes.GetPathByName(name, values);
+    }
+
     public async Task<T?> ReadJsonAsync<T>(CancellationToken cancellationToken = default)
     {
         return await JsonSerializer.DeserializeAsync<T>(
@@ -151,7 +174,7 @@ public sealed class ElsieContext
         }
     }
 
-    /// <summary>Serialize <paramref name="value"/> with this request's JSON options.</summary>
+    /// <summary>Serialize <paramref name="value"/> with this request's JSON options (app options).</summary>
     public ElsieResult Json<T>(T value, int statusCode = 200) =>
         ElsieResult.Json(value, statusCode, JsonSerializerOptions);
 }

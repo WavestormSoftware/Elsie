@@ -19,7 +19,13 @@ internal static class HttpContextElsieRequestFactory
             requestServices: httpContext.RequestServices,
             requestAborted: httpContext.RequestAborted,
             queryValues: CopyMulti(request.Query),
-            headerValues: CopyMulti(request.Headers));
+            headerValues: CopyMulti(request.Headers),
+            scheme: request.Scheme,
+            host: request.Host.Value,
+            pathBase: request.PathBase.Value,
+            protocol: request.Protocol,
+            remoteIp: httpContext.Connection.RemoteIpAddress?.ToString(),
+            queryString: request.QueryString.HasValue ? request.QueryString.Value : string.Empty);
         elsieRequest.SetHttpContext(httpContext);
         return elsieRequest;
     }

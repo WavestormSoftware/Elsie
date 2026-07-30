@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Primitives;
 
 namespace Elsie.AspNetCore;
 
@@ -46,9 +47,16 @@ public sealed class ElsieMiddleware
         }
 
         context.Response.StatusCode = response.StatusCode;
-        foreach (var header in response.Headers)
+        foreach (var (name, values) in response.Headers)
         {
-            context.Response.Headers[header.Key] = header.Value;
+            if (values.Count == 1)
+            {
+                context.Response.Headers[name] = values[0];
+            }
+            else
+            {
+                context.Response.Headers[name] = new StringValues(values as string[] ?? values.ToArray());
+            }
         }
 
         if (!string.IsNullOrEmpty(response.ContentType))

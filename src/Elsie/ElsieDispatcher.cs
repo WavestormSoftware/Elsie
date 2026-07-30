@@ -36,8 +36,15 @@ public sealed class ElsieDispatcher
 
         var match = lookup.Match!;
         var response = new ElsieResponse();
-        var context = new ElsieContext(request, response, match.RouteValues, _options.JsonSerializerOptions);
-        var ct = cancellationToken == default ? request.RequestAborted : cancellationToken;
+        var context = new ElsieContext(
+            request,
+            response,
+            match.RouteValues,
+            _options.JsonSerializerOptions,
+            _routes);
+
+        using var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, request.RequestAborted);
+        var ct = linked.Token;
         var modulePipelines = match.Route.Module?.Pipelines;
 
         ElsieResult result;

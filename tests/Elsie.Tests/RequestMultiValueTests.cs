@@ -64,4 +64,39 @@ public class RequestMultiValueTests
         Assert.Equal("1", request.GetQuery("id"));
         Assert.Equal(2, request.GetQueryValues("id").Count);
     }
+
+    [Fact]
+    public void Host_fields_and_query_string()
+    {
+        var request = new ElsieRequest(
+            "GET",
+            "/x",
+            scheme: "https",
+            host: "example.com",
+            pathBase: "/app",
+            protocol: "HTTP/2",
+            remoteIp: "1.2.3.4",
+            queryString: "?q=1",
+            queryValues: new Dictionary<string, IReadOnlyList<string>>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["q"] = new[] { "1" }
+            });
+
+        Assert.Equal("https", request.Scheme);
+        Assert.Equal("example.com", request.Host);
+        Assert.Equal("/app", request.PathBase);
+        Assert.Equal("HTTP/2", request.Protocol);
+        Assert.Equal("1.2.3.4", request.RemoteIp);
+        Assert.Equal("?q=1", request.QueryString);
+    }
+
+    [Fact]
+    public async Task ReadTextAsync_and_BufferBodyAsync()
+    {
+        var bytes = System.Text.Encoding.UTF8.GetBytes("hello");
+        await using var stream = new MemoryStream(bytes);
+        var request = new ElsieRequest("POST", "/", body: stream, contentLength: bytes.Length);
+        Assert.Equal("hello", await request.ReadTextAsync());
+        Assert.Equal(bytes, await request.BufferBodyAsync());
+    }
 }

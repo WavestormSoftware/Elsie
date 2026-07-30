@@ -1,3 +1,5 @@
+using System.Text;
+
 namespace Elsie;
 
 /// <summary>
@@ -16,6 +18,7 @@ public sealed class ElsieRequest
 
     private readonly IReadOnlyDictionary<string, IReadOnlyList<string>> _queryValues;
     private readonly IReadOnlyDictionary<string, IReadOnlyList<string>> _headerValues;
+    private byte[]? _bufferedBody;
 
     public ElsieRequest(
         string method,
@@ -29,7 +32,13 @@ public sealed class ElsieRequest
         CancellationToken requestAborted = default,
         IDictionary<object, object?>? items = null,
         IReadOnlyDictionary<string, IReadOnlyList<string>>? queryValues = null,
-        IReadOnlyDictionary<string, IReadOnlyList<string>>? headerValues = null)
+        IReadOnlyDictionary<string, IReadOnlyList<string>>? headerValues = null,
+        string? scheme = null,
+        string? host = null,
+        string? pathBase = null,
+        string? protocol = null,
+        string? remoteIp = null,
+        string? queryString = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(method);
         Method = method.ToUpperInvariant();
@@ -44,10 +53,34 @@ public sealed class ElsieRequest
         RequestServices = requestServices ?? EmptyServiceProvider.Instance;
         RequestAborted = requestAborted;
         Items = items ?? new Dictionary<object, object?>();
+        Scheme = scheme;
+        Host = host;
+        PathBase = pathBase;
+        Protocol = protocol;
+        RemoteIp = remoteIp;
+        QueryString = queryString ?? BuildQueryString(_queryValues);
     }
 
     public string Method { get; }
     public string Path { get; }
+
+    /// <summary>URI scheme (<c>http</c>/<c>https</c>), host-filled when available.</summary>
+    public string? Scheme { get; }
+
+    /// <summary>Host header / authority, host-filled when available.</summary>
+    public string? Host { get; }
+
+    /// <summary>Path base prefix stripped before routing, host-filled when available.</summary>
+    public string? PathBase { get; }
+
+    /// <summary>HTTP protocol string (e.g. <c>HTTP/1.1</c>), host-filled when available.</summary>
+    public string? Protocol { get; }
+
+    /// <summary>Remote client IP when the host provides it.</summary>
+    public string? RemoteIp { get; }
+
+    /// <summary>Raw query string including leading <c>?</c>, or empty.</summary>
+    public string QueryString { get; }
 
     /// <summary>First value per key. Prefer <see cref="GetQueryValues"/> for multi-value.</summary>
     public IReadOnlyDictionary<string, string> Query { get; }
@@ -125,6 +158,36 @@ public sealed class ElsieRequest
         return null;
     }
 
+    /// <summary>Read the entire body as UTF-8 text.</summary>
+    public async Task<string> ReadTextAsync(CancellationToken cancellationToken = default)
+    {
+        var bytes = await BufferBodyAsync(cancellationToken).ConfigureAwait(false);
+        return Encoding.UTF8.GetString(bytes);
+    }
+
+    /// <summary>
+    /// Buffer the request body into memory (once). Subsequent reads return the cached buffer.
+    /// Resets <see cref="Body"/> is not possible when the original stream is non-seekable;
+    /// callers should use the returned bytes.
+    /// </summary>
+    public async Task<byte[]> BufferBodyAsync(CancellationToken cancellationToken = default)
+    {
+        if (_bufferedBody is not null)
+        {
+            return _bufferedBody;
+        }
+
+        if (Body.CanSeek && Body.Position > 0)
+        {
+            Body.Position = 0;
+        }
+
+        await using var ms = new MemoryStream();
+        await Body.CopyToAsync(ms, cancellationToken).ConfigureAwait(false);
+        _bufferedBody = ms.ToArray();
+        return _bufferedBody;
+    }
+
     /// <summary>ASP.NET-style path segment prefix check (case-insensitive).</summary>
     public bool PathStartsWithSegments(string prefix)
     {
@@ -161,6 +224,35 @@ public sealed class ElsieRequest
         }
 
         return path;
+    }
+
+    private static string BuildQueryString(IReadOnlyDictionary<string, IReadOnlyList<string>> values)
+    {
+        if (values.Count == 0)
+        {
+            return string.Empty;
+        }
+
+        var sb = new StringBuilder();
+        sb.Append('?');
+        var first = true;
+        foreach (var (key, list) in values)
+        {
+            foreach (var value in list)
+            {
+                if (!first)
+                {
+                    sb.Append('&');
+                }
+
+                first = false;
+                sb.Append(Uri.EscapeDataString(key));
+                sb.Append('=');
+                sb.Append(Uri.EscapeDataString(value));
+            }
+        }
+
+        return sb.ToString();
     }
 
     private static IReadOnlyDictionary<string, IReadOnlyList<string>> Promote(

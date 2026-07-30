@@ -9,7 +9,7 @@ public sealed class ElsieHttpResponse
     private ElsieHttpResponse(
         int statusCode,
         string? contentType,
-        IReadOnlyDictionary<string, string> headers,
+        ElsieHeaders headers,
         ReadOnlyMemory<byte>? body,
         Func<Stream, CancellationToken, Task>? bodyWriter)
     {
@@ -22,14 +22,14 @@ public sealed class ElsieHttpResponse
 
     public int StatusCode { get; }
     public string? ContentType { get; }
-    public IReadOnlyDictionary<string, string> Headers { get; }
+    public ElsieHeaders Headers { get; }
     public ReadOnlyMemory<byte>? Body { get; }
     public Func<Stream, CancellationToken, Task>? BodyWriter { get; }
 
     /// <summary>
     /// Materialize a dispatch outcome.
     /// Returns <c>null</c> for <see cref="ElsieDispatchStatus.NotFound"/> (host fallthrough).
-    /// Header merge: <see cref="ElsieResponse"/> (hooks) then <see cref="ElsieResult"/> headers.
+    /// Header merge: hook headers → result headers → Set-Cookie from <see cref="ElsieResponse"/>.
     /// </summary>
     public static ElsieHttpResponse? FromDispatch(ElsieDispatchResult outcome)
     {
@@ -42,28 +42,32 @@ public sealed class ElsieHttpResponse
 
             case ElsieDispatchStatus.MethodNotAllowed:
             {
-                var headers = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
-                {
-                    ["Allow"] = string.Join(", ", outcome.AllowedMethods)
-                };
-                return new(405, contentType: null, headers, body: null, bodyWriter: null);
+                var headers = new ElsieHeaders();
+                headers.Set("Allow", string.Join(", ", outcome.AllowedMethods));
+                var problem = ElsieResult.Problem(
+                    405,
+                    title: "Method Not Allowed",
+                    detail: $"Allowed: {string.Join(", ", outcome.AllowedMethods)}");
+                return new(405, problem.ContentType, headers, problem.Body, bodyWriter: null);
             }
 
             case ElsieDispatchStatus.Handled:
             {
                 var result = outcome.Result!;
-                var headers = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+                var headers = new ElsieHeaders();
                 if (outcome.Response is not null)
                 {
-                    foreach (var h in outcome.Response.Headers)
-                    {
-                        headers[h.Key] = h.Value;
-                    }
+                    headers.MergeFrom(outcome.Response.Headers);
                 }
 
-                foreach (var h in result.Headers)
+                headers.MergeFrom(result.Headers);
+
+                if (outcome.Response is not null)
                 {
-                    headers[h.Key] = h.Value;
+                    foreach (var cookie in outcome.Response.SetCookies)
+                    {
+                        headers.Add("Set-Cookie", cookie);
+                    }
                 }
 
                 return new(result.StatusCode, result.ContentType, headers, result.Body, result.BodyWriter);
@@ -107,5 +111,4 @@ public sealed class ElsieHttpResponse
 
         return Array.Empty<byte>();
     }
-
 }

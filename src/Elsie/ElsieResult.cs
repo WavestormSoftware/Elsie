@@ -8,14 +8,14 @@ namespace Elsie;
 /// </summary>
 public sealed class ElsieResult
 {
-    private readonly Dictionary<string, string>? _headers;
+    private readonly ElsieHeaders? _headers;
 
     private ElsieResult(
         int statusCode,
         string? contentType,
         ReadOnlyMemory<byte>? body,
         Func<Stream, CancellationToken, Task>? bodyWriter,
-        Dictionary<string, string>? headers)
+        ElsieHeaders? headers)
     {
         StatusCode = statusCode;
         ContentType = contentType;
@@ -28,8 +28,8 @@ public sealed class ElsieResult
     public string? ContentType { get; }
     public ReadOnlyMemory<byte>? Body { get; }
     public Func<Stream, CancellationToken, Task>? BodyWriter { get; }
-    public IReadOnlyDictionary<string, string> Headers =>
-        _headers ?? (IReadOnlyDictionary<string, string>)EmptyHeaders.Instance;
+
+    public ElsieHeaders Headers => _headers ?? EmptyHeadersHolder.Instance;
 
     public static ElsieResult Status(int statusCode) =>
         new(statusCode, contentType: null, body: null, bodyWriter: null, headers: null);
@@ -104,6 +104,10 @@ public sealed class ElsieResult
     public static ElsieResult Bytes(ReadOnlyMemory<byte> bytes, string contentType, int statusCode = 200) =>
         new(statusCode, contentType, bytes, bodyWriter: null, headers: null);
 
+    /// <summary>
+    /// Serialize with framework defaults (<see cref="ElsieJson.DefaultOptions"/>) unless
+    /// <paramref name="options"/> is provided. Prefer <see cref="ElsieContext.Json{T}"/> for app options.
+    /// </summary>
     public static ElsieResult Json<T>(T value, int statusCode = 200, JsonSerializerOptions? options = null)
     {
         var payload = JsonSerializer.SerializeToUtf8Bytes(value, options ?? ElsieJson.DefaultOptions);
@@ -120,46 +124,36 @@ public sealed class ElsieResult
     public static ElsieResult Redirect(string location, bool permanent = false)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(location);
-        var headers = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
-        {
-            ["Location"] = location
-        };
+        var headers = new ElsieHeaders();
+        headers.Set("Location", location);
         return new(permanent ? 301 : 302, contentType: null, body: null, bodyWriter: null, headers);
     }
 
-    /// <summary>Returns a copy of this result with an additional response header.</summary>
+    /// <summary>Returns a copy of this result with an additional response header (Set semantics).</summary>
     public ElsieResult WithHeader(string name, string value)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(name);
         ArgumentNullException.ThrowIfNull(value);
-        var headers = _headers is null
-            ? new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
-            : new Dictionary<string, string>(_headers, StringComparer.OrdinalIgnoreCase);
-        headers[name] = value;
+        var headers = _headers?.Clone() ?? new ElsieHeaders();
+        headers.Set(name, value);
         return new(StatusCode, ContentType, Body, BodyWriter, headers);
     }
 
-    private sealed class EmptyHeaders : Dictionary<string, string>, IReadOnlyDictionary<string, string>
+    private static class EmptyHeadersHolder
     {
-        public static readonly EmptyHeaders Instance = new();
-        private EmptyHeaders() : base(0, StringComparer.OrdinalIgnoreCase) { }
+        public static readonly ElsieHeaders Instance = new();
     }
 }
 
-/// <summary>Shared JSON defaults for Elsie.</summary>
+/// <summary>
+/// Shared framework JSON defaults for Elsie.
+/// Immutable fallback — do not mutate. App configuration goes on <see cref="ElsieOptions.JsonSerializerOptions"/>
+/// and is used by <see cref="ElsieContext.Json{T}"/> / binding. Static <see cref="ElsieResult.Json{T}"/> uses these defaults.
+/// </summary>
 public static class ElsieJson
 {
-    private static JsonSerializerOptions _defaultOptions = new(JsonSerializerDefaults.Web);
+    private static readonly JsonSerializerOptions s_defaultOptions = new(JsonSerializerDefaults.Web);
 
-    public static JsonSerializerOptions DefaultOptions => _defaultOptions;
-
-    /// <summary>
-    /// Replaces the process-wide default used when handlers call <see cref="ElsieResult.Json{T}"/>
-    /// without explicit options. Prefer configuring via <see cref="ElsieOptions.JsonSerializerOptions"/>.
-    /// </summary>
-    public static void Configure(JsonSerializerOptions options)
-    {
-        ArgumentNullException.ThrowIfNull(options);
-        _defaultOptions = options;
-    }
+    /// <summary>Framework default JSON options. Treat as immutable.</summary>
+    public static JsonSerializerOptions DefaultOptions => s_defaultOptions;
 }
