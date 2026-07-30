@@ -59,6 +59,10 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Elsie.Templates", "template
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Elsie.Sample.Full", "samples\Elsie.Sample.Full\Elsie.Sample.Full.csproj", "{065222BD-8FF5-48CB-A9D9-7F2D41033D5A}"
 EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "benchmarks", "benchmarks", "{66320409-64EC-F7C5-3DEF-65E7510DAAD1}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Elsie.Benchmarks", "benchmarks\Elsie.Benchmarks\Elsie.Benchmarks.csproj", "{72671D96-E24F-41F0-9FAA-DC9A94274916}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -357,6 +361,18 @@ Global
 		{065222BD-8FF5-48CB-A9D9-7F2D41033D5A}.Release|x64.Build.0 = Release|Any CPU
 		{065222BD-8FF5-48CB-A9D9-7F2D41033D5A}.Release|x86.ActiveCfg = Release|Any CPU
 		{065222BD-8FF5-48CB-A9D9-7F2D41033D5A}.Release|x86.Build.0 = Release|Any CPU
+		{72671D96-E24F-41F0-9FAA-DC9A94274916}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{72671D96-E24F-41F0-9FAA-DC9A94274916}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{72671D96-E24F-41F0-9FAA-DC9A94274916}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{72671D96-E24F-41F0-9FAA-DC9A94274916}.Debug|x64.Build.0 = Debug|Any CPU
+		{72671D96-E24F-41F0-9FAA-DC9A94274916}.Debug|x86.ActiveCfg = Debug|Any CPU
+		{72671D96-E24F-41F0-9FAA-DC9A94274916}.Debug|x86.Build.0 = Debug|Any CPU
+		{72671D96-E24F-41F0-9FAA-DC9A94274916}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{72671D96-E24F-41F0-9FAA-DC9A94274916}.Release|Any CPU.Build.0 = Release|Any CPU
+		{72671D96-E24F-41F0-9FAA-DC9A94274916}.Release|x64.ActiveCfg = Release|Any CPU
+		{72671D96-E24F-41F0-9FAA-DC9A94274916}.Release|x64.Build.0 = Release|Any CPU
+		{72671D96-E24F-41F0-9FAA-DC9A94274916}.Release|x86.ActiveCfg = Release|Any CPU
+		{72671D96-E24F-41F0-9FAA-DC9A94274916}.Release|x86.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
@@ -386,5 +402,6 @@ Global
 		{D4E5F6A7-B8C9-0123-DEF0-234567890123} = {0AB3BF05-4346-4AA6-1389-037BE0695223}
 		{E5F6A7B8-C9D0-1234-EF01-345678901234} = {F6A7B8C9-D0E1-2345-F012-456789012345}
 		{065222BD-8FF5-48CB-A9D9-7F2D41033D5A} = {5D20AA90-6969-D8BD-9DCD-8634F4692FDA}
+		{72671D96-E24F-41F0-9FAA-DC9A94274916} = {66320409-64EC-F7C5-3DEF-65E7510DAAD1}
 	EndGlobalSection
 EndGlobal

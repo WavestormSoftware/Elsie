@@ -27,5 +27,40 @@ jobs:
         run: dotnet build Elsie.sln -c Release --no-restore
       - name: Test
         run: dotnet test Elsie.sln -c Release --no-build --verbosity normal
+      - name: Coverage (non-blocking)
+        continue-on-error: true
+        run: >
+          dotnet test Elsie.sln -c Release --no-build
+          --collect:"XPlat Code Coverage"
+          --results-directory TestResults
+          --verbosity minimal
+      - name: Pack libraries
+        run: dotnet pack Elsie.sln -c Release --no-build -o artifacts/nuget
       - name: Pack templates
         run: dotnet pack templates/Elsie.Templates.csproj -c Release -o artifacts/nuget
+      - name: Validate packs
+        shell: bash
+        run: |
+          set -euo pipefail
+          required=(
+            Elsie.0.2.0-alpha.1.nupkg
+            Elsie.AspNetCore.0.2.0-alpha.1.nupkg
+            Elsie.Auth.0.2.0-alpha.1.nupkg
+            Elsie.Cors.0.2.0-alpha.1.nupkg
+            Elsie.HealthChecks.0.2.0-alpha.1.nupkg
+            Elsie.RateLimiting.0.2.0-alpha.1.nupkg
+            Elsie.Views.0.2.0-alpha.1.nupkg
+            Elsie.FluentValidation.0.2.0-alpha.1.nupkg
+            Elsie.Testing.0.2.0-alpha.1.nupkg
+            Elsie.Templates.0.2.0-alpha.1.nupkg
+          )
+          missing=0
+          for f in "${required[@]}"; do
+            if [[ ! -f "artifacts/nuget/$f" ]]; then
+              echo "MISSING $f"
+              missing=1
+            else
+              echo "ok $f"
+            fi
+          done
+          exit $missing
