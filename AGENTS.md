@@ -4,7 +4,7 @@ Instructions for coding agents working on this repository.
 
 ## What this is
 
-**Elsie** is a greenfield, MIT-licensed, lightweight HTTP module framework for .NET (net8/net9). Core is **host-agnostic**; `Elsie.AspNetCore` adapts ASP.NET Core. Inspired by Sinatra-style DX — **not** a NancyFx fork.
+**Elsie** is a greenfield, MIT-licensed, lightweight HTTP module framework for .NET (net8/net10). Core is **host-agnostic**; `Elsie.AspNetCore` adapts ASP.NET Core. Inspired by Sinatra-style DX — **not** a NancyFx fork.
 
 ## Clean-room (mandatory)
 
@@ -63,7 +63,9 @@ dotnet pack Elsie.sln -c Release -o artifacts/nuget
 - Prefer **explicit** `AddElsieModule<T>()` in tests.
 - `AddElsie()` defaults `ScanEntryAssembly = true`.
 - Test hosts set `ScanEntryAssembly = false`.
-- Modules are **singletons**. Ctor-inject singleton-safe services; `ctx.GetRequiredService<T>()` for request scope.
+- Modules are **singletons**. Ctor-inject singleton-safe services; `ctx.GetRequiredService<T>()` / `ctx.Services` for request scope (test hosts ValidateScopes + per-request scope).
+- JSON: static `ElsieResult.Json` → framework defaults (`ElsieJson.DefaultOptions`); `ctx.Json` → app `ElsieOptions.JsonSerializerOptions`.
+- Routing: precedence static > constrained > param > catch-all; startup validates constraints/ambiguity/dup names; `RouteBuilder` metadata + `ctx.UrlFor`.
 - `Path` / `Group`, `BindJsonAsync`, problem results, optional `ExceptionHandler`.
 - Views: `AddElsieViews` + `ctx.ViewAsync` (`Elsie.Views`).
 

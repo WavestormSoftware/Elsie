@@ -57,7 +57,7 @@ dotnet add package Elsie.FluentValidation   # optional validation
 dotnet add package Elsie.Testing            # tests
 ```
 
-NuGet: [Elsie](https://www.nuget.org/packages/Elsie) · current `0.1.0-alpha.1`
+NuGet: [Elsie](https://www.nuget.org/packages/Elsie) · current `0.2.0-alpha.1`
 
 ---
 
