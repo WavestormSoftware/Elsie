@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 Elsie is **unreleased** software; alphas may include breaking API changes.
 
+## [0.3.0-alpha.1] — unreleased
+
+### Changed
+- Package rename: **Elsie.AspNetCore → Elsie.Web** (namespace `Elsie.Web`)
+- Package layout: HealthChecks + RateLimiting folded into Elsie.Core
+- Elsie.FluentValidation removed (app-level recipe in docs/binding.md)
+- Custom static files removed; use ASP.NET UseStaticFiles
+- Meta package Elsie → depends on Elsie.Web → Elsie.Core
+
+### Removed
+- Package IDs: Elsie.AspNetCore (renamed), Elsie.HealthChecks, Elsie.RateLimiting, Elsie.FluentValidation
+- MapElsieStaticFiles / ElsieStaticFileOptions
+
 ## [0.2.0-alpha.2] — 2026-07-30
 
 ### Changed

@@ -3,7 +3,7 @@
 HTTP module framework for **.NET 8** and **.NET 10**. Define routes in small modules, return results, host on ASP.NET Core.
 
 ```bash
-dotnet add package Elsie          # 0.2.0-alpha.2 — pulls Elsie.Web + Elsie.Core
+dotnet add package Elsie          # 0.3.0-alpha.1 — pulls Elsie.Web + Elsie.Core
 ```
 
 ```csharp
@@ -323,7 +323,7 @@ In tests, set `ScanEntryAssembly = false` and register modules explicitly.
 | [Elsie.Testing](https://www.nuget.org/packages/Elsie.Testing) | In-memory + TestServer hosts |
 | [Elsie.Templates](https://www.nuget.org/packages/Elsie.Templates) | `dotnet new elsie` / `elsie-api` |
 
-Current version: **`0.2.0-alpha.2`** (prerelease; APIs may still change).
+Current version: **`0.3.0-alpha.1`** (prerelease; APIs may still change).
 
 Namespaces stay `Elsie` / `Elsie.Web` regardless of package id. Library authors who want the host-agnostic surface only should reference **`Elsie.Core`**.
 

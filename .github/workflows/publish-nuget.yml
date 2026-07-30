@@ -11,12 +11,14 @@
 # (WavestormSoftware). Set repo variable NUGET_USER to that username, or pass
 # workflow_dispatch input nuget_user.
 #
-# Package IDs published (0.2.0-alpha.2+):
+# Package IDs published (0.3.0-alpha.1+):
 #   Elsie (meta → Elsie.Web → Elsie.Core), Elsie.Core, Elsie.Web,
-#
-# First push of a new package ID requires the policy owner to be allowed to
-# create packages under the owner (org WavestormSoftware). Existing package
-# policies cover version bumps; new IDs may need a policy/owner confirm on nuget.org.
+#   Elsie.Auth, Elsie.Cors, Elsie.Testing, Elsie.Views, Elsie.Templates
+# Retired IDs (do not pack): Elsie.AspNetCore, Elsie.HealthChecks,
+#   Elsie.RateLimiting, Elsie.FluentValidation
+# First push of Elsie.Web requires Trusted Publishing allowance for new package ID.
+# Existing package policies cover version bumps; new IDs may need a policy/owner
+# confirm on nuget.org.
 #
 # Docs: https://learn.microsoft.com/nuget/nuget-org/trusted-publishing
 
@@ -104,7 +106,7 @@ jobs:
       - name: Validate expected packages
         run: |
           set -euo pipefail
-          version="0.2.0-alpha.2"
+          version="0.3.0-alpha.1"
           required=(
             "Elsie.$version.nupkg"
             "Elsie.Core.$version.nupkg"
