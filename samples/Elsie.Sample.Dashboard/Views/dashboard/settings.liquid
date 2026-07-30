@@ -1,0 +1,16 @@
+{% layout '../_DashboardLayout.liquid' %}
+
+<h1 class="page-title">Settings</h1>
+<p class="lead">Profile for <code>{{ Email }}</code>.</p>
+
+{% partial '../_flash' %}
+
+<form method="post" action="/dashboard/settings">
+  <label for="displayName">Display name</label>
+  <input id="displayName" name="DisplayName" type="text" value="{{ DisplayName }}" required />
+
+  <div class="form-footer">
+    <button class="btn btn-primary" type="submit">Save changes</button>
+    <a class="btn btn-ghost" href="/dashboard">Back to overview</a>
+  </div>
+</form>

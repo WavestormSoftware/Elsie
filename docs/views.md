@@ -50,6 +50,7 @@ Returns an **`Html`** `ElsieResult`.
 - Output is HTML-encoded by default (Fluid)
 - Ambient **`Request`** path/query exposed via view context
 - Layouts / partials follow Liquid + Fluid conventions
+- Nested view folders resolve layouts/partials relatively — use `../_Layout.liquid` from e.g. `Views/dashboard/`
 
 ## Seam
 
@@ -64,7 +65,7 @@ Default implementation: **`FluidElsieViewEngine`**. Cache key = path + mtime whe
 
 ## Sample
 
-`samples/Elsie.Sample.Views`, `samples/Elsie.Sample.Full`.
+`samples/Elsie.Sample.Views`, `samples/Elsie.Sample.Dashboard` (multi-page + auth), `samples/Elsie.Sample.Full`.
 
 ## See also
 

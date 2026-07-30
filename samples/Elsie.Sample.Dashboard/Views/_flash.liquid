@@ -1,0 +1,6 @@
+{% if Error and Error != blank %}
+  <div class="banner banner-error" role="alert">{{ Error }}</div>
+{% endif %}
+{% if Message and Message != blank %}
+  <div class="banner banner-ok" role="status">{{ Message }}</div>
+{% endif %}

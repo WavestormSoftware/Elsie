@@ -1,0 +1,35 @@
+{% layout '../_DashboardLayout.liquid' %}
+
+<h1 class="page-title">Overview</h1>
+<p class="lead">Welcome back, {{ DisplayName }}.</p>
+
+<div class="stats">
+  <div class="stat">
+    <div class="label">Projects</div>
+    <div class="value">{{ Stats.Projects }}</div>
+  </div>
+  <div class="stat">
+    <div class="label">Open tasks</div>
+    <div class="value">{{ Stats.TasksOpen }}</div>
+  </div>
+  <div class="stat">
+    <div class="label">Activity events</div>
+    <div class="value">{{ Stats.ActivityCount }}</div>
+  </div>
+</div>
+
+<h2>Recent activity</h2>
+{% if Recent.size == 0 %}
+  <p class="muted">No activity yet.</p>
+{% else %}
+  <ul class="list">
+    {% for item in Recent %}
+      <li>
+        <span class="when">{{ item.At }}</span>
+        <span class="kind">{{ item.Kind }}</span>
+        <span>{{ item.Message }}</span>
+      </li>
+    {% endfor %}
+  </ul>
+  <p style="margin-top:1rem"><a href="/dashboard/activity">View all activity →</a></p>
+{% endif %}

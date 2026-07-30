@@ -47,6 +47,7 @@ dotnet run --project samples/Elsie.Sample.HelloWorld
 dotnet run --project samples/Elsie.Sample.Hello
 dotnet run --project samples/Elsie.Sample.Api
 dotnet run --project samples/Elsie.Sample.Views
+dotnet run --project samples/Elsie.Sample.Dashboard
 dotnet run --project samples/Elsie.Sample.Full
 dotnet pack Elsie.sln -c Release -o artifacts/nuget
 dotnet pack templates/Elsie.Templates.csproj -c Release -o artifacts/nuget
@@ -87,6 +88,7 @@ Changelog: `CHANGELOG.md`.
 - Easy: `samples/Elsie.Sample.Hello`
 - Advanced API: `samples/Elsie.Sample.Api`
 - Views: `samples/Elsie.Sample.Views`
+- Dashboard (multi-page views + cookie auth): `samples/Elsie.Sample.Dashboard`
 - Full kitchen sink: `samples/Elsie.Sample.Full` (auth, CORS, rate limit, health, static, views)
 - All samples use ASP.NET Core
 

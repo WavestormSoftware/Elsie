@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>{{ Title }} · Dashboard</title>
+  <link rel="stylesheet" href="/assets/app.css" />
+</head>
+<body>
+  <header class="topbar">
+    <a class="brand" href="/dashboard">
+      <span class="brand-mark" aria-hidden="true"></span>
+      Elsie Dashboard
+    </a>
+    <nav class="topnav" aria-label="Primary">
+      <a href="/">Marketing site</a>
+      <span class="muted">{{ DisplayName }}</span>
+      <form method="post" action="/logout" style="display:inline;margin:0">
+        <button class="btn btn-ghost" type="submit">Sign out</button>
+      </form>
+    </nav>
+  </header>
+
+  <div class="shell app">
+    <aside class="side">
+      <p class="who muted">
+        Signed in
+        <strong>{{ DisplayName }}</strong>
+        <span>{{ UserName }}</span>
+      </p>
+      <nav aria-label="Dashboard">
+        <a href="/dashboard" class="{% if Active == 'overview' %}active{% endif %}">Overview</a>
+        <a href="/dashboard/activity" class="{% if Active == 'activity' %}active{% endif %}">Activity</a>
+        <a href="/dashboard/settings" class="{% if Active == 'settings' %}active{% endif %}">Settings</a>
+      </nav>
+    </aside>
+
+    <main class="card">
+      {% renderbody %}
+    </main>
+  </div>
+
+  <footer class="footer">
+    Protected area · <code>Before</code> redirect gate · Liquid layouts + partials
+  </footer>
+</body>
+</html>

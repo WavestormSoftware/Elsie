@@ -1,0 +1,23 @@
+{% layout '_Layout.liquid' %}
+
+<div class="auth-wrap card">
+  <h1 class="page-title">Sign in</h1>
+  <p class="lead">Use the seed account or one you registered.</p>
+
+  {% partial '_flash' %}
+
+  <form method="post" action="/login" novalidate>
+    <input type="hidden" name="ReturnUrl" value="{{ ReturnUrl }}" />
+
+    <label for="email">Email</label>
+    <input id="email" name="Email" type="email" autocomplete="username" value="{{ Email }}" required />
+
+    <label for="password">Password</label>
+    <input id="password" name="Password" type="password" autocomplete="current-password" required />
+
+    <div class="form-footer">
+      <button class="btn btn-primary" type="submit">Sign in</button>
+      <a href="/register">Need an account?</a>
+    </div>
+  </form>
+</div>

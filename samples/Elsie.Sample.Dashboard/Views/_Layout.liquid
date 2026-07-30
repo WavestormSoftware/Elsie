@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>{{ Title }} · Elsie</title>
+  <link rel="stylesheet" href="/assets/app.css" />
+</head>
+<body>
+  <header class="topbar">
+    <a class="brand" href="/">
+      <span class="brand-mark" aria-hidden="true"></span>
+      Elsie Dashboard
+    </a>
+    <nav class="topnav" aria-label="Primary">
+      <a href="/" class="{% if Active == 'home' %}active{% endif %}">Home</a>
+      {% if Authenticated %}
+        <a href="/dashboard" class="{% if Active == 'overview' or Active == 'activity' or Active == 'settings' %}active{% endif %}">Dashboard</a>
+        <form method="post" action="/logout" style="display:inline;margin:0">
+          <button class="btn btn-ghost" type="submit">Sign out</button>
+        </form>
+      {% else %}
+        <a href="/login" class="{% if Active == 'login' %}active{% endif %}">Sign in</a>
+        <a class="btn btn-primary" href="/register">Create account</a>
+      {% endif %}
+    </nav>
+  </header>
+
+  <div class="shell">
+    {% renderbody %}
+  </div>
+
+  <footer class="footer">
+    Multi-page Fluid sample · cookie auth · form posts ·
+    seed <code>ada@elsie.dev</code> / <code>pass</code>
+  </footer>
+</body>
+</html>

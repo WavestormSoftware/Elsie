@@ -1,0 +1,13 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Elsie.Web\Elsie.Web.csproj" />
+    <ProjectReference Include="..\..\src\Elsie.Auth\Elsie.Auth.csproj" />
+    <ProjectReference Include="..\..\src\Elsie.Views\Elsie.Views.csproj" />
+  </ItemGroup>
+</Project>

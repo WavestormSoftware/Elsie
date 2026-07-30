@@ -1,0 +1,27 @@
+{% layout '_Layout.liquid' %}
+
+<div class="auth-wrap card">
+  <h1 class="page-title">Create account</h1>
+  <p class="lead">In-memory store for the sample process lifetime.</p>
+
+  {% partial '_flash' %}
+
+  <form method="post" action="/register" novalidate>
+    <label for="displayName">Display name</label>
+    <input id="displayName" name="DisplayName" type="text" autocomplete="name" value="{{ DisplayName }}" required />
+
+    <label for="email">Email</label>
+    <input id="email" name="Email" type="email" autocomplete="username" value="{{ Email }}" required />
+
+    <label for="password">Password</label>
+    <input id="password" name="Password" type="password" autocomplete="new-password" required />
+
+    <label for="confirm">Confirm password</label>
+    <input id="confirm" name="ConfirmPassword" type="password" autocomplete="new-password" required />
+
+    <div class="form-footer">
+      <button class="btn btn-primary" type="submit">Register</button>
+      <a href="/login">Already have an account?</a>
+    </div>
+  </form>
+</div>

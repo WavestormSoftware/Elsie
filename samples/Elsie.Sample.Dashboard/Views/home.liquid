@@ -1,0 +1,50 @@
+{% layout '_Layout.liquid' %}
+
+<section class="hero">
+  <div class="card">
+    <h1>Ship HTML apps on Elsie</h1>
+    <p class="lead">
+      This sample is a small multi-page product shell: marketing home, register,
+      login, and an authenticated dashboard with overview, activity, and settings.
+    </p>
+    <div class="actions">
+      {% if Authenticated %}
+        <a class="btn btn-primary" href="/dashboard">Open dashboard</a>
+        <a class="btn btn-ghost" href="/dashboard/settings">Account settings</a>
+      {% else %}
+        <a class="btn btn-primary" href="/register">Create account</a>
+        <a class="btn btn-ghost" href="/login">Sign in</a>
+      {% endif %}
+    </div>
+    <p class="muted" style="margin-top:1.25rem">
+      Views are Fluid/Liquid via <code>Elsie.Views</code>. Auth is cookie-based via
+      <code>Elsie.Auth</code>. Forms use <code>BindFormAsync</code>.
+    </p>
+  </div>
+
+  <div class="card">
+    <h2>Try it</h2>
+    <p class="muted">Seed account (also register your own):</p>
+    <p><code>ada@elsie.dev</code> / <code>pass</code></p>
+    <ol class="muted">
+      <li>Sign in or register</li>
+      <li>Browse dashboard pages</li>
+      <li>Update display name under Settings</li>
+    </ol>
+  </div>
+</section>
+
+<section class="features">
+  <article class="card feature">
+    <h3>Layouts</h3>
+    <p>Public chrome and a separate dashboard shell with sidebar nav.</p>
+  </article>
+  <article class="card feature">
+    <h3>Guarded routes</h3>
+    <p><code>/dashboard/*</code> redirects anonymous users to login with returnUrl.</p>
+  </article>
+  <article class="card feature">
+    <h3>Form posts</h3>
+    <p>Login, register, logout, and settings are classic HTML forms — no SPA required.</p>
+  </article>
+</section>

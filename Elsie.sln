@@ -53,6 +53,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Elsie.Benchmarks", "benchma
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Elsie.Meta", "src\Elsie.Meta\Elsie.Meta.csproj", "{FC4349B4-1C56-4C69-B52D-7B231DE3453F}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Elsie.Sample.Dashboard", "samples\Elsie.Sample.Dashboard\Elsie.Sample.Dashboard.csproj", "{379AF605-E5A2-4456-9E25-597594C6709E}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -303,6 +305,18 @@ Global
 		{FC4349B4-1C56-4C69-B52D-7B231DE3453F}.Release|x64.Build.0 = Release|Any CPU
 		{FC4349B4-1C56-4C69-B52D-7B231DE3453F}.Release|x86.ActiveCfg = Release|Any CPU
 		{FC4349B4-1C56-4C69-B52D-7B231DE3453F}.Release|x86.Build.0 = Release|Any CPU
+		{379AF605-E5A2-4456-9E25-597594C6709E}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{379AF605-E5A2-4456-9E25-597594C6709E}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{379AF605-E5A2-4456-9E25-597594C6709E}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{379AF605-E5A2-4456-9E25-597594C6709E}.Debug|x64.Build.0 = Debug|Any CPU
+		{379AF605-E5A2-4456-9E25-597594C6709E}.Debug|x86.ActiveCfg = Debug|Any CPU
+		{379AF605-E5A2-4456-9E25-597594C6709E}.Debug|x86.Build.0 = Debug|Any CPU
+		{379AF605-E5A2-4456-9E25-597594C6709E}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{379AF605-E5A2-4456-9E25-597594C6709E}.Release|Any CPU.Build.0 = Release|Any CPU
+		{379AF605-E5A2-4456-9E25-597594C6709E}.Release|x64.ActiveCfg = Release|Any CPU
+		{379AF605-E5A2-4456-9E25-597594C6709E}.Release|x64.Build.0 = Release|Any CPU
+		{379AF605-E5A2-4456-9E25-597594C6709E}.Release|x86.ActiveCfg = Release|Any CPU
+		{379AF605-E5A2-4456-9E25-597594C6709E}.Release|x86.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
@@ -328,5 +342,6 @@ Global
 		{065222BD-8FF5-48CB-A9D9-7F2D41033D5A} = {5D20AA90-6969-D8BD-9DCD-8634F4692FDA}
 		{72671D96-E24F-41F0-9FAA-DC9A94274916} = {66320409-64EC-F7C5-3DEF-65E7510DAAD1}
 		{FC4349B4-1C56-4C69-B52D-7B231DE3453F} = {827E0CD3-B72D-47B6-A68D-7590B98EB39B}
+		{379AF605-E5A2-4456-9E25-597594C6709E} = {5D20AA90-6969-D8BD-9DCD-8634F4692FDA}
 	EndGlobalSection
 EndGlobal

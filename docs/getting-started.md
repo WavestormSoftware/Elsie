@@ -63,6 +63,7 @@ app.Run();
 | `samples/Elsie.Sample.Hello` | DI, query, constraints, pipelines |
 | `samples/Elsie.Sample.Api` | CRUD + API key + OpenAPI |
 | `samples/Elsie.Sample.Views` | Fluid/Liquid |
+| `samples/Elsie.Sample.Dashboard` | Multi-page views, login/register, cookie dashboard |
 | `samples/Elsie.Sample.Full` | Auth, CORS, rate limit, health, static, views |
 
 ```bash

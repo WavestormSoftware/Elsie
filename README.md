@@ -37,7 +37,7 @@ dotnet new elsie -n HelloApp        # minimal app
 dotnet new elsie-api -n TodosApi    # CRUD + API key + OpenAPI
 ```
 
-Guides: [docs/](docs/) · Samples: [HelloWorld](samples/Elsie.Sample.HelloWorld) · [Hello](samples/Elsie.Sample.Hello) · [Api](samples/Elsie.Sample.Api) · [Views](samples/Elsie.Sample.Views) · [Full](samples/Elsie.Sample.Full) · NuGet: [Elsie](https://www.nuget.org/packages/Elsie)
+Guides: [docs/](docs/) · Samples: [HelloWorld](samples/Elsie.Sample.HelloWorld) · [Hello](samples/Elsie.Sample.Hello) · [Api](samples/Elsie.Sample.Api) · [Views](samples/Elsie.Sample.Views) · [Dashboard](samples/Elsie.Sample.Dashboard) · [Full](samples/Elsie.Sample.Full) · NuGet: [Elsie](https://www.nuget.org/packages/Elsie)
 
 ---
 

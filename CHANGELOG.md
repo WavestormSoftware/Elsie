@@ -9,6 +9,9 @@ Elsie is **unreleased** software; alphas may include breaking API changes.
 
 ## [0.3.0-alpha.1] — unreleased
 
+### Added
+- Sample **`Elsie.Sample.Dashboard`** — multi-page Fluid views (home, login, register, dashboard overview/activity/settings) with cookie auth + form posts
+
 ### Changed
 - Package rename: **Elsie.AspNetCore → Elsie.Web** (namespace `Elsie.Web`)
 - Package layout: HealthChecks + RateLimiting folded into **Elsie.Core** (namespaces unchanged)

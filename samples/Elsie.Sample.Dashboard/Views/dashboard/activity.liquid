@@ -1,0 +1,18 @@
+{% layout '../_DashboardLayout.liquid' %}
+
+<h1 class="page-title">Activity</h1>
+<p class="lead">Latest events for {{ DisplayName }}.</p>
+
+{% if Items.size == 0 %}
+  <p class="muted">Nothing recorded yet. Sign-ins and settings changes show up here.</p>
+{% else %}
+  <ul class="list">
+    {% for item in Items %}
+      <li>
+        <span class="when">{{ item.At }}</span>
+        <span class="kind">{{ item.Kind }}</span>
+        <span>{{ item.Message }}</span>
+      </li>
+    {% endfor %}
+  </ul>
+{% endif %}
