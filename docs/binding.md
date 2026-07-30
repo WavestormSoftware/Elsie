@@ -18,8 +18,6 @@ if (!ctx.RequireQuery("page", out int page, out error))
     return error!;
 ```
 
-Legacy helpers remain (`RequireRouteInt`, `TryGetQueryBool`, `RouteOrDefault`, …) and delegate to the typed path.
-
 Conversion uses invariant culture: primitives, `Guid`, `DateTime` / `DateTimeOffset`, enums.
 
 ## Object binders
@@ -35,7 +33,8 @@ var json = await ctx.BindJsonAsync<CreateTodo>(ct);
 
 - Reflection binders cache setters; nullable/default-aware
 - Failures → **400** validation-style problem listing bad fields
-- JSON: max body size `ElsieOptions.MaxBindBodySize` (default **4 MB**); path-rich errors
+- JSON: max body size `ElsieOptions.MaxBindBodySize` (default **4 MB**); path-rich errors; non-JSON Content-Type → **415**
+- Repeated query/form keys bind to `string[]` / `List<string>` (and convertible element types)
 
 ## FluentValidation (app-level recipe)
 

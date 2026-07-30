@@ -19,7 +19,6 @@ public static class ElsieServiceCollectionExtensions
         var options = GetOrCreateOptionsInstance(services);
         if (configure is not null)
         {
-            services.AddSingleton(new ElsieOptionsSetup(configure));
             configure(options);
         }
 
@@ -136,17 +135,6 @@ public static class ElsieServiceCollectionExtensions
             }
         }
     }
-}
-
-/// <summary>Internal registration hook so options configures compose (mirrors <see cref="ElsiePipelineSetup"/>).</summary>
-internal sealed class ElsieOptionsSetup
-{
-    public ElsieOptionsSetup(Action<ElsieOptions> configure)
-    {
-        Configure = configure ?? throw new ArgumentNullException(nameof(configure));
-    }
-
-    public Action<ElsieOptions> Configure { get; }
 }
 
 /// <summary>Internal registration hook so pipeline configures compose on one singleton.</summary>

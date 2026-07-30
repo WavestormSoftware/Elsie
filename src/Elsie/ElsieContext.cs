@@ -129,123 +129,25 @@ public sealed class ElsieContext
         return false;
     }
 
-    // ---- legacy typed helpers (thin wrappers) ----
-
-    public bool TryGetRouteInt(string key, out int value)
-    {
-        if (TryRoute<int>(key, out var v))
-        {
-            value = v;
-            return true;
-        }
-
-        value = default;
-        return false;
-    }
-
-    public bool TryGetRouteLong(string key, out long value)
-    {
-        if (TryRoute<long>(key, out var v))
-        {
-            value = v;
-            return true;
-        }
-
-        value = default;
-        return false;
-    }
-
-    public bool TryGetRouteGuid(string key, out Guid value)
-    {
-        if (TryRoute<Guid>(key, out var v))
-        {
-            value = v;
-            return true;
-        }
-
-        value = default;
-        return false;
-    }
-
-    public bool TryGetRouteBool(string key, out bool value)
-    {
-        if (TryRoute<bool>(key, out var v))
-        {
-            value = v;
-            return true;
-        }
-
-        value = default;
-        return false;
-    }
-
-    public bool TryGetQueryInt(string key, out int value)
-    {
-        if (TryQuery<int>(key, out var v))
-        {
-            value = v;
-            return true;
-        }
-
-        value = default;
-        return false;
-    }
-
-    public bool TryGetQueryBool(string key, out bool value)
-    {
-        if (TryQuery<bool>(key, out var v))
-        {
-            value = v;
-            return true;
-        }
-
-        value = default;
-        return false;
-    }
-
-    public bool RequireRouteInt(string key, out int value, out ElsieResult? error)
-    {
-        if (RequireRoute<int>(key, out var v, out error))
-        {
-            value = v;
-            return true;
-        }
-
-        value = default;
-        return false;
-    }
-
-    public bool RequireRouteGuid(string key, out Guid value, out ElsieResult? error)
-    {
-        if (RequireRoute<Guid>(key, out var v, out error))
-        {
-            value = v;
-            return true;
-        }
-
-        value = default;
-        return false;
-    }
-
     /// <summary>Bind a POCO from route values (property name = route key, case-insensitive).</summary>
     public ElsieBindResult<T> BindRoute<T>() where T : new()
     {
-        var map = new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase);
+        var map = new Dictionary<string, IReadOnlyList<string>>(StringComparer.OrdinalIgnoreCase);
         foreach (var (k, v) in RouteValues)
         {
-            map[k] = v;
+            map[k] = new[] { v };
         }
 
         return ElsieObjectBinder.Bind<T>(map);
     }
 
-    /// <summary>Bind a POCO from query string (first value per key).</summary>
+    /// <summary>Bind a POCO from query string (supports repeated keys → arrays/lists).</summary>
     public ElsieBindResult<T> BindQuery<T>() where T : new()
     {
-        var map = new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase);
-        foreach (var (k, v) in Request.Query)
+        var map = new Dictionary<string, IReadOnlyList<string>>(StringComparer.OrdinalIgnoreCase);
+        foreach (var key in Request.Query.Keys)
         {
-            map[k] = v;
+            map[key] = Request.GetQueryValues(key);
         }
 
         return ElsieObjectBinder.Bind<T>(map);
@@ -284,7 +186,7 @@ public sealed class ElsieContext
         }
 
         var text = Encoding.UTF8.GetString(bytes);
-        var map = ParseFormUrlEncoded(text);
+        var map = ParseFormUrlEncodedMulti(text);
         return ElsieObjectBinder.Bind<T>(map);
     }
 
@@ -310,6 +212,12 @@ public sealed class ElsieContext
     {
         try
         {
+            if (!IsJsonContentType(Request.ContentType))
+            {
+                return ElsieBindResult<T>.Fail(ElsieResult.Problem(415, "Unsupported Media Type",
+                    "Expected Content-Type application/json (or *+json)."));
+            }
+
             if (Request.ContentLength is 0)
             {
                 return ElsieBindResult<T>.Fail(ElsieResult.BadRequest("JSON body is required."));
@@ -346,45 +254,30 @@ public sealed class ElsieContext
     }
 
     /// <summary>
-    /// Minimal Accept negotiation: JSON for objects, text for strings, 406 otherwise.
+    /// Problem+json with <c>instance</c> = request path and optional <c>traceId</c> from Activity.Current.
     /// </summary>
-    public ElsieResult Negotiate(object? model)
+    public ElsieResult Problem(int statusCode, string title, string? detail = null)
     {
-        var accept = Request.GetHeader("Accept");
-        var ranges = ParseAccept(accept);
-
-        var wantsJson = Accepts(ranges, "application/json", "text/json", "application/*", "*/*");
-        var wantsText = Accepts(ranges, "text/plain", "text/*", "*/*");
-        var wantsHtml = Accepts(ranges, "text/html", "text/*", "*/*");
-
-        if (model is string s)
+        ArgumentException.ThrowIfNullOrWhiteSpace(title);
+        var payload = new Dictionary<string, object?>(StringComparer.Ordinal)
         {
-            if (wantsText || wantsHtml || ranges.Count == 0)
-            {
-                return wantsHtml && !wantsText
-                    ? ElsieResult.Html(s)
-                    : ElsieResult.Text(s);
-            }
-
-            if (wantsJson)
-            {
-                return Json(s);
-            }
-
-            return ElsieResult.NotAcceptable("No acceptable representation for string body.");
+            ["status"] = statusCode,
+            ["title"] = title,
+            ["instance"] = Request.Path
+        };
+        if (!string.IsNullOrWhiteSpace(detail))
+        {
+            payload["detail"] = detail;
         }
 
-        if (wantsJson || ranges.Count == 0)
+        var trace = System.Diagnostics.Activity.Current?.Id;
+        if (!string.IsNullOrEmpty(trace))
         {
-            return Json(model);
+            payload["traceId"] = trace;
         }
 
-        if (wantsText && model is not null)
-        {
-            return ElsieResult.Text(Convert.ToString(model, CultureInfo.InvariantCulture) ?? string.Empty);
-        }
-
-        return ElsieResult.NotAcceptable("No acceptable representation.");
+        var bytes = JsonSerializer.SerializeToUtf8Bytes(payload, JsonSerializerOptions);
+        return ElsieResult.Bytes(bytes, "application/problem+json; charset=utf-8", statusCode);
     }
 
     /// <summary>Serialize <paramref name="value"/> with this request's JSON options (app options).</summary>
@@ -404,12 +297,39 @@ public sealed class ElsieContext
         return ms.ToArray();
     }
 
-    private static Dictionary<string, string?> ParseFormUrlEncoded(string text)
+
+    private static bool IsJsonContentType(string? contentType)
     {
-        var map = new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase);
+        if (string.IsNullOrWhiteSpace(contentType))
+        {
+            // Many clients omit Content-Type; attempt deserialize.
+            return true;
+        }
+
+        var media = contentType;
+        var semi = media.IndexOf(';');
+        if (semi >= 0)
+        {
+            media = media[..semi];
+        }
+
+        media = media.Trim();
+        if (media.Equals("application/json", StringComparison.OrdinalIgnoreCase)
+            || media.StartsWith("application/json", StringComparison.OrdinalIgnoreCase)
+            || media.EndsWith("+json", StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
+        return false;
+    }
+
+    private static Dictionary<string, IReadOnlyList<string>> ParseFormUrlEncodedMulti(string text)
+    {
+        var map = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
         if (string.IsNullOrEmpty(text))
         {
-            return map;
+            return new Dictionary<string, IReadOnlyList<string>>(StringComparer.OrdinalIgnoreCase);
         }
 
         foreach (var part in text.Split('&', StringSplitOptions.RemoveEmptyEntries))
@@ -428,65 +348,19 @@ public sealed class ElsieContext
                 value = Uri.UnescapeDataString(part[(eq + 1)..].Replace('+', ' '));
             }
 
-            map[key] = value;
-        }
-
-        return map;
-    }
-
-    private static List<(string Type, double Q)> ParseAccept(string? header)
-    {
-        var list = new List<(string, double)>();
-        if (string.IsNullOrWhiteSpace(header))
-        {
-            return list;
-        }
-
-        foreach (var part in header.Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries))
-        {
-            var segments = part.Split(';', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries);
-            if (segments.Length == 0) continue;
-            var type = segments[0].ToLowerInvariant();
-            var q = 1.0;
-            for (var i = 1; i < segments.Length; i++)
+            if (!map.TryGetValue(key, out var list))
             {
-                if (segments[i].StartsWith("q=", StringComparison.OrdinalIgnoreCase)
-                    && double.TryParse(segments[i].AsSpan(2), NumberStyles.Number, CultureInfo.InvariantCulture, out var parsed))
-                {
-                    q = parsed;
-                }
+                list = [];
+                map[key] = list;
             }
 
-            list.Add((type, q));
+            list.Add(value);
         }
 
-        list.Sort(static (a, b) => b.Item2.CompareTo(a.Item2));
-        return list;
-    }
-
-    private static bool Accepts(List<(string Type, double Q)> ranges, params string[] candidates)
-    {
-        if (ranges.Count == 0)
-        {
-            return true;
-        }
-
-        foreach (var (type, q) in ranges)
-        {
-            if (q <= 0) continue;
-            foreach (var candidate in candidates)
-            {
-                if (type == "*/*") return true;
-                if (type == candidate) return true;
-                if (type.EndsWith("/*", StringComparison.Ordinal)
-                    && candidate.StartsWith(type[..^1], StringComparison.Ordinal))
-                {
-                    return true;
-                }
-            }
-        }
-
-        return false;
+        return map.ToDictionary(
+            static kv => kv.Key,
+            static kv => (IReadOnlyList<string>)kv.Value,
+            StringComparer.OrdinalIgnoreCase);
     }
 
     private sealed class SizeLimitedStream : Stream

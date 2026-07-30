@@ -92,20 +92,54 @@ internal static class ElsieObjectBinder
     public static ElsieBindResult<T> Bind<T>(IReadOnlyDictionary<string, string?> values)
         where T : new()
     {
+        var multi = new Dictionary<string, IReadOnlyList<string>>(values.Count, StringComparer.OrdinalIgnoreCase);
+        foreach (var (k, v) in values)
+        {
+            multi[k] = v is null ? Array.Empty<string>() : new[] { v };
+        }
+
+        return Bind<T>(multi);
+    }
+
+    public static ElsieBindResult<T> Bind<T>(IReadOnlyDictionary<string, IReadOnlyList<string>> values)
+        where T : new()
+    {
         var errors = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
         var instance = new T();
         var setters = s_setters.GetOrAdd(typeof(T), BuildSetters);
 
         foreach (var setter in setters)
         {
-            values.TryGetValue(setter.Name, out var raw);
-            if (raw is null && !values.ContainsKey(setter.Name))
+            values.TryGetValue(setter.Name, out var rawList);
+            var missing = rawList is null && !values.ContainsKey(setter.Name);
+
+            if (IsStringCollection(setter.PropertyType, out var collKind, out var elemType))
             {
-                // missing: leave default unless non-nullable value type without default — still OK (default(TProp))
+                var items = rawList ?? Array.Empty<string>();
+                if (!TryConvertCollection(collKind, elemType, items, out var converted, out var error))
+                {
+                    if (!errors.TryGetValue(setter.Name, out var list))
+                    {
+                        list = [];
+                        errors[setter.Name] = list;
+                    }
+
+                    list.Add(error ?? "Invalid value.");
+                    continue;
+                }
+
+                setter.Set(instance, converted);
                 continue;
             }
 
-            if (!ElsieValueConverters.TryConvert(setter.PropertyType, raw, out var converted, out var error))
+            if (missing)
+            {
+                // missing scalar: leave default
+                continue;
+            }
+
+            var raw = rawList is { Count: > 0 } ? rawList[0] : null;
+            if (!ElsieValueConverters.TryConvert(setter.PropertyType, raw, out var convertedScalar, out var scalarError))
             {
                 if (!errors.TryGetValue(setter.Name, out var list))
                 {
@@ -113,11 +147,11 @@ internal static class ElsieObjectBinder
                     errors[setter.Name] = list;
                 }
 
-                list.Add(error ?? "Invalid value.");
+                list.Add(scalarError ?? "Invalid value.");
                 continue;
             }
 
-            setter.Set(instance, converted);
+            setter.Set(instance, convertedScalar);
         }
 
         if (errors.Count > 0)
@@ -130,6 +164,80 @@ internal static class ElsieObjectBinder
         }
 
         return ElsieBindResult<T>.Success(instance);
+    }
+
+    private enum CollectionKind { Array, List }
+
+    private static bool IsStringCollection(Type type, out CollectionKind kind, out Type elemType)
+    {
+        if (type.IsArray)
+        {
+            kind = CollectionKind.Array;
+            elemType = type.GetElementType()!;
+            return true;
+        }
+
+        if (type.IsGenericType && type.GetGenericTypeDefinition() == typeof(List<>))
+        {
+            kind = CollectionKind.List;
+            elemType = type.GetGenericArguments()[0];
+            return true;
+        }
+
+        kind = default;
+        elemType = null!;
+        return false;
+    }
+
+    private static bool TryConvertCollection(
+        CollectionKind kind,
+        Type elemType,
+        IReadOnlyList<string> items,
+        out object? converted,
+        out string? error)
+    {
+        error = null;
+        if (elemType == typeof(string))
+        {
+            if (kind == CollectionKind.Array)
+            {
+                var arr = new string[items.Count];
+                for (var i = 0; i < items.Count; i++) arr[i] = items[i];
+                converted = arr;
+                return true;
+            }
+
+            var list = new List<string>(items.Count);
+            list.AddRange(items);
+            converted = list;
+            return true;
+        }
+
+        var values = new object?[items.Count];
+        for (var i = 0; i < items.Count; i++)
+        {
+            if (!ElsieValueConverters.TryConvert(elemType, items[i], out var v, out error))
+            {
+                converted = null;
+                return false;
+            }
+
+            values[i] = v;
+        }
+
+        if (kind == CollectionKind.Array)
+        {
+            var arr = Array.CreateInstance(elemType, values.Length);
+            for (var i = 0; i < values.Length; i++) arr.SetValue(values[i], i);
+            converted = arr;
+            return true;
+        }
+
+        var listType = typeof(List<>).MakeGenericType(elemType);
+        var listObj = (System.Collections.IList)Activator.CreateInstance(listType)!;
+        foreach (var v in values) listObj.Add(v);
+        converted = listObj;
+        return true;
     }
 
     private static PropertySetter[] BuildSetters(Type type)

@@ -50,7 +50,8 @@ There is no process-wide mutable `ElsieJson.Configure`.
 ## Negotiation
 
 ```csharp
-return ctx.Negotiate(model); // json / text for strings / 406
+return ctx.Json(model);
+// ctx.Problem(status, title, detail?) adds instance + optional traceId
 ```
 
 ## See also

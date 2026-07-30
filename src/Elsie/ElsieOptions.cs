@@ -48,7 +48,7 @@ public sealed class ElsieOptions
     public ElsieExceptionHandler? ExceptionHandler { get; set; } = DefaultExceptionHandler;
 
     private static Task<ElsieResult> DefaultExceptionHandler(ElsieContext ctx, Exception ex, CancellationToken ct)
-        => Task.FromResult(ElsieResult.Problem(500, "Internal Server Error"));
+        => Task.FromResult(ctx.Problem(500, "Internal Server Error"));
 
     /// <summary>
     /// When true (default), a HEAD request that has no explicit HEAD route falls back to a matching GET handler.

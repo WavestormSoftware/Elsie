@@ -47,8 +47,15 @@ public class BindingTests
                 return bind.IsSuccess ? ctx.Json(bind.Value) : bind.Error!;
             });
 
-            Get("/neg", ctx => ctx.Negotiate(new { ok = true }));
-            Get("/neg-str", ctx => ctx.Negotiate("hi"));
+            Get("/bind-tags", ctx =>
+            {
+                var bind = ctx.BindQuery<Tagged>();
+                return bind.IsSuccess
+                    ? ElsieResult.Text(string.Join(',', bind.Value!.Tags ?? Array.Empty<string>()))
+                    : bind.Error!;
+            });
+
+            Get("/problem", ctx => ctx.Problem(400, "Bad Request", "nope"));
         }
     }
 
@@ -56,6 +63,11 @@ public class BindingTests
     {
         public string Name { get; set; } = "";
         public int Age { get; set; }
+    }
+
+    private sealed class Tagged
+    {
+        public string[]? Tags { get; set; }
     }
 
     private static async Task<(ElsieDispatcher Dispatcher, ServiceProvider Sp)> CreateAsync()
@@ -156,29 +168,52 @@ public class BindingTests
     }
 
     [Fact]
-    public async Task Negotiate_json_and_406()
+    public async Task BindQuery_multi_value_array()
     {
         var (dispatcher, sp) = await CreateAsync();
         await using (sp)
         {
-            var json = await dispatcher.DispatchAsync(new ElsieRequest(
+            var req = new ElsieRequest(
                 "GET",
-                "/neg",
-                headers: new Dictionary<string, string> { ["Accept"] = "application/json" }));
-            Assert.Equal(200, json.Result!.StatusCode);
-            Assert.Contains("application/json", json.Result.ContentType, StringComparison.OrdinalIgnoreCase);
+                "/bind-tags",
+                queryValues: new Dictionary<string, IReadOnlyList<string>>(StringComparer.OrdinalIgnoreCase)
+                {
+                    ["Tags"] = new[] { "a", "b" }
+                });
+            var outcome = await dispatcher.DispatchAsync(req);
+            Assert.Equal(200, outcome.Result!.StatusCode);
+            Assert.Equal("a,b", Encoding.UTF8.GetString(outcome.Result.Body!.Value.Span));
+        }
+    }
 
-            var nope = await dispatcher.DispatchAsync(new ElsieRequest(
-                "GET",
-                "/neg",
-                headers: new Dictionary<string, string> { ["Accept"] = "image/png" }));
-            Assert.Equal(406, nope.Result!.StatusCode);
+    [Fact]
+    public async Task BindJson_rejects_non_json_content_type()
+    {
+        var (dispatcher, sp) = await CreateAsync();
+        await using (sp)
+        {
+            var bytes = Encoding.UTF8.GetBytes("{\"Name\":\"x\",\"Age\":1}");
+            await using var body = new MemoryStream(bytes);
+            var outcome = await dispatcher.DispatchAsync(new ElsieRequest(
+                "POST",
+                "/json",
+                body: body,
+                contentLength: bytes.Length,
+                contentType: "text/plain"));
+            Assert.Equal(415, outcome.Result!.StatusCode);
+        }
+    }
 
-            var text = await dispatcher.DispatchAsync(new ElsieRequest(
-                "GET",
-                "/neg-str",
-                headers: new Dictionary<string, string> { ["Accept"] = "text/plain" }));
-            Assert.Equal("hi", Encoding.UTF8.GetString(text.Result!.Body!.Value.Span));
+    [Fact]
+    public async Task Context_Problem_includes_instance()
+    {
+        var (dispatcher, sp) = await CreateAsync();
+        await using (sp)
+        {
+            var outcome = await dispatcher.DispatchAsync(new ElsieRequest("GET", "/problem"));
+            Assert.Equal(400, outcome.Result!.StatusCode);
+            var json = Encoding.UTF8.GetString(outcome.Result.Body!.Value.Span);
+            Assert.Contains("\"instance\":\"/problem\"", json, StringComparison.Ordinal);
         }
     }
 }
