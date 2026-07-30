@@ -12,6 +12,11 @@ public delegate Task<ElsieResult> ElsieExceptionHandler(
     CancellationToken cancellationToken);
 
 /// <summary>
+/// Predicate for a custom route constraint. Receives the raw path segment value.
+/// </summary>
+public delegate bool ElsieRouteConstraint(string value);
+
+/// <summary>
 /// Configuration for Elsie module discovery and runtime behavior.
 /// </summary>
 public sealed class ElsieOptions
@@ -28,14 +33,26 @@ public sealed class ElsieOptions
 
     /// <summary>
     /// JSON serializer options used by <see cref="ElsieContext.ReadJsonAsync{T}"/>,
-    /// <see cref="ElsieContext.Json{T}"/>, and <see cref="ElsieResult.Json{T}"/> defaults
-    /// when no explicit options are passed.
+    /// <see cref="ElsieContext.Json{T}"/>, and binding helpers when no explicit options are passed.
+    /// Static <see cref="ElsieResult.Json{T}"/> uses <see cref="ElsieJson.DefaultOptions"/> (framework defaults).
     /// </summary>
     public JsonSerializerOptions JsonSerializerOptions { get; set; } = new(JsonSerializerDefaults.Web);
 
     /// <summary>
     /// Optional handler for exceptions thrown by before hooks or route handlers.
-    /// When null, exceptions propagate to the ASP.NET Core pipeline.
+    /// When null, exceptions propagate to the host pipeline.
     /// </summary>
     public ElsieExceptionHandler? ExceptionHandler { get; set; }
+
+    /// <summary>
+    /// When true (default), a HEAD request that has no explicit HEAD route falls back to a matching GET handler.
+    /// </summary>
+    public bool ImplicitHead { get; set; } = true;
+
+    /// <summary>
+    /// Custom route constraints keyed by name (case-insensitive). Built-ins cannot be overwritten.
+    /// Example: <c>options.RouteConstraints["slug"] = v =&gt; v.All(char.IsLetterOrDigit);</c>
+    /// </summary>
+    public IDictionary<string, ElsieRouteConstraint> RouteConstraints { get; } =
+        new Dictionary<string, ElsieRouteConstraint>(StringComparer.OrdinalIgnoreCase);
 }

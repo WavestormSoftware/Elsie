@@ -84,6 +84,20 @@ public static partial class ElsieOpenApiDocument
             }
 
             string? constraint = null;
+            var required = true;
+
+            var eq = inner.IndexOf('=');
+            if (eq >= 0)
+            {
+                inner = inner[..eq];
+                required = false;
+            }
+            else if (inner.EndsWith('?'))
+            {
+                inner = inner[..^1];
+                required = false;
+            }
+
             var colon = inner.IndexOf(':');
             if (colon > 0)
             {
@@ -91,10 +105,12 @@ public static partial class ElsieOpenApiDocument
                 inner = inner[..colon];
             }
 
+            // OpenAPI path params are always required in the path template sense;
+            // optional segments are still emitted as required=false for documentation.
             parameters.Add(Dict(
                 ("name", inner),
                 ("in", "path"),
-                ("required", true),
+                ("required", required),
                 ("schema", SchemaForConstraint(constraint))));
 
             return "{" + inner + "}";

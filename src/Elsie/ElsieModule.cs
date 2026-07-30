@@ -51,74 +51,76 @@ public abstract class ElsieModule
 
     protected void After(Action<ElsieContext, ElsieResult> hook) => Pipelines.AddAfter(hook);
 
-    protected void Get(string template, Func<ElsieResult> handler) =>
+    protected RouteBuilder Get(string template, Func<ElsieResult> handler) =>
         Add("GET", template, (_, _) => Task.FromResult(handler()));
 
-    protected void Get(string template, Func<ElsieContext, ElsieResult> handler) =>
+    protected RouteBuilder Get(string template, Func<ElsieContext, ElsieResult> handler) =>
         Add("GET", template, (ctx, _) => Task.FromResult(handler(ctx)));
 
-    protected void Get(string template, Func<ElsieContext, CancellationToken, Task<ElsieResult>> handler) =>
+    protected RouteBuilder Get(string template, Func<ElsieContext, CancellationToken, Task<ElsieResult>> handler) =>
         Add("GET", template, handler);
 
-    protected void Post(string template, Func<ElsieResult> handler) =>
+    protected RouteBuilder Post(string template, Func<ElsieResult> handler) =>
         Add("POST", template, (_, _) => Task.FromResult(handler()));
 
-    protected void Post(string template, Func<ElsieContext, ElsieResult> handler) =>
+    protected RouteBuilder Post(string template, Func<ElsieContext, ElsieResult> handler) =>
         Add("POST", template, (ctx, _) => Task.FromResult(handler(ctx)));
 
-    protected void Post(string template, Func<ElsieContext, CancellationToken, Task<ElsieResult>> handler) =>
+    protected RouteBuilder Post(string template, Func<ElsieContext, CancellationToken, Task<ElsieResult>> handler) =>
         Add("POST", template, handler);
 
-    protected void Put(string template, Func<ElsieResult> handler) =>
+    protected RouteBuilder Put(string template, Func<ElsieResult> handler) =>
         Add("PUT", template, (_, _) => Task.FromResult(handler()));
 
-    protected void Put(string template, Func<ElsieContext, ElsieResult> handler) =>
+    protected RouteBuilder Put(string template, Func<ElsieContext, ElsieResult> handler) =>
         Add("PUT", template, (ctx, _) => Task.FromResult(handler(ctx)));
 
-    protected void Put(string template, Func<ElsieContext, CancellationToken, Task<ElsieResult>> handler) =>
+    protected RouteBuilder Put(string template, Func<ElsieContext, CancellationToken, Task<ElsieResult>> handler) =>
         Add("PUT", template, handler);
 
-    protected void Patch(string template, Func<ElsieResult> handler) =>
+    protected RouteBuilder Patch(string template, Func<ElsieResult> handler) =>
         Add("PATCH", template, (_, _) => Task.FromResult(handler()));
 
-    protected void Patch(string template, Func<ElsieContext, ElsieResult> handler) =>
+    protected RouteBuilder Patch(string template, Func<ElsieContext, ElsieResult> handler) =>
         Add("PATCH", template, (ctx, _) => Task.FromResult(handler(ctx)));
 
-    protected void Patch(string template, Func<ElsieContext, CancellationToken, Task<ElsieResult>> handler) =>
+    protected RouteBuilder Patch(string template, Func<ElsieContext, CancellationToken, Task<ElsieResult>> handler) =>
         Add("PATCH", template, handler);
 
-    protected void Delete(string template, Func<ElsieResult> handler) =>
+    protected RouteBuilder Delete(string template, Func<ElsieResult> handler) =>
         Add("DELETE", template, (_, _) => Task.FromResult(handler()));
 
-    protected void Delete(string template, Func<ElsieContext, ElsieResult> handler) =>
+    protected RouteBuilder Delete(string template, Func<ElsieContext, ElsieResult> handler) =>
         Add("DELETE", template, (ctx, _) => Task.FromResult(handler(ctx)));
 
-    protected void Delete(string template, Func<ElsieContext, CancellationToken, Task<ElsieResult>> handler) =>
+    protected RouteBuilder Delete(string template, Func<ElsieContext, CancellationToken, Task<ElsieResult>> handler) =>
         Add("DELETE", template, handler);
 
-    protected void Head(string template, Func<ElsieResult> handler) =>
+    protected RouteBuilder Head(string template, Func<ElsieResult> handler) =>
         Add("HEAD", template, (_, _) => Task.FromResult(handler()));
 
-    protected void Head(string template, Func<ElsieContext, ElsieResult> handler) =>
+    protected RouteBuilder Head(string template, Func<ElsieContext, ElsieResult> handler) =>
         Add("HEAD", template, (ctx, _) => Task.FromResult(handler(ctx)));
 
-    protected void Head(string template, Func<ElsieContext, CancellationToken, Task<ElsieResult>> handler) =>
+    protected RouteBuilder Head(string template, Func<ElsieContext, CancellationToken, Task<ElsieResult>> handler) =>
         Add("HEAD", template, handler);
 
-    protected void Options(string template, Func<ElsieResult> handler) =>
+    protected RouteBuilder Options(string template, Func<ElsieResult> handler) =>
         Add("OPTIONS", template, (_, _) => Task.FromResult(handler()));
 
-    protected void Options(string template, Func<ElsieContext, ElsieResult> handler) =>
+    protected RouteBuilder Options(string template, Func<ElsieContext, ElsieResult> handler) =>
         Add("OPTIONS", template, (ctx, _) => Task.FromResult(handler(ctx)));
 
-    protected void Options(string template, Func<ElsieContext, CancellationToken, Task<ElsieResult>> handler) =>
+    protected RouteBuilder Options(string template, Func<ElsieContext, CancellationToken, Task<ElsieResult>> handler) =>
         Add("OPTIONS", template, handler);
 
-    private void Add(string method, string template, Func<ElsieContext, CancellationToken, Task<ElsieResult>> handler)
+    private RouteBuilder Add(string method, string template, Func<ElsieContext, CancellationToken, Task<ElsieResult>> handler)
     {
         ArgumentNullException.ThrowIfNull(handler);
         var fullTemplate = CombinePaths(_pathPrefix, template);
-        _routes.Add(new RouteDescriptor(method, fullTemplate, (ctx, ct) => handler(ctx, ct), this));
+        var descriptor = new RouteDescriptor(method, fullTemplate, (ctx, ct) => handler(ctx, ct), this);
+        _routes.Add(descriptor);
+        return new RouteBuilder(descriptor);
     }
 
     internal static string NormalizePrefix(string prefix)
