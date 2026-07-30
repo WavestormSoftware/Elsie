@@ -37,7 +37,9 @@ public class ModulePathTests
     public void Prefixed_routes_match()
     {
         var table = RouteTable.FromModules([new PrefixedModule()]);
-        Assert.True(table.TryMatch("GET", "/api/v1/admin/stats", out var match));
+        var matchLookup = table.Lookup("GET", "/api/v1/admin/stats");
+        Assert.Equal(RouteLookupStatus.Matched, matchLookup.Status);
+        var match = matchLookup.Match;
         Assert.Equal("/api/v1/admin/stats", match!.Route.Template);
     }
 }

@@ -51,7 +51,7 @@ internal sealed class FixedWindowStore
 
     private void MaybeCleanup()
     {
-        if (Interlocked.Increment(ref _ops) % 64 != 0 && _partitions.Count <= _maxPartitions)
+        if (!RateLimitPartitioning.ShouldCleanup(ref _ops, _partitions.Count, _maxPartitions))
         {
             return;
         }
@@ -69,26 +69,13 @@ internal sealed class FixedWindowStore
             }
         }
 
-        if (_partitions.Count <= _maxPartitions)
+        RateLimitPartitioning.TrimToCap(_partitions, _maxPartitions, static c =>
         {
-            return;
-        }
-
-        // Drop oldest-access partitions until under cap.
-        foreach (var key in _partitions
-                     .OrderBy(kv =>
-                     {
-                         lock (kv.Value.Gate)
-                         {
-                             return kv.Value.LastAccessTicks;
-                         }
-                     })
-                     .Select(kv => kv.Key)
-                     .Take(_partitions.Count - _maxPartitions)
-                     .ToArray())
-        {
-            _partitions.TryRemove(key, out _);
-        }
+            lock (c.Gate)
+            {
+                return c.LastAccessTicks;
+            }
+        });
     }
 
     private sealed class WindowCounter

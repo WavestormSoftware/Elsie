@@ -41,10 +41,6 @@ public sealed class RouteTable
     /// <summary>Full lookup: matched, method-not-allowed, or not found.</summary>
     public RouteLookup Lookup(string method, string path) => _matcher.Lookup(method, path);
 
-    /// <summary>True only when method+path match a handler.</summary>
-    public bool TryMatch(string method, string path, out RouteMatch? match) =>
-        _matcher.TryMatch(method, path, out match);
-
     /// <summary>Expand a named route template with route values (URL-encoded).</summary>
     public string GetPathByName(string name, IReadOnlyDictionary<string, string?>? values = null)
     {

@@ -73,10 +73,7 @@ internal sealed class RouteMatcher
     public RouteLookup Lookup(string method, string path)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(method);
-        if (NeedsUpper(method))
-        {
-            method = method.ToUpperInvariant();
-        }
+        method = method.ToUpperInvariant();
 
         var pathValue = ElsieRequest.NormalizePath(path);
         var parts = SplitPath(pathValue);
@@ -149,19 +146,6 @@ internal sealed class RouteMatcher
         return RouteLookup.NotFound();
     }
 
-    public bool TryMatch(string method, string path, out RouteMatch? match)
-    {
-        var lookup = Lookup(method, path);
-        if (lookup.Status == RouteLookupStatus.Matched)
-        {
-            match = lookup.Match;
-            return true;
-        }
-
-        match = null;
-        return false;
-    }
-
     private CompiledRoute[] SelectCandidates(string[] parts)
     {
         if (parts.Length == 0)
@@ -187,19 +171,6 @@ internal sealed class RouteMatcher
         }
 
         return raw.Split('/', StringSplitOptions.RemoveEmptyEntries);
-    }
-
-    private static bool NeedsUpper(string method)
-    {
-        foreach (var c in method)
-        {
-            if (char.IsAsciiLetterLower(c))
-            {
-                return true;
-            }
-        }
-
-        return false;
     }
 
     private static string DecodeIfNeeded(string raw) =>
@@ -298,7 +269,6 @@ internal sealed class RouteMatcher
             _hasCatchAll = segments.Length > 0 && segments[^1].Kind == SegmentKind.CatchAll;
             _fixedCount = _hasCatchAll ? segments.Length - 1 : segments.Length;
             RequiredSegmentCount = segments.Count(static s => !s.IsOptional && s.Kind != SegmentKind.CatchAll);
-            MaxSegmentCount = _hasCatchAll ? int.MaxValue : segments.Length;
             _paramCount = 0;
             foreach (var s in segments)
             {
@@ -314,7 +284,6 @@ internal sealed class RouteMatcher
         /// <summary>Static literal at each segment index, or null for params.</summary>
         public string?[] StaticLiterals { get; }
         public int RequiredSegmentCount { get; }
-        public int MaxSegmentCount { get; }
         public Segment[] Segments => _segments;
 
         public static CompiledRoute Compile(RouteDescriptor descriptor, RouteConstraintResolver constraints)
@@ -446,7 +415,7 @@ internal sealed class RouteMatcher
                         }
 
                         var kind = string.IsNullOrEmpty(constraint) ? SegmentKind.Param : SegmentKind.Constrained;
-                        segments[i] = Segment.Param(name, constraint, optional, defaultValue, predicate);
+                        segments[i] = Segment.Param(name, optional, defaultValue, predicate);
                         kinds[i] = kind;
                     }
                 }
@@ -600,7 +569,6 @@ internal sealed class RouteMatcher
             SegmentKind kind,
             string? literal,
             string? name,
-            string? constraint,
             bool optional,
             string? defaultValue,
             ElsieRouteConstraint? predicate)
@@ -608,7 +576,6 @@ internal sealed class RouteMatcher
             Kind = kind;
             Literal = literal;
             Name = name;
-            Constraint = constraint;
             IsOptional = optional;
             DefaultValue = defaultValue;
             Predicate = predicate;
@@ -617,25 +584,23 @@ internal sealed class RouteMatcher
         public SegmentKind Kind { get; }
         public string? Literal { get; }
         public string? Name { get; }
-        public string? Constraint { get; }
         public bool IsOptional { get; }
         public string? DefaultValue { get; }
         public ElsieRouteConstraint? Predicate { get; }
 
         public static Segment Static(string literal) =>
-            new(SegmentKind.Static, literal, null, null, false, null, null);
+            new(SegmentKind.Static, literal, null, false, null, null);
 
         public static Segment Param(
             string name,
-            string? constraint,
             bool optional,
             string? defaultValue,
             ElsieRouteConstraint? predicate) =>
-            new(string.IsNullOrEmpty(constraint) ? SegmentKind.Param : SegmentKind.Constrained,
-                null, name, constraint, optional, defaultValue, predicate);
+            new(predicate is null ? SegmentKind.Param : SegmentKind.Constrained,
+                null, name, optional, defaultValue, predicate);
 
         public static Segment CatchAll(string name) =>
-            new(SegmentKind.CatchAll, null, name, null, false, null, null);
+            new(SegmentKind.CatchAll, null, name, false, null, null);
     }
 
     /// <summary>Expose compile for RouteTable ambiguity checks.</summary>

@@ -30,7 +30,12 @@ Elsie is **unreleased** software; alphas may include breaking API changes.
 - Package IDs: **Elsie.AspNetCore** (renamed), **Elsie.HealthChecks**, **Elsie.RateLimiting**, **Elsie.FluentValidation**
 - `MapElsieStaticFiles` / `ElsieStaticFileOptions` (use ASP.NET `UseStaticFiles`)
 - `ctx.Negotiate`, legacy typed route/query helpers, `ReadJsonAsync`
+- `ElsieResult.NotAcceptable` (was only used by Negotiate)
+- `RouteTable.TryMatch` (use `Lookup`)
 - Dead `ElsieOptionsSetup` registration
+
+### Fixed
+- `ElsieResult.Problem` is the single problem+json builder (`instance` / `traceId` optional); `ctx.Problem` delegates to it
 
 ## [0.2.0-alpha.2] — 2026-07-30
 

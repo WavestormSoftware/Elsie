@@ -70,24 +70,15 @@ internal static class ElsieValueConverters
             return s => Enum.TryParse(type, s, ignoreCase: true, out var e) ? e : null;
         }
 
-        return s =>
-        {
-            try
-            {
-                return Convert.ChangeType(s, type, CultureInfo.InvariantCulture);
-            }
-            catch
-            {
-                return null;
-            }
-        };
+        // Unknown types fail conversion (no Convert.ChangeType catch-all).
+        return static _ => null;
     }
 }
 
 /// <summary>Reflection binder for query/route/form POCOs with cached setters.</summary>
 internal static class ElsieObjectBinder
 {
-    private static readonly ConcurrentDictionary<Type, PropertySetter[]> s_setters = new();
+    private static readonly ConcurrentDictionary<Type, PropertyInfo[]> s_setters = new();
 
     public static ElsieBindResult<T> Bind<T>(IReadOnlyDictionary<string, string?> values)
         where T : new()
@@ -108,27 +99,27 @@ internal static class ElsieObjectBinder
         var instance = new T();
         var setters = s_setters.GetOrAdd(typeof(T), BuildSetters);
 
-        foreach (var setter in setters)
+        foreach (var prop in setters)
         {
-            values.TryGetValue(setter.Name, out var rawList);
-            var missing = rawList is null && !values.ContainsKey(setter.Name);
+            values.TryGetValue(prop.Name, out var rawList);
+            var missing = rawList is null && !values.ContainsKey(prop.Name);
 
-            if (IsStringCollection(setter.PropertyType, out var collKind, out var elemType))
+            if (IsStringCollection(prop.PropertyType, out var collKind, out var elemType))
             {
                 var items = rawList ?? Array.Empty<string>();
                 if (!TryConvertCollection(collKind, elemType, items, out var converted, out var error))
                 {
-                    if (!errors.TryGetValue(setter.Name, out var list))
+                    if (!errors.TryGetValue(prop.Name, out var list))
                     {
                         list = [];
-                        errors[setter.Name] = list;
+                        errors[prop.Name] = list;
                     }
 
                     list.Add(error ?? "Invalid value.");
                     continue;
                 }
 
-                setter.Set(instance, converted);
+                prop.SetValue(instance, converted);
                 continue;
             }
 
@@ -139,19 +130,19 @@ internal static class ElsieObjectBinder
             }
 
             var raw = rawList is { Count: > 0 } ? rawList[0] : null;
-            if (!ElsieValueConverters.TryConvert(setter.PropertyType, raw, out var convertedScalar, out var scalarError))
+            if (!ElsieValueConverters.TryConvert(prop.PropertyType, raw, out var convertedScalar, out var scalarError))
             {
-                if (!errors.TryGetValue(setter.Name, out var list))
+                if (!errors.TryGetValue(prop.Name, out var list))
                 {
                     list = [];
-                    errors[setter.Name] = list;
+                    errors[prop.Name] = list;
                 }
 
                 list.Add(scalarError ?? "Invalid value.");
                 continue;
             }
 
-            setter.Set(instance, convertedScalar);
+            prop.SetValue(instance, convertedScalar);
         }
 
         if (errors.Count > 0)
@@ -240,28 +231,8 @@ internal static class ElsieObjectBinder
         return true;
     }
 
-    private static PropertySetter[] BuildSetters(Type type)
-    {
-        return type.GetProperties(BindingFlags.Instance | BindingFlags.Public)
+    private static PropertyInfo[] BuildSetters(Type type) =>
+        type.GetProperties(BindingFlags.Instance | BindingFlags.Public)
             .Where(static p => p.CanWrite && p.GetIndexParameters().Length == 0)
-            .Select(static p => new PropertySetter(p))
             .ToArray();
-    }
-
-    private sealed class PropertySetter
-    {
-        private readonly PropertyInfo _property;
-
-        public PropertySetter(PropertyInfo property)
-        {
-            _property = property;
-            Name = property.Name;
-            PropertyType = property.PropertyType;
-        }
-
-        public string Name { get; }
-        public Type PropertyType { get; }
-
-        public void Set(object target, object? value) => _property.SetValue(target, value);
-    }
 }

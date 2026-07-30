@@ -256,29 +256,14 @@ public sealed class ElsieContext
     /// <summary>
     /// Problem+json with <c>instance</c> = request path and optional <c>traceId</c> from Activity.Current.
     /// </summary>
-    public ElsieResult Problem(int statusCode, string title, string? detail = null)
-    {
-        ArgumentException.ThrowIfNullOrWhiteSpace(title);
-        var payload = new Dictionary<string, object?>(StringComparer.Ordinal)
-        {
-            ["status"] = statusCode,
-            ["title"] = title,
-            ["instance"] = Request.Path
-        };
-        if (!string.IsNullOrWhiteSpace(detail))
-        {
-            payload["detail"] = detail;
-        }
-
-        var trace = System.Diagnostics.Activity.Current?.Id;
-        if (!string.IsNullOrEmpty(trace))
-        {
-            payload["traceId"] = trace;
-        }
-
-        var bytes = JsonSerializer.SerializeToUtf8Bytes(payload, JsonSerializerOptions);
-        return ElsieResult.Bytes(bytes, "application/problem+json; charset=utf-8", statusCode);
-    }
+    public ElsieResult Problem(int statusCode, string title, string? detail = null) =>
+        ElsieResult.Problem(
+            statusCode,
+            title,
+            detail,
+            JsonSerializerOptions,
+            instance: Request.Path,
+            traceId: System.Diagnostics.Activity.Current?.Id);
 
     /// <summary>Serialize <paramref name="value"/> with this request's JSON options (app options).</summary>
     public ElsieResult Json<T>(T value, int statusCode = 200) =>
@@ -314,14 +299,8 @@ public sealed class ElsieContext
         }
 
         media = media.Trim();
-        if (media.Equals("application/json", StringComparison.OrdinalIgnoreCase)
-            || media.StartsWith("application/json", StringComparison.OrdinalIgnoreCase)
-            || media.EndsWith("+json", StringComparison.OrdinalIgnoreCase))
-        {
-            return true;
-        }
-
-        return false;
+        return media.StartsWith("application/json", StringComparison.OrdinalIgnoreCase)
+            || media.EndsWith("+json", StringComparison.OrdinalIgnoreCase);
     }
 
     private static Dictionary<string, IReadOnlyList<string>> ParseFormUrlEncodedMulti(string text)

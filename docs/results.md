@@ -18,7 +18,7 @@ Handlers return **`ElsieResult`**. The host materializes it once via **`ElsieHtt
 | `NotModified` | 304 |
 | `Status(code)` | Empty body |
 | `Problem` / `ValidationProblem` | `application/problem+json` |
-| `BadRequest` / `Unauthorized` / `Forbidden` / `NotFound` / `Conflict` / `NotAcceptable` | Problem helpers |
+| `BadRequest` / `Unauthorized` / `Forbidden` / `NotFound` / `Conflict` | Problem helpers |
 | `ServerSentEvents(writer)` | `text/event-stream` |
 | `IfNoneMatch(header, etag, whenModified)` | Conditional helper |
 

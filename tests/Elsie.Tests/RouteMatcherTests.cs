@@ -24,7 +24,9 @@ public class RouteMatcherTests
     public void Matches_static_root()
     {
         var table = CreateTable();
-        Assert.True(table.TryMatch("GET", "/", out var match));
+        var matchLookup = table.Lookup("GET", "/");
+        Assert.Equal(RouteLookupStatus.Matched, matchLookup.Status);
+        var match = matchLookup.Match;
         Assert.NotNull(match);
         Assert.Equal("GET", match!.Route.Method);
     }
@@ -33,7 +35,9 @@ public class RouteMatcherTests
     public void Extracts_route_parameter()
     {
         var table = CreateTable();
-        Assert.True(table.TryMatch("GET", "/hello/Ada", out var match));
+        var matchLookup = table.Lookup("GET", "/hello/Ada");
+        Assert.Equal(RouteLookupStatus.Matched, matchLookup.Status);
+        var match = matchLookup.Match;
         Assert.Equal("Ada", match!.RouteValues["name"]);
     }
 
@@ -41,7 +45,9 @@ public class RouteMatcherTests
     public void Int_constraint_accepts_digits()
     {
         var table = CreateTable();
-        Assert.True(table.TryMatch("GET", "/items/42", out var match));
+        var matchLookup = table.Lookup("GET", "/items/42");
+        Assert.Equal(RouteLookupStatus.Matched, matchLookup.Status);
+        var match = matchLookup.Match;
         Assert.Equal("42", match!.RouteValues["id"]);
     }
 
@@ -49,14 +55,14 @@ public class RouteMatcherTests
     public void Int_constraint_rejects_non_numeric()
     {
         var table = CreateTable();
-        Assert.False(table.TryMatch("GET", "/items/abc", out _));
+        Assert.NotEqual(RouteLookupStatus.Matched, table.Lookup("GET", "/items/abc").Status);
     }
 
     [Fact]
     public void Method_mismatch_does_not_match()
     {
         var table = CreateTable();
-        Assert.False(table.TryMatch("GET", "/items", out _));
+        Assert.NotEqual(RouteLookupStatus.Matched, table.Lookup("GET", "/items").Status);
     }
 
     [Fact]
@@ -72,7 +78,9 @@ public class RouteMatcherTests
     public void Catch_all_captures_remaining_segments()
     {
         var table = CreateTable();
-        Assert.True(table.TryMatch("GET", "/files/a/b/c", out var match));
+        var matchLookup = table.Lookup("GET", "/files/a/b/c");
+        Assert.Equal(RouteLookupStatus.Matched, matchLookup.Status);
+        var match = matchLookup.Match;
         Assert.Equal("a/b/c", match!.RouteValues["path"]);
     }
 
@@ -80,7 +88,9 @@ public class RouteMatcherTests
     public void Catch_all_allows_empty_remainder()
     {
         var table = CreateTable();
-        Assert.True(table.TryMatch("GET", "/files", out var match));
+        var matchLookup = table.Lookup("GET", "/files");
+        Assert.Equal(RouteLookupStatus.Matched, matchLookup.Status);
+        var match = matchLookup.Match;
         Assert.Equal(string.Empty, match!.RouteValues["path"]);
     }
 
@@ -88,7 +98,9 @@ public class RouteMatcherTests
     public void Concrete_route_wins_over_catch_all()
     {
         var table = CreateTable();
-        Assert.True(table.TryMatch("GET", "/files/readme", out var match));
+        var matchLookup = table.Lookup("GET", "/files/readme");
+        Assert.Equal(RouteLookupStatus.Matched, matchLookup.Status);
+        var match = matchLookup.Match;
         Assert.Equal("/files/readme", match!.Route.Template);
     }
 
@@ -110,7 +122,9 @@ public class RouteMatcherTests
     public void Static_wins_over_param_regardless_of_registration_order()
     {
         var table = RouteTable.FromModules([new PrecedenceModuleParamFirst()]);
-        Assert.True(table.TryMatch("GET", "/users/new", out var match));
+        var matchLookup = table.Lookup("GET", "/users/new");
+        Assert.Equal(RouteLookupStatus.Matched, matchLookup.Status);
+        var match = matchLookup.Match;
         Assert.Equal("/users/new", match!.Route.Template);
     }
 
@@ -118,7 +132,9 @@ public class RouteMatcherTests
     public void Constrained_param_wins_over_unconstrained()
     {
         var table = RouteTable.FromModules([new ConstrainedPrecedenceModule()]);
-        Assert.True(table.TryMatch("GET", "/x/42", out var match));
+        var matchLookup = table.Lookup("GET", "/x/42");
+        Assert.Equal(RouteLookupStatus.Matched, matchLookup.Status);
+        var match = matchLookup.Match;
         Assert.Equal("/x/{id:int}", match!.Route.Template);
     }
 
@@ -170,7 +186,7 @@ public class RouteMatcherTests
     {
         var module = new DynamicConstraintModule(constraint);
         var table = RouteTable.FromModules([module]);
-        var matched = table.TryMatch("GET", $"/c/{value}", out _);
+        var matched = table.Lookup("GET", $"/c/{value}").Status == RouteLookupStatus.Matched;
         Assert.Equal(expected, matched);
     }
 
@@ -180,18 +196,22 @@ public class RouteMatcherTests
         var options = new ElsieOptions();
         options.RouteConstraints["slug"] = v => v.Length > 0 && v.All(static c => char.IsLetterOrDigit(c) || c == '-');
         var table = RouteTable.FromModules([new CustomConstraintModule()], options);
-        Assert.True(table.TryMatch("GET", "/p/hello-world", out _));
-        Assert.False(table.TryMatch("GET", "/p/hello_world", out _));
+        Assert.Equal(RouteLookupStatus.Matched, table.Lookup("GET", "/p/hello-world").Status);
+        Assert.NotEqual(RouteLookupStatus.Matched, table.Lookup("GET", "/p/hello_world").Status);
     }
 
     [Fact]
     public void Optional_parameter_matches_with_and_without_value()
     {
         var table = RouteTable.FromModules([new OptionalModule()]);
-        Assert.True(table.TryMatch("GET", "/page", out var bare));
+        var bareLookup = table.Lookup("GET", "/page");
+        Assert.Equal(RouteLookupStatus.Matched, bareLookup.Status);
+        var bare = bareLookup.Match;
         Assert.False(bare!.RouteValues.ContainsKey("n"));
 
-        Assert.True(table.TryMatch("GET", "/page/3", out var with));
+        var withLookup = table.Lookup("GET", "/page/3");
+        Assert.Equal(RouteLookupStatus.Matched, withLookup.Status);
+        var with = withLookup.Match;
         Assert.Equal("3", with!.RouteValues["n"]);
     }
 
@@ -199,10 +219,14 @@ public class RouteMatcherTests
     public void Default_parameter_fills_when_absent()
     {
         var table = RouteTable.FromModules([new DefaultModule()]);
-        Assert.True(table.TryMatch("GET", "/take", out var bare));
+        var bareLookup = table.Lookup("GET", "/take");
+        Assert.Equal(RouteLookupStatus.Matched, bareLookup.Status);
+        var bare = bareLookup.Match;
         Assert.Equal("10", bare!.RouteValues["n"]);
 
-        Assert.True(table.TryMatch("GET", "/take/5", out var with));
+        var withLookup = table.Lookup("GET", "/take/5");
+        Assert.Equal(RouteLookupStatus.Matched, withLookup.Status);
+        var with = withLookup.Match;
         Assert.Equal("5", with!.RouteValues["n"]);
     }
 
@@ -210,7 +234,9 @@ public class RouteMatcherTests
     public void Implicit_head_falls_back_to_get()
     {
         var table = CreateTable();
-        Assert.True(table.TryMatch("HEAD", "/hello/Ada", out var match));
+        var matchLookup = table.Lookup("HEAD", "/hello/Ada");
+        Assert.Equal(RouteLookupStatus.Matched, matchLookup.Status);
+        var match = matchLookup.Match;
         Assert.Equal("GET", match!.Route.Method);
     }
 
@@ -243,7 +269,7 @@ public class RouteMatcherTests
     public void Datetime_constraint_accepts_iso()
     {
         var table = RouteTable.FromModules([new DatetimeModule()]);
-        Assert.True(table.TryMatch("GET", "/d/2024-01-02T03:04:05Z", out _));
+        Assert.Equal(RouteLookupStatus.Matched, table.Lookup("GET", "/d/2024-01-02T03:04:05Z").Status);
     }
 
     private sealed class DupModule : ElsieModule

@@ -50,16 +50,19 @@ public sealed class ElsieResult
     public static ElsieResult NotFound(string? detail = null) =>
         Problem(404, title: "Not Found", detail);
 
-    public static ElsieResult NotAcceptable(string? detail = null) =>
-        Problem(406, title: "Not Acceptable", detail);
-
     public static ElsieResult Conflict(string? detail = null) =>
         Problem(409, title: "Conflict", detail);
 
     /// <summary>
     /// Lightweight RFC 7807-style JSON problem body (no external dependency).
     /// </summary>
-    public static ElsieResult Problem(int statusCode, string title, string? detail = null, JsonSerializerOptions? options = null)
+    public static ElsieResult Problem(
+        int statusCode,
+        string title,
+        string? detail = null,
+        JsonSerializerOptions? options = null,
+        string? instance = null,
+        string? traceId = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(title);
         var payload = new Dictionary<string, object?>(StringComparer.Ordinal)
@@ -70,6 +73,16 @@ public sealed class ElsieResult
         if (!string.IsNullOrWhiteSpace(detail))
         {
             payload["detail"] = detail;
+        }
+
+        if (!string.IsNullOrWhiteSpace(instance))
+        {
+            payload["instance"] = instance;
+        }
+
+        if (!string.IsNullOrEmpty(traceId))
+        {
+            payload["traceId"] = traceId;
         }
 
         var bytes = JsonSerializer.SerializeToUtf8Bytes(payload, options ?? ElsieJson.DefaultOptions);
