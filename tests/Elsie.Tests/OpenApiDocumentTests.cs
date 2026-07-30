@@ -123,6 +123,26 @@ public class OpenApiDocumentTests
         Assert.Contains(nameof(Node), ex.Message, StringComparison.Ordinal);
     }
 
+    private sealed class ObjectProducesModule : ElsieModule
+    {
+        public ObjectProducesModule()
+        {
+            Get("/bag", () => ElsieResult.Json(new { a = 1 })).Produces<object>();
+        }
+    }
+
+    [Fact]
+    public void Produces_object_inlines_free_form_schema()
+    {
+        var table = RouteTable.FromModules([new ObjectProducesModule()]);
+        var doc = ElsieOpenApiDocument.Create(table);
+        var paths = Assert.IsAssignableFrom<IDictionary<string, Dictionary<string, object>>>(doc["paths"]);
+        var get = Assert.IsAssignableFrom<Dictionary<string, object>>(paths["/bag"]["get"]);
+        Assert.True(get.ContainsKey("responses"));
+        var json = ElsieOpenApiDocument.ToJson(table);
+        Assert.Contains("\"type\":\"object\"", json.Replace(" ", ""), StringComparison.Ordinal);
+    }
+
     [Fact]
     public void ToJson_is_non_empty_and_roundtrips()
     {

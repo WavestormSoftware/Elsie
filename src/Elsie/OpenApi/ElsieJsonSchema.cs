@@ -34,7 +34,9 @@ internal static class ElsieJsonSchema
         Dictionary<string, object> components,
         Dictionary<Type, string> typeToName)
     {
-        if (IsSimple(type) || IsEnumerable(type, out _) || Nullable.GetUnderlyingType(type) is not null)
+        // object is not a component schema (EnsureSchema no-ops); inline as free-form object.
+        if (IsSimple(type) || type == typeof(object) || IsEnumerable(type, out _) ||
+            Nullable.GetUnderlyingType(type) is not null)
         {
             return CreateSchema(type, components, typeToName, new HashSet<Type>(), forceInline: true);
         }
@@ -42,7 +44,11 @@ internal static class ElsieJsonSchema
         if (!typeToName.TryGetValue(type, out var name))
         {
             EnsureSchema(type, components, typeToName, new HashSet<Type>(), root: true);
-            name = typeToName[type];
+            if (!typeToName.TryGetValue(type, out name))
+            {
+                // Fallback if EnsureSchema skipped the type (e.g. open object).
+                return CreateSchema(type, components, typeToName, new HashSet<Type>(), forceInline: true);
+            }
         }
 
         return Dict(("$ref", "#/components/schemas/" + name));
