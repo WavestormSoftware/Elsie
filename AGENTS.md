@@ -24,6 +24,7 @@ Instructions for coding agents working on this repository.
 | `src/Elsie.Auth` | Cookie/JWT wiring + RequireAuthenticated/Role/Claim/Policy gates |
 | `src/Elsie.Cors` | Elsie-native CORS (preflight middleware + after-hook ACAO) |
 | `src/Elsie.Testing` | `ElsieInMemoryHost` + ASP.NET `ElsieTestHost` + asserts |
+| `templates/` | `dotnet new` templates (`elsie`, `elsie-api`) → `Elsie.Templates` |
 | `tests/*` | Unit / integration tests |
 | `samples/*` | Runnable samples |
 | `README.md` | Public product docs |
@@ -46,6 +47,7 @@ dotnet run --project samples/Elsie.Sample.Hello
 dotnet run --project samples/Elsie.Sample.Api
 dotnet run --project samples/Elsie.Sample.Views
 dotnet pack Elsie.sln -c Release -o artifacts/nuget
+dotnet pack templates/Elsie.Templates.csproj -c Release -o artifacts/nuget
 ```
 
 ## Architecture rules

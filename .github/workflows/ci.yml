@@ -27,3 +27,5 @@ jobs:
         run: dotnet build Elsie.sln -c Release --no-restore
       - name: Test
         run: dotnet test Elsie.sln -c Release --no-build --verbosity normal
+      - name: Pack templates
+        run: dotnet pack templates/Elsie.Templates.csproj -c Release -o artifacts/nuget
