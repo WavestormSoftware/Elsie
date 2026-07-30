@@ -46,9 +46,6 @@ jobs:
             src/Elsie.Meta/Elsie.Meta.csproj
             src/Elsie.Auth/Elsie.Auth.csproj
             src/Elsie.Cors/Elsie.Cors.csproj
-            src/Elsie.FluentValidation/Elsie.FluentValidation.csproj
-            src/Elsie.HealthChecks/Elsie.HealthChecks.csproj
-            src/Elsie.RateLimiting/Elsie.RateLimiting.csproj
             src/Elsie.Testing/Elsie.Testing.csproj
             src/Elsie.Views/Elsie.Views.csproj
             templates/Elsie.Templates.csproj
@@ -66,10 +63,7 @@ jobs:
             Elsie.AspNetCore.0.2.0-alpha.2.nupkg
             Elsie.Auth.0.2.0-alpha.2.nupkg
             Elsie.Cors.0.2.0-alpha.2.nupkg
-            Elsie.HealthChecks.0.2.0-alpha.2.nupkg
-            Elsie.RateLimiting.0.2.0-alpha.2.nupkg
             Elsie.Views.0.2.0-alpha.2.nupkg
-            Elsie.FluentValidation.0.2.0-alpha.2.nupkg
             Elsie.Testing.0.2.0-alpha.2.nupkg
             Elsie.Templates.0.2.0-alpha.2.nupkg
           )

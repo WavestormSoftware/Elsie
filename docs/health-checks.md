@@ -1,6 +1,6 @@
 # Health checks
 
-Package **`Elsie.HealthChecks`** — host-agnostic checks + auto-registered module.
+Ships in **`Elsie.Core`** (via meta package `Elsie`) — host-agnostic checks + auto-registered module.
 
 ## Setup
 

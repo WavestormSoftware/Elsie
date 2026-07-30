@@ -1,6 +1,6 @@
 # Rate limiting
 
-Package **`Elsie.RateLimiting`** — before-hook factories with in-memory stores.
+Ships in **`Elsie.Core`** (via meta package `Elsie`) — before-hook factories with in-memory stores.
 
 ## Fixed / sliding window
 

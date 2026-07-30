@@ -13,8 +13,6 @@
 #
 # Package IDs published (0.2.0-alpha.2+):
 #   Elsie (meta → AspNetCore → Core), Elsie.Core, Elsie.AspNetCore,
-#   Elsie.Auth, Elsie.Cors, Elsie.FluentValidation, Elsie.HealthChecks,
-#   Elsie.RateLimiting, Elsie.Testing, Elsie.Views, Elsie.Templates
 #
 # First push of a new package ID requires the policy owner to be allowed to
 # create packages under the owner (org WavestormSoftware). Existing package
@@ -90,9 +88,6 @@ jobs:
             src/Elsie.Meta/Elsie.Meta.csproj
             src/Elsie.Auth/Elsie.Auth.csproj
             src/Elsie.Cors/Elsie.Cors.csproj
-            src/Elsie.FluentValidation/Elsie.FluentValidation.csproj
-            src/Elsie.HealthChecks/Elsie.HealthChecks.csproj
-            src/Elsie.RateLimiting/Elsie.RateLimiting.csproj
             src/Elsie.Testing/Elsie.Testing.csproj
             src/Elsie.Views/Elsie.Views.csproj
             templates/Elsie.Templates.csproj
@@ -116,9 +111,6 @@ jobs:
             "Elsie.AspNetCore.$version.nupkg"
             "Elsie.Auth.$version.nupkg"
             "Elsie.Cors.$version.nupkg"
-            "Elsie.FluentValidation.$version.nupkg"
-            "Elsie.HealthChecks.$version.nupkg"
-            "Elsie.RateLimiting.$version.nupkg"
             "Elsie.Testing.$version.nupkg"
             "Elsie.Views.$version.nupkg"
             "Elsie.Templates.$version.nupkg"

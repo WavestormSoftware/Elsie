@@ -9,8 +9,6 @@
     <ProjectReference Include="..\..\src\Elsie.AspNetCore\Elsie.AspNetCore.csproj" />
     <ProjectReference Include="..\..\src\Elsie.Auth\Elsie.Auth.csproj" />
     <ProjectReference Include="..\..\src\Elsie.Cors\Elsie.Cors.csproj" />
-    <ProjectReference Include="..\..\src\Elsie.HealthChecks\Elsie.HealthChecks.csproj" />
-    <ProjectReference Include="..\..\src\Elsie.RateLimiting\Elsie.RateLimiting.csproj" />
     <ProjectReference Include="..\..\src\Elsie.Views\Elsie.Views.csproj" />
   </ItemGroup>
 </Project>

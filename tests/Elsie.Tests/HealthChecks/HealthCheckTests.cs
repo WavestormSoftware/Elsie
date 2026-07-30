@@ -4,7 +4,7 @@ using Elsie.Testing;
 using Microsoft.Extensions.DependencyInjection;
 using Xunit;
 
-namespace Elsie.HealthChecks.Tests;
+namespace Elsie.Tests.HealthChecks;
 
 public class HealthCheckTests
 {

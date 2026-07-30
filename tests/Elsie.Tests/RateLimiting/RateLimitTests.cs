@@ -4,7 +4,7 @@ using Elsie.Testing;
 using Microsoft.Extensions.DependencyInjection;
 using Xunit;
 
-namespace Elsie.RateLimiting.Tests;
+namespace Elsie.Tests.RateLimiting;
 
 public class RateLimitTests
 {
