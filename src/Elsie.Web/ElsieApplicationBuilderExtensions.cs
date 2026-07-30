@@ -1,7 +1,7 @@
 using Microsoft.AspNetCore.Builder;
 using Microsoft.Extensions.DependencyInjection;
 
-namespace Elsie.AspNetCore;
+namespace Elsie.Web;
 
 public static class ElsieApplicationBuilderExtensions
 {

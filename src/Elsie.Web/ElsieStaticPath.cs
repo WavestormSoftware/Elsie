@@ -1,4 +1,4 @@
-namespace Elsie.AspNetCore;
+namespace Elsie.Web;
 
 /// <summary>Safe static-file path resolution (testable).</summary>
 internal static class ElsieStaticPath

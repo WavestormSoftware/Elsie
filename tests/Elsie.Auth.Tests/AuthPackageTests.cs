@@ -1,7 +1,7 @@
 using System.Net;
 using System.Security.Claims;
 using System.Text.Json;
-using Elsie.AspNetCore;
+using Elsie.Web;
 using Elsie.Auth;
 using Elsie.Testing;
 using Microsoft.AspNetCore.Authentication.Cookies;

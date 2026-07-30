@@ -2,7 +2,7 @@ using Microsoft.AspNetCore.Builder;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 
-namespace Elsie.AspNetCore;
+namespace Elsie.Web;
 
 /// <summary>One-liner host helpers for Elsie on ASP.NET Core.</summary>
 public static class ElsieWeb

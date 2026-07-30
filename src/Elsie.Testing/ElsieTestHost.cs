@@ -1,11 +1,11 @@
 using System.Net.Http.Json;
-using Elsie.AspNetCore;
+using Elsie.Web;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
-// AddElsie lives in Elsie core; MapElsie in Elsie.AspNetCore.
+// AddElsie lives in Elsie core; MapElsie in Elsie.Web.
 
 namespace Elsie.Testing;
 

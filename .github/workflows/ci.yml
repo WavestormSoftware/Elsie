@@ -42,7 +42,7 @@ jobs:
           mkdir -p artifacts/nuget
           projects=(
             src/Elsie/Elsie.csproj
-            src/Elsie.AspNetCore/Elsie.AspNetCore.csproj
+            src/Elsie.Web/Elsie.Web.csproj
             src/Elsie.Meta/Elsie.Meta.csproj
             src/Elsie.Auth/Elsie.Auth.csproj
             src/Elsie.Cors/Elsie.Cors.csproj
@@ -60,7 +60,7 @@ jobs:
           required=(
             Elsie.0.2.0-alpha.2.nupkg
             Elsie.Core.0.2.0-alpha.2.nupkg
-            Elsie.AspNetCore.0.2.0-alpha.2.nupkg
+            Elsie.Web.0.2.0-alpha.2.nupkg
             Elsie.Auth.0.2.0-alpha.2.nupkg
             Elsie.Cors.0.2.0-alpha.2.nupkg
             Elsie.Views.0.2.0-alpha.2.nupkg

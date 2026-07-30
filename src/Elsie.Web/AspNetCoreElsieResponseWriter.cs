@@ -1,7 +1,7 @@
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Primitives;
 
-namespace Elsie.AspNetCore;
+namespace Elsie.Web;
 
 /// <summary>
 /// Single write path from <see cref="ElsieHttpResponse"/> onto ASP.NET <see cref="HttpResponse"/>.

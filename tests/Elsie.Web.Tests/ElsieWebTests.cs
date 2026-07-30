@@ -1,7 +1,7 @@
-using Elsie.AspNetCore;
+using Elsie.Web;
 using Xunit;
 
-namespace Elsie.AspNetCore.Tests;
+namespace Elsie.Web.Tests;
 
 public class ElsieWebTests
 {

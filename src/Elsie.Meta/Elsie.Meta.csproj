@@ -1,7 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
-  <!-- App-facing meta-package: dotnet add package Elsie → Elsie.AspNetCore → Elsie.Core -->
+  <!-- App-facing meta-package: dotnet add package Elsie → Elsie.Web → Elsie.Core -->
   <PropertyGroup>
-    <Description>Elsie — Sinatra-style HTTP modules for ASP.NET Core. Meta-package that pulls Elsie.AspNetCore (and transitively Elsie.Core).</Description>
+    <Description>Elsie — Sinatra-style HTTP modules for ASP.NET Core. Meta-package that pulls Elsie.Web (and transitively Elsie.Core).</Description>
     <PackageId>Elsie</PackageId>
     <IncludeBuildOutput>false</IncludeBuildOutput>
     <IncludeSymbols>false</IncludeSymbols>
@@ -11,6 +11,6 @@
     <NoBuild>false</NoBuild>
   </PropertyGroup>
   <ItemGroup>
-    <ProjectReference Include="..\Elsie.AspNetCore\Elsie.AspNetCore.csproj" />
+    <ProjectReference Include="..\Elsie.Web\Elsie.Web.csproj" />
   </ItemGroup>
 </Project>

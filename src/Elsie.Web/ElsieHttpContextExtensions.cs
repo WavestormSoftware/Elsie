@@ -1,6 +1,6 @@
 using Microsoft.AspNetCore.Http;
 
-namespace Elsie.AspNetCore;
+namespace Elsie.Web;
 
 /// <summary>
 /// ASP.NET Core escape hatch. Core stays free of <see cref="HttpContext"/>.
@@ -52,7 +52,7 @@ public static class ElsieHttpContextExtensions
 
         throw new InvalidOperationException(
             "No HttpContext is attached to this Elsie request. " +
-            "Use MapElsie/UseElsie (Elsie.AspNetCore) or attach one via SetHttpContext.");
+            "Use MapElsie/UseElsie (Elsie.Web) or attach one via SetHttpContext.");
     }
 
     /// <summary>Stash <paramref name="httpContext"/> on the request bag (adapter / tests).</summary>

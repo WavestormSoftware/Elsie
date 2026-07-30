@@ -1,14 +1,14 @@
 using System.Net;
 using System.Text.Json;
 using Elsie;
-using Elsie.AspNetCore;
+using Elsie.Web;
 using Elsie.Testing;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.DependencyInjection;
 using Xunit;
 
-namespace Elsie.AspNetCore.Tests;
+namespace Elsie.Web.Tests;
 
 public class HostMiddlewareTests
 {

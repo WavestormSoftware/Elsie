@@ -1,5 +1,5 @@
 using Elsie;
-using Elsie.AspNetCore;
+using Elsie.Web;
 using Elsie.Views;
 
 // Views sample — Fluid/Liquid templates + layout.

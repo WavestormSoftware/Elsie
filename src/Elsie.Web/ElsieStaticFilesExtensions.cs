@@ -2,7 +2,7 @@ using System.Globalization;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 
-namespace Elsie.AspNetCore;
+namespace Elsie.Web;
 
 /// <summary>
 /// Lightweight static-file middleware for Elsie hosts.

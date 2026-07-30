@@ -1,6 +1,6 @@
 # Static files
 
-Host helper on **`Elsie.AspNetCore`** (not a separate package).
+Host helper on **`Elsie.Web`** (not a separate package).
 
 ## Map
 

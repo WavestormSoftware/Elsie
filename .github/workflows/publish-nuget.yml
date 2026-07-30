@@ -12,7 +12,7 @@
 # workflow_dispatch input nuget_user.
 #
 # Package IDs published (0.2.0-alpha.2+):
-#   Elsie (meta → AspNetCore → Core), Elsie.Core, Elsie.AspNetCore,
+#   Elsie (meta → Elsie.Web → Elsie.Core), Elsie.Core, Elsie.Web,
 #
 # First push of a new package ID requires the policy owner to be allowed to
 # create packages under the owner (org WavestormSoftware). Existing package
@@ -84,7 +84,7 @@ jobs:
 
           projects=(
             src/Elsie/Elsie.csproj
-            src/Elsie.AspNetCore/Elsie.AspNetCore.csproj
+            src/Elsie.Web/Elsie.Web.csproj
             src/Elsie.Meta/Elsie.Meta.csproj
             src/Elsie.Auth/Elsie.Auth.csproj
             src/Elsie.Cors/Elsie.Cors.csproj
@@ -108,7 +108,7 @@ jobs:
           required=(
             "Elsie.$version.nupkg"
             "Elsie.Core.$version.nupkg"
-            "Elsie.AspNetCore.$version.nupkg"
+            "Elsie.Web.$version.nupkg"
             "Elsie.Auth.$version.nupkg"
             "Elsie.Cors.$version.nupkg"
             "Elsie.Testing.$version.nupkg"

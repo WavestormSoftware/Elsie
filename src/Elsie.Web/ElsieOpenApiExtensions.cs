@@ -5,7 +5,7 @@ using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.DependencyInjection;
 
-namespace Elsie.AspNetCore;
+namespace Elsie.Web;
 
 /// <summary>Map OpenAPI JSON (and optional Scalar CDN page) for Elsie routes.</summary>
 public static class ElsieOpenApiExtensions

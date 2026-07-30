@@ -1,4 +1,4 @@
-namespace Elsie.AspNetCore;
+namespace Elsie.Web;
 
 /// <summary>Options for <c>MapElsieStaticFiles</c>.</summary>
 public sealed class ElsieStaticFileOptions

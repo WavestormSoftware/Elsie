@@ -22,7 +22,7 @@ dotnet new elsie-api -n TodosApi
 
 ```csharp
 using Elsie;
-using Elsie.AspNetCore;
+using Elsie.Web;
 
 ElsieWeb.Run<App>(args);
 

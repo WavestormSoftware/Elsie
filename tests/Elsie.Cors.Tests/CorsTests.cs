@@ -1,5 +1,5 @@
 using System.Net;
-using Elsie.AspNetCore;
+using Elsie.Web;
 using Elsie.Cors;
 using Elsie.Testing;
 using Microsoft.AspNetCore.Builder;

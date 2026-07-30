@@ -11,9 +11,9 @@ Elsie is **unreleased** software; alphas may include breaking API changes.
 
 ### Changed
 
-- **`Elsie`** is now an app-facing **meta-package** (`dotnet add package Elsie` → `Elsie.AspNetCore` → `Elsie.Core`)
+- **`Elsie`** is now an app-facing **meta-package** (`dotnet add package Elsie` → `Elsie.Web` → `Elsie.Core`)
 - Host-agnostic assemblies publish as **`Elsie.Core`** (was package id `Elsie` in `0.2.0-alpha.1`)
-- Templates reference package `Elsie` instead of `Elsie.AspNetCore`
+- Templates reference package `Elsie` instead of `Elsie.Web`
 - README rewritten for a shorter quickstart and clearer package layout
 
 ## [0.2.0-alpha.1] — 2026-07-30

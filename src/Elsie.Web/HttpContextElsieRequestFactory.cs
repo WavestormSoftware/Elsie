@@ -1,7 +1,7 @@
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Primitives;
 
-namespace Elsie.AspNetCore;
+namespace Elsie.Web;
 
 internal static class HttpContextElsieRequestFactory
 {

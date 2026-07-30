@@ -1,6 +1,6 @@
 using System.Collections.Concurrent;
 using Elsie;
-using Elsie.AspNetCore;
+using Elsie.Web;
 using Elsie.Auth;
 using Microsoft.AspNetCore.Authentication.Cookies;
 

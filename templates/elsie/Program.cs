@@ -1,5 +1,5 @@
 using Elsie;
-using Elsie.AspNetCore;
+using Elsie.Web;
 
 // Minimal Elsie app — GET /  |  GET /hello/{name}
 ElsieWeb.Run<AppModule>(args);

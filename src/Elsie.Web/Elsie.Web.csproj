@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <Description>ASP.NET Core web host for Elsie — ElsieWeb, MapElsie/UseElsie, MapElsieOpenApi, quiet console defaults.</Description>
+    <RootNamespace>Elsie.Web</RootNamespace>
+    <AssemblyName>Elsie.Web</AssemblyName>
+    <PackageId>Elsie.Web</PackageId>
+  </PropertyGroup>
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+    <ProjectReference Include="..\Elsie\Elsie.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="Elsie.Web.Tests" />
+  </ItemGroup>
+</Project>

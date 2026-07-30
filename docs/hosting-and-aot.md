@@ -2,7 +2,7 @@
 
 ## Default host
 
-**`Elsie.AspNetCore`** on Kestrel / ASP.NET Core:
+**`Elsie.Web`** on Kestrel / ASP.NET Core:
 
 ```csharp
 ElsieWeb.Run<App>(args);
@@ -35,7 +35,7 @@ app.MapElsie();
 ## Escape hatch
 
 ```csharp
-using Elsie.AspNetCore;
+using Elsie.Web;
 
 if (ctx.TryGetHttpContext(out var http))
 {

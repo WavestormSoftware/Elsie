@@ -1,5 +1,5 @@
 using Elsie;
-using Elsie.AspNetCore;
+using Elsie.Web;
 
 // Easy sample — DI, typed route/query, constraints, pipelines (after HelloWorld).
 // Try:  GET /  |  GET /hello/Ada  |  GET /hello/Ada?shout=true  |  GET /health  |  GET /items/42

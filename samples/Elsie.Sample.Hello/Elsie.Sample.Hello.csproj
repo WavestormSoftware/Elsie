@@ -6,6 +6,6 @@
     <IsPackable>false</IsPackable>
   </PropertyGroup>
   <ItemGroup>
-    <ProjectReference Include="..\..\src\Elsie.AspNetCore\Elsie.AspNetCore.csproj" />
+    <ProjectReference Include="..\..\src\Elsie.Web\Elsie.Web.csproj" />
   </ItemGroup>
 </Project>

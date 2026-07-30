@@ -1,6 +1,6 @@
 using System.Net;
 using Elsie;
-using Elsie.AspNetCore;
+using Elsie.Web;
 using Elsie.Testing;
 using Xunit;
 

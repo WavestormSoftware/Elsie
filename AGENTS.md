@@ -4,7 +4,7 @@ Instructions for coding agents working on this repository.
 
 ## What this is
 
-**Elsie** is a greenfield, MIT-licensed, lightweight HTTP module framework for .NET (net8/net10). Core is **host-agnostic**; `Elsie.AspNetCore` adapts ASP.NET Core. Inspired by Sinatra-style DX — **not** a NancyFx fork.
+**Elsie** is a greenfield, MIT-licensed, lightweight HTTP module framework for .NET (net8/net10). Core is **host-agnostic**; `Elsie.Web` adapts ASP.NET Core. Inspired by Sinatra-style DX — **not** a NancyFx fork.
 
 ## Clean-room (mandatory)
 
@@ -16,8 +16,8 @@ Instructions for coding agents working on this repository.
 | Path | Role |
 |------|------|
 | `src/Elsie` | Host-agnostic core (package **`Elsie.Core`**): modules, routing, dispatcher, context, results, pipelines, OpenAPI builder, `ElsieAuth` |
-| `src/Elsie.AspNetCore` | Host package: `ElsieWeb` / `MapElsie` / `UseElsie` / `MapElsieOpenApi`, logging, `HttpContext` adapter |
-| `src/Elsie.Meta` | App meta-package **`Elsie`** → pulls `Elsie.AspNetCore` (+ transitive `Elsie.Core`) |
+| `src/Elsie.Web` | Host package: `ElsieWeb` / `MapElsie` / `UseElsie` / `MapElsieOpenApi`, logging, `HttpContext` adapter |
+| `src/Elsie.Meta` | App meta-package **`Elsie`** → pulls `Elsie.Web` (+ transitive `Elsie.Core`) |
 | `src/Elsie.FluentValidation` | `BindAndValidateJsonAsync` |
 | `src/Elsie.Views` | Fluid (Liquid) views + layouts/partials (`ViewAsync`, `IElsieViewEngine`) |
 | `src/Elsie.HealthChecks` | Host-agnostic `/healthz` + live/ready module |
@@ -62,7 +62,7 @@ Changelog: `CHANGELOG.md`.
 
 - **No `HttpContext` in core or Views.** Use `ElsieRequest` / `ElsieResponse` / `ElsieDispatcher`.
 - Core package refs: MS.DI only (no `Microsoft.AspNetCore.App`).
-- ASP.NET types stay in `Elsie.AspNetCore` (and Testing’s TestServer host).
+- ASP.NET types stay in `Elsie.Web` (and Testing’s TestServer host).
 - App DX: prefer `ElsieWeb.Run` / `builder.AddElsie()` (`quietConsole: true` default).
 - Tests: `IServiceCollection.AddElsie` (no log rewiring).
 - Auth: `ElsieAuth.RequireApiKey` / `RequireHeader` / `RequireBearer` / `RequireCookie` before-hooks.

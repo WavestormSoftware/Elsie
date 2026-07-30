@@ -3,12 +3,12 @@
 HTTP module framework for **.NET 8** and **.NET 10**. Define routes in small modules, return results, host on ASP.NET Core.
 
 ```bash
-dotnet add package Elsie          # 0.2.0-alpha.2 — pulls Elsie.AspNetCore + Elsie.Core
+dotnet add package Elsie          # 0.2.0-alpha.2 — pulls Elsie.Web + Elsie.Core
 ```
 
 ```csharp
 using Elsie;
-using Elsie.AspNetCore;
+using Elsie.Web;
 
 ElsieWeb.Run<App>(args);
 
@@ -311,8 +311,8 @@ In tests, set `ScanEntryAssembly = false` and register modules explicitly.
 
 | Package | Contents |
 |---------|----------|
-| **[Elsie](https://www.nuget.org/packages/Elsie)** | Meta-package for apps → `Elsie.AspNetCore` → `Elsie.Core` |
-| [Elsie.AspNetCore](https://www.nuget.org/packages/Elsie.AspNetCore) | `ElsieWeb`, `AddElsie`, `MapElsie`, OpenAPI, static files |
+| **[Elsie](https://www.nuget.org/packages/Elsie)** | Meta-package for apps → `Elsie.Web` → `Elsie.Core` |
+| [Elsie.Web](https://www.nuget.org/packages/Elsie.Web) | `ElsieWeb`, `AddElsie`, `MapElsie`, OpenAPI, static files |
 | [Elsie.Core](https://www.nuget.org/packages/Elsie.Core) | Host-agnostic modules, routing, dispatcher, results, pipelines |
 | [Elsie.Auth](https://www.nuget.org/packages/Elsie.Auth) | Cookie/JWT + auth gates |
 | [Elsie.Cors](https://www.nuget.org/packages/Elsie.Cors) | Elsie-native CORS |
@@ -325,7 +325,7 @@ In tests, set `ScanEntryAssembly = false` and register modules explicitly.
 
 Current version: **`0.2.0-alpha.2`** (prerelease; APIs may still change).
 
-Namespaces stay `Elsie` / `Elsie.AspNetCore` regardless of package id. Library authors who want the host-agnostic surface only should reference **`Elsie.Core`**.
+Namespaces stay `Elsie` / `Elsie.Web` regardless of package id. Library authors who want the host-agnostic surface only should reference **`Elsie.Core`**.
 
 ---
 

@@ -1,5 +1,5 @@
 using System.Security.Claims;
-using Elsie.AspNetCore;
+using Elsie.Web;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.Http;

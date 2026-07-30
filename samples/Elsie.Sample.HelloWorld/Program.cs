@@ -1,5 +1,5 @@
 using Elsie;
-using Elsie.AspNetCore;
+using Elsie.Web;
 
 // Smallest Elsie app.
 //   dotnet run --project samples/Elsie.Sample.HelloWorld
