@@ -1,0 +1,12 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <Description>Elsie-native CORS with preflight handling (ASP.NET UseCors cannot see Elsie OPTIONS).</Description>
+    <RootNamespace>Elsie.Cors</RootNamespace>
+    <AssemblyName>Elsie.Cors</AssemblyName>
+    <PackageId>Elsie.Cors</PackageId>
+  </PropertyGroup>
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+    <ProjectReference Include="..\Elsie\Elsie.csproj" />
+  </ItemGroup>
+</Project>

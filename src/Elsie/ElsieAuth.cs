@@ -30,12 +30,13 @@ public static class ElsieAuth
     }
 
     /// <summary>
-    /// Require API key header (default <c>X-Api-Key</c>). Skips GET/HEAD/OPTIONS by default.
+    /// Require API key header (default <c>X-Api-Key</c>) on <b>all</b> methods by default.
+    /// Pass <paramref name="onlyMutatingMethods"/> = <c>true</c> to skip GET/HEAD/OPTIONS (legacy).
     /// </summary>
     public static Func<ElsieContext, ElsieResult?> RequireApiKey(
         string expectedKey,
         string headerName = "X-Api-Key",
-        bool onlyMutatingMethods = true) =>
+        bool onlyMutatingMethods = false) =>
         RequireHeader(headerName, expectedKey, onlyMutatingMethods);
 
     /// <summary>

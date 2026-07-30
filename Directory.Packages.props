@@ -17,6 +17,9 @@
     <PackageVersion Include="Fluid.ViewEngine" Version="2.31.0" />
     <PackageVersion Include="Microsoft.Extensions.FileProviders.Physical" Version="10.0.0" />
 
+    <!-- Auth (JwtBearer is not in the shared framework) -->
+    <PackageVersion Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="10.0.0" />
+
     <!-- Defaults for net10; net8 projects VersionOverride to 8.x -->
     <PackageVersion Include="Microsoft.Extensions.DependencyInjection" Version="10.0.0" />
     <PackageVersion Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="10.0.0" />

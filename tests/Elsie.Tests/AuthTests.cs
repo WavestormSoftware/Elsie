@@ -5,11 +5,19 @@ namespace Elsie.Tests;
 public class AuthTests
 {
     [Fact]
-    public void RequireApiKey_allows_get_by_default()
+    public void RequireApiKey_blocks_get_by_default()
     {
         var hook = ElsieAuth.RequireApiKey("secret");
         var ctx = Context("GET", "/");
-        Assert.Null(hook(ctx));
+        Assert.Equal(401, hook(ctx)!.StatusCode);
+    }
+
+    [Fact]
+    public void RequireApiKey_can_skip_safe_methods()
+    {
+        var hook = ElsieAuth.RequireApiKey("secret", onlyMutatingMethods: true);
+        Assert.Null(hook(Context("GET", "/")));
+        Assert.Equal(401, hook(Context("POST", "/"))!.StatusCode);
     }
 
     [Fact]

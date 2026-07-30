@@ -8,6 +8,7 @@ public sealed class RouteDescriptor
     private readonly List<string> _tags = [];
     private readonly List<RouteProduces> _produces = [];
     private readonly List<string> _security = [];
+    private Dictionary<string, object?>? _items;
 
     public RouteDescriptor(string method, string template, RouteHandler handler, ElsieModule? module = null)
     {
@@ -34,6 +35,9 @@ public sealed class RouteDescriptor
     public Type? AcceptsQueryType { get; internal set; }
     public IReadOnlyList<RouteProduces> Produces => _produces;
     public IReadOnlyList<string> Security => _security;
+
+    /// <summary>Extensibility bag for satellite packages (e.g. CORS policy name).</summary>
+    public IDictionary<string, object?> Items => _items ??= new Dictionary<string, object?>(StringComparer.Ordinal);
 
     internal void AddTags(IEnumerable<string> tags)
     {

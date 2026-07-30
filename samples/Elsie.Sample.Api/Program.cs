@@ -208,7 +208,8 @@ namespace Elsie.Sample.Api
         {
             Path("/api");
 
-            Before(ElsieAuth.RequireApiKey("dev-secret"));
+            // Sample keeps mutating-only gate; RequireApiKey defaults to all methods.
+            Before(ElsieAuth.RequireApiKey("dev-secret", onlyMutatingMethods: true));
 
             Group("/todos", () =>
             {

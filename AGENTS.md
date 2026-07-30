@@ -21,6 +21,8 @@ Instructions for coding agents working on this repository.
 | `src/Elsie.Views` | Fluid (Liquid) views + layouts/partials (`ViewAsync`, `IElsieViewEngine`) |
 | `src/Elsie.HealthChecks` | Host-agnostic `/healthz` + live/ready module |
 | `src/Elsie.RateLimiting` | Fixed/sliding window before-hook gates (429 + Retry-After) |
+| `src/Elsie.Auth` | Cookie/JWT wiring + RequireAuthenticated/Role/Claim/Policy gates |
+| `src/Elsie.Cors` | Elsie-native CORS (preflight middleware + after-hook ACAO) |
 | `src/Elsie.Testing` | `ElsieInMemoryHost` + ASP.NET `ElsieTestHost` + asserts |
 | `tests/*` | Unit / integration tests |
 | `samples/*` | Runnable samples |

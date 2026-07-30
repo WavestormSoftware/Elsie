@@ -1,0 +1,7 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Elsie.Cors\Elsie.Cors.csproj" />
+    <ProjectReference Include="..\..\src\Elsie.AspNetCore\Elsie.AspNetCore.csproj" />
+    <ProjectReference Include="..\..\src\Elsie.Testing\Elsie.Testing.csproj" />
+  </ItemGroup>
+</Project>
