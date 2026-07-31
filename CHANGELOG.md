@@ -44,6 +44,7 @@ Elsie is **unreleased** software; prereleases may include breaking API changes.
 - Namespaces `Elsie` / `Elsie.Web` unchanged.
 - Assembly names `Elsie.dll` (core) and `Elsie.Web.dll` (host) unchanged.
 - Docs/README/templates aligned with host package id **Elsie**, CSRF, token bucket, validation, production samples.
+- Samples use NuGet `PackageReference` (pinned `0.3.0-beta.2`) — no `src/` project refs; copy a sample folder and `dotnet run`.
 
 ## [0.3.0-beta.1] — 2026-07-31
 

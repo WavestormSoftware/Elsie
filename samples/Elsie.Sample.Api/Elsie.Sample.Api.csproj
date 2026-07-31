@@ -5,10 +5,12 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <IsPackable>false</IsPackable>
+    <ManagePackageVersionsCentrally>false</ManagePackageVersionsCentrally>
+    <RootNamespace>Elsie.Sample.Api</RootNamespace>
   </PropertyGroup>
   <ItemGroup>
-    <ProjectReference Include="..\..\src\Elsie\Elsie.csproj" />
-    <ProjectReference Include="..\..\src\Elsie.Validation\Elsie.Validation.csproj" />
-    <PackageReference Include="Microsoft.Extensions.Logging.Console" VersionOverride="8.0.1" />
+    <PackageReference Include="Elsie" Version="0.3.0-beta.2" />
+    <PackageReference Include="Elsie.Validation" Version="0.3.0-beta.2" />
+    <PackageReference Include="Microsoft.Extensions.Logging.Console" Version="8.0.1" />
   </ItemGroup>
 </Project>
