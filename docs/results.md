@@ -1,61 +1,41 @@
 # Results
 
-Handlers return **`ElsieResult`**. The host materializes it once via **`ElsieHttpResponse.FromDispatch`**.
+Handlers return **`ElsieResult`**. The host materializes via `ElsieHttpResponse.FromDispatch`.
 
 ## Factories
 
-| Factory | Notes |
-|---------|--------|
-| `Text(string)` | `text/plain` |
-| `Html(string)` | `text/html` |
-| `Json<T>(value, statusCode?, options?)` | Uses **`ElsieJson.DefaultOptions`** when `options` omitted |
-| `ctx.Json(value, …)` | Uses app **`ElsieOptions.JsonSerializerOptions`** |
-| `Bytes` / `File` / `Stream` | Binary / download / streaming body |
-| `Created(location?, body?)` | 201 + optional `Location` |
-| `Accepted(location?, body?)` | 202 |
-| `Redirect` / `RedirectTemporary` / `RedirectPermanent` | 302 / 307 / 308 |
-| `NoContent` | 204 |
-| `NotModified` | 304 |
-| `Status(code)` | Empty body |
-| `Problem` / `ValidationProblem` | `application/problem+json` |
-| `BadRequest` / `Unauthorized` / `Forbidden` / `NotFound` / `Conflict` | Problem helpers |
-| `ServerSentEvents(writer)` | `text/event-stream` |
-| `IfNoneMatch(header, etag, whenModified)` | Conditional helper |
-
-## Headers & cookies
-
 ```csharp
-return ElsieResult.Json(item)
-    .WithHeader("X-Trace", "1")
-    .WithHeaders(new Dictionary<string, string?> { ["X-A"] = "1" })
-    .WithCookie("sid", "abc", new ElsieCookieOptions { HttpOnly = true, Secure = true });
+ElsieResult.Text("ok")
+ElsieResult.Html("<p>hi</p>")
+ElsieResult.Json(payload, statusCode: 201)   // framework JSON defaults
+ctx.Json(payload)                            // app JsonSerializerOptions
+ElsieResult.Created("/items/1", body)
+ElsieResult.Accepted()
+ElsieResult.File(bytes, "application/pdf", downloadName: "a.pdf")
+ElsieResult.Redirect("/elsewhere")           // 302; 307/308 helpers also
+ElsieResult.NoContent()
+ElsieResult.NotModified()
+ElsieResult.Problem(400, "Bad Request", detail)
+ElsieResult.ValidationProblem(errors)
+ElsieResult.ServerSentEvents(async (w, ct) => await w.WriteEventAsync("tick", "1", ct))
+ElsieResult.WebSocket(async (ws, ct) => { /* … */ })
 ```
 
-Multi-value headers are first-class (`ElsieHeaders`). Cookies become `Set-Cookie` at bake time via `ElsieResponse` hooks as well:
+| API | JSON options |
+|-----|----------------|
+| `ElsieResult.Json(...)` | `ElsieJson.DefaultOptions` unless `options:` passed |
+| `ctx.Json(...)` | App options from `.Configure(o => o.JsonSerializerOptions = …)` |
+
+## Headers / cookies
 
 ```csharp
-ctx.Response.SetCookie("sid", value, new ElsieCookieOptions { HttpOnly = true });
-ctx.Response.DeleteCookie("sid");
-```
-
-## JSON options rule
-
-| Call site | Options |
-|-----------|---------|
-| `ElsieResult.Json(...)` | Framework defaults (`ElsieJson.DefaultOptions`) unless you pass `options` |
-| `ctx.Json(...)` | App options from `AddElsie(o => o.JsonSerializerOptions = …)` |
-
-There is no process-wide mutable `ElsieJson.Configure`.
-
-## Negotiation
-
-```csharp
-return ctx.Json(model);
-// ctx.Problem(status, title, detail?) adds instance + optional traceId
+return result.WithHeader("X-App", "1");
+return result.WithCookie("sid", value, new ElsieCookieOptions { HttpOnly = true });
+ctx.Response.Headers["X-App"] = "1";
+ctx.Response.SetCookie("sid", value, options);
 ```
 
 ## See also
 
 - [binding.md](binding.md)
-- [pipelines-and-errors.md](pipelines-and-errors.md)
-- [views.md](views.md)
+- [hosting-and-aot.md](hosting-and-aot.md) — WebSockets / SSE notes

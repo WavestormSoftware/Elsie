@@ -16,6 +16,7 @@ public sealed class ElsieApp
     private readonly List<ElsieListenOptions> _listen = new();
     private ElsieStaticFileOptions? _staticFiles;
     private ElsieOpenApiHostOptions? _openApi;
+    private ElsieServerOptions _serverOptions = new();
     private Action<ElsieServerFeatures, IServiceProvider>? _featureSetup;
     private string _contentRoot = Directory.GetCurrentDirectory();
     private bool _quietConsole = true;
@@ -156,6 +157,14 @@ public sealed class ElsieApp
         return this;
     }
 
+    /// <summary>Configure server limits (header/body sizes, H2 concurrency, timeouts).</summary>
+    public ElsieApp Server(Action<ElsieServerOptions> configure)
+    {
+        ArgumentNullException.ThrowIfNull(configure);
+        configure(_serverOptions);
+        return this;
+    }
+
     /// <summary>Extension hook for packages (Auth, CORS, Views) to wire host features and DI.</summary>
     public ElsieApp Use(Action<ElsieApp, IServiceCollection> configure)
     {
@@ -247,7 +256,7 @@ public sealed class ElsieApp
             ? msg => Console.WriteLine($"{DateTime.Now:HH:mm:ss} {msg}")
             : null;
 
-        return new ElsieServer(sp, dispatcher, features, endpoints, log);
+        return new ElsieServer(sp, dispatcher, features, endpoints, _serverOptions, log);
     }
 
     private void EnsureConfigured()

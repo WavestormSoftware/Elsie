@@ -1,50 +1,44 @@
 # CORS
 
-Package **`Elsie.Cors`** implements CORS for Elsie-handled requests.
-
-ASP.NET **`UseCors` is not enough**: Elsie matches routes (including OPTIONS) inside its own middleware, so the host CORS middleware never sees those preflights. Elsie answers **OPTIONS preflight** itself and stamps ACAO headers on actual responses via an **after-hook**.
+Package **`Elsie.Cors`**. Preflight is handled by an **`IElsieRequestFilter`** before dispatch; actual responses get ACAO headers via an **after-hook**.
 
 ## Setup
 
 ```csharp
-builder.Services.AddElsieCors(o =>
-{
-    o.AddDefaultPolicy(p => p
-        .AllowOrigins("http://localhost:5173")
-        .AllowMethods("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS")
-        .AllowHeaders("Content-Type", "Authorization")
-        .AllowCredentials()
-        .SetPreflightMaxAge(TimeSpan.FromMinutes(10)));
-
-    o.AddPolicy("public", p => p
-        .AllowOrigin("*")
-        .AllowMethods("GET")
-        .AllowHeaders("*"));
-});
-
-var app = builder.Build();
-app.UseElsieCors(); // before MapElsie
-app.MapElsie();
+ElsieApp.Create(args)
+    .Module<ApiModule>()
+    .Services(s =>
+    {
+        s.AddElsieCors(o =>
+        {
+            o.AddDefaultPolicy(p => p
+                .AllowOrigins("http://localhost:5173")
+                .AllowMethods("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS")
+                .AllowHeaders("Content-Type", "Authorization")
+                .AllowCredentials()
+                .SetPreflightMaxAge(TimeSpan.FromMinutes(10)));
+        });
+    })
+    .Run();
 ```
 
-`AllowAnyOrigin` + credentials → **startup throw** (invalid CORS combo).
+Fluent: `.Cors(o => …)` via `ElsieCorsAppExtensions`.
 
 ## Per-route policy
 
 ```csharp
-Get("/public/data", handler).WithCors("public");
+Get("/admin", () => ElsieResult.Text("x")).WithCors("tight");
+// options.AddPolicy("tight", p => p.AllowOrigin("https://admin.example"));
 ```
-
-Lookup: matched route's `.WithCors(name)` → else default policy name.
 
 ## Behavior
 
-| Phase | Mechanism |
-|-------|-----------|
-| Preflight `OPTIONS` | `UseElsieCors` middleware — may complete without entering Elsie routes |
-| Actual request | After-hook adds `Access-Control-*` when `Origin` present and policy allows |
+| Request | Behavior |
+|---------|----------|
+| Preflight `OPTIONS` + `Origin` + `Access-Control-Request-Method` | Filter short-circuits with 204 + CORS headers (or empty 204 if denied) |
+| Actual request with `Origin` | After-hook adds ACAO on the matched route’s policy (or default) |
 
 ## See also
 
-- [auth.md](auth.md)
-- [pipelines-and-errors.md](pipelines-and-errors.md)
+- [hosting-and-aot.md](hosting-and-aot.md)
+- [modules.md](modules.md)

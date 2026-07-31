@@ -97,7 +97,7 @@ public sealed class ElsieRequest
     public CancellationToken RequestAborted { get; }
 
     /// <summary>
-    /// Per-request bag for host adapters and middleware (e.g. stashed <c>HttpContext</c>).
+    /// Per-request bag for host adapters and middleware (auth principal, features, etc.).
     /// </summary>
     public IDictionary<object, object?> Items => _items ??= new Dictionary<object, object?>();
 

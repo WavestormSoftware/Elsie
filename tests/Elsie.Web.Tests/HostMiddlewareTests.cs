@@ -4,7 +4,7 @@ using Xunit;
 
 namespace Elsie.Web.Tests;
 
-/// <summary>Host-level features previously covered via ASP.NET middleware.</summary>
+/// <summary>Host-level features (static files, method not allowed).</summary>
 public class HostMiddlewareTests
 {
     private sealed class EchoModule : ElsieModule

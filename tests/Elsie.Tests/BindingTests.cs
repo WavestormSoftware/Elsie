@@ -216,4 +216,36 @@ public class BindingTests
             Assert.Contains("\"instance\":\"/problem\"", json, StringComparison.Ordinal);
         }
     }
+
+    [Fact]
+    public async Task BindFormAsync_multipart_fields()
+    {
+        var (dispatcher, sp) = await CreateAsync();
+        await using (sp)
+        {
+            const string boundary = "----elsiebound";
+            var bodyText =
+                $"--{boundary}\r\n" +
+                "Content-Disposition: form-data; name=\"Name\"\r\n\r\n" +
+                "Ada\r\n" +
+                $"--{boundary}\r\n" +
+                "Content-Disposition: form-data; name=\"Age\"\r\n\r\n" +
+                "36\r\n" +
+                $"--{boundary}\r\n" +
+                "Content-Disposition: form-data; name=\"file\"; filename=\"x.txt\"\r\n" +
+                "Content-Type: text/plain\r\n\r\n" +
+                "ignored\r\n" +
+                $"--{boundary}--\r\n";
+            var bytes = Encoding.UTF8.GetBytes(bodyText);
+            await using var body = new MemoryStream(bytes);
+            var outcome = await dispatcher.DispatchAsync(new ElsieRequest(
+                "POST",
+                "/form",
+                body: body,
+                contentLength: bytes.Length,
+                contentType: $"multipart/form-data; boundary={boundary}"));
+            Assert.Equal(ElsieDispatchStatus.Handled, outcome.Status);
+            Assert.Equal("Ada:36", Encoding.UTF8.GetString(outcome.Result!.Body!.Value.Span));
+        }
+    }
 }

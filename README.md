@@ -134,6 +134,7 @@ ElsieResult.NotModified()
 ElsieResult.Problem(400, "Bad Request", detail)
 ElsieResult.ValidationProblem(errors)
 ElsieResult.ServerSentEvents(async (w, ct) => await w.WriteEventAsync("tick", "1", ct))
+ElsieResult.WebSocket(async (ws, ct) => { /* … */ })
 
 var bind = await ctx.BindJsonAsync<CreateTodo>(ct);
 var form = await ctx.BindFormAsync<LoginForm>(ct);
@@ -153,23 +154,14 @@ ctx.GetRequiredService<IMyService>();
 Exception handling (first match wins):
 
 ```csharp
-builder.AddElsie(o =>
+.Configure(o =>
 {
     o.MapException<KeyNotFoundException>((_, ex) => ElsieResult.NotFound(ex.Message));
     o.ExceptionHandler = (ctx, ex, ct) =>
-        Task.FromResult(ElsieResult.Problem(500, "Server Error", ex.Message));
-});
+        Task.FromResult(ElsieResult.Problem(500, "Server Error"));
+})
 // MapException → module OnError → ExceptionHandler → rethrow
 // After-hooks still run when the exception is mapped to a result
-```
-
-Need `HttpContext`? Host escape hatch (core stays free of it):
-
-```csharp
-Get("/trace", ctx =>
-    ctx.TryGetHttpContext(out var http)
-        ? ElsieResult.Text(http!.TraceIdentifier)
-        : ElsieResult.Text("no-host"));
 ```
 
 ---
@@ -179,7 +171,7 @@ Get("/trace", ctx =>
 App-wide or per-module **before** / **after** hooks. After-hooks may transform the result.
 
 ```csharp
-builder.Services.ConfigureElsiePipelines(p =>
+.Services(s => s.ConfigureElsiePipelines(p =>
 {
     p.AddBefore((ctx, _) =>
     {
@@ -191,11 +183,11 @@ builder.Services.ConfigureElsiePipelines(p =>
         ctx.Response.Headers["X-Status"] = result.StatusCode.ToString();
         return result;
     });
-});
+}))
 // Order: app.Before → module.Before → handler → module.After → app.After
 ```
 
-Core gates (no ASP.NET auth stack):
+Core gates:
 
 ```csharp
 Before(ElsieAuth.RequireApiKey("dev-secret"));                    // all methods (default)
@@ -205,7 +197,7 @@ Before(ElsieAuth.RequireBearer(token => token == "ok"));
 Before(ElsieAuth.RequireCookie("session"));
 ```
 
-Cookie/JWT policies → **`Elsie.Auth`**.
+Cookie sessions + JWT → **`Elsie.Auth`**.
 
 ---
 
@@ -214,8 +206,11 @@ Cookie/JWT policies → **`Elsie.Auth`**.
 ### Auth — `Elsie.Auth`
 
 ```csharp
-builder.Services.AddElsieAuth(o => o.Cookie = c => c.Cookie.Name = "elsie-auth");
-app.UseElsieAuth(); // before MapElsie
+.Services(s => s.AddElsieAuth(o =>
+{
+    o.Cookie = new ElsieCookieAuthOptions { CookieName = "elsie-auth" };
+    o.Cookie.TicketKeyFromString("change-me");
+}))
 
 Before(ElsieAuthGates.RequireAuthenticated());
 Before(ElsieAuthGates.RequireRole("admin"));
@@ -225,26 +220,25 @@ var user = ctx.GetUser();
 
 ### CORS — `Elsie.Cors`
 
-Elsie handles **OPTIONS preflight** itself (ASP.NET `UseCors` does not see those requests).
+Preflight is handled by a host request filter; ACAO is applied on actual responses via an after-hook.
 
 ```csharp
-builder.Services.AddElsieCors(o => o.AddDefaultPolicy(p => p
+.Services(s => s.AddElsieCors(o => o.AddDefaultPolicy(p => p
     .AllowOrigins("http://localhost:5173")
     .AllowMethods("GET", "POST", "OPTIONS")
     .AllowHeaders("Content-Type")
-    .AllowCredentials()));
-app.UseElsieCors(); // before MapElsie
+    .AllowCredentials())))
 // optional: Get(...).WithCors("policy-name")
 ```
 
 ### Health checks (in `Elsie.Core`)
 
 ```csharp
-builder.Services.AddElsieHealthChecks(o =>
+.Services(s => s.AddElsieHealthChecks(o =>
 {
     o.AddCheck("self", () => ElsieHealthCheckResult.Healthy(), ElsieHealthCheckTags.Live);
     o.AddCheck("db", ct => CheckDbAsync(ct), ElsieHealthCheckTags.Ready);
-});
+}))
 // GET /healthz | /healthz/live | /healthz/ready  (unhealthy → 503)
 ```
 
@@ -257,23 +251,22 @@ Before(ElsieRateLimit.SlidingWindow(30, TimeSpan.FromSeconds(10),
 // 429 problem+json + Retry-After; uses TimeProvider
 ```
 
-### OpenAPI (in host)
+### OpenAPI (host)
 
 Route metadata (`.Named` / `.Accepts` / `.Produces` / `.WithSecurity` / …) builds the document.
 
 ```csharp
-app.MapElsieOpenApi(o =>
+.OpenApi(o =>
 {
     o.Info.Title = "My API";
-    o.Info.SecuritySchemes["ApiKey"] = ElsieOpenApiSecurityScheme.ApiKeyHeader();
     o.UiPath = "/scalar";
-});
+})
 ```
 
 ### Views — `Elsie.Views` (Fluid / Liquid)
 
 ```csharp
-builder.Services.AddElsieViews(o => o.ContentRoot = builder.Environment.ContentRootPath);
+.Services(s => s.AddElsieViews(o => o.ContentRoot = Directory.GetCurrentDirectory()))
 return await ctx.ViewAsync("home", new { Title = "Hi", Name = "Ada" }, cancellationToken: ct);
 ```
 
@@ -285,18 +278,12 @@ return await ctx.ViewAsync("home", new { Title = "Hi", Name = "Ada" }, cancellat
 ### Static files (host)
 
 ```csharp
-app.UseStaticFiles(new StaticFileOptions
+.StaticFiles(s =>
 {
-    RequestPath = "/assets",
-    FileProvider = new Microsoft.Extensions.FileProviders.PhysicalFileProvider(
-        Path.Combine(contentRoot, "wwwroot"))
-});
-// ASP.NET static files (sendfile, caching, etc.)
+    s.Root = "wwwroot";
+    s.RequestPath = "/assets";
+})
 ```
-
-### Validation (app-level FluentValidation)
-
-Reference FluentValidation in the app; see recipe in [docs/binding.md](docs/binding.md).
 
 ### Testing — `Elsie.Testing`
 
@@ -319,12 +306,12 @@ In tests, set `ScanEntryAssembly = false` and register modules explicitly.
 | Package | Contents |
 |---------|----------|
 | **[Elsie](https://www.nuget.org/packages/Elsie)** | Meta-package for apps → `Elsie.Web` → `Elsie.Core` |
-| [Elsie.Web](https://www.nuget.org/packages/Elsie.Web) | `ElsieWeb`, `AddElsie`, `MapElsie`, OpenAPI |
-| [Elsie.Core](https://www.nuget.org/packages/Elsie.Core) | Host-agnostic modules, routing, dispatcher, results, pipelines, health checks, rate limiting |
-| [Elsie.Auth](https://www.nuget.org/packages/Elsie.Auth) | Cookie/JWT + auth gates |
+| [Elsie.Web](https://www.nuget.org/packages/Elsie.Web) | `ElsieApp` / `ElsieWeb`, HTTP server, static files, OpenAPI |
+| [Elsie.Core](https://www.nuget.org/packages/Elsie.Core) | Host-agnostic modules, routing, dispatcher, results, pipelines, health, rate limit |
+| [Elsie.Auth](https://www.nuget.org/packages/Elsie.Auth) | Cookie tickets + JWT + auth gates |
 | [Elsie.Cors](https://www.nuget.org/packages/Elsie.Cors) | Elsie-native CORS |
 | [Elsie.Views](https://www.nuget.org/packages/Elsie.Views) | Fluid/Liquid views |
-| [Elsie.Testing](https://www.nuget.org/packages/Elsie.Testing) | In-memory + TestServer hosts |
+| [Elsie.Testing](https://www.nuget.org/packages/Elsie.Testing) | In-memory + loopback hosts |
 | [Elsie.Templates](https://www.nuget.org/packages/Elsie.Templates) | `dotnet new elsie` / `elsie-api` |
 
 Current version: **`0.3.0-alpha.1`** (prerelease; APIs may still change).
@@ -336,15 +323,16 @@ Namespaces stay `Elsie` / `Elsie.Web` regardless of package id. Library authors 
 ## Request flow
 
 ```
-HTTP request
-  → host (ASP.NET Core or in-memory test host)
+TCP (+ optional TLS/ALPN)
+  → HTTP/1.1 or HTTP/2 parse
   → ElsieRequest
+  → principal / filters (CORS preflight, …)
   → RouteTable.Lookup → before hooks → handler → after hooks → ElsieResult
   → ElsieHttpResponse.FromDispatch
-  → host writes status / headers / body
+  → host writes status / headers / body (or WebSocket upgrade)
 ```
 
-`MapElsie` is non-terminal by default so OpenAPI, static files, and other endpoints can coexist. `MapElsie(terminal: true)` returns 404 problem+json for unmatched routes.
+Unmatched routes return 404 problem+json from the host.
 
 ---
 
@@ -356,7 +344,7 @@ HTTP request
 | [Modules](docs/modules.md) | Registration, DI lifetimes |
 | [Routing](docs/routing.md) | Templates, constraints, precedence |
 | [Results](docs/results.md) | Response factories |
-| [Binding](docs/binding.md) | Route/query/JSON/form |
+| [Binding](docs/binding.md) | Route/query/JSON/form/multipart |
 | [Pipelines & errors](docs/pipelines-and-errors.md) | Before/after, exception maps |
 | [Auth](docs/auth.md) | Core gates + `Elsie.Auth` |
 | [CORS](docs/cors.md) | `Elsie.Cors` |
@@ -364,9 +352,9 @@ HTTP request
 | [Health checks](docs/health-checks.md) | Live/ready |
 | [OpenAPI](docs/openapi.md) | Document + Scalar |
 | [Views](docs/views.md) | Fluid/Liquid |
-| [Static files](docs/static-files.md) | ASP.NET `UseStaticFiles` |
-| [Testing](docs/testing.md) | In-memory + TestServer |
-| [Hosting & AOT](docs/hosting-and-aot.md) | Host notes |
+| [Static files](docs/static-files.md) | Built-in host static files |
+| [Testing](docs/testing.md) | In-memory + loopback |
+| [Hosting & AOT](docs/hosting-and-aot.md) | TLS, HTTP/2, WebSockets, limits |
 
 Changelog: [CHANGELOG.md](CHANGELOG.md)
 

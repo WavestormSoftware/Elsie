@@ -4,10 +4,10 @@ using Microsoft.Extensions.DependencyInjection;
 
 namespace Elsie.Testing;
 
-// Uses Elsie.AddElsie / ElsieDispatcher (no ASP.NET).
+// Uses Elsie.AddElsie / ElsieDispatcher (no sockets).
 
 /// <summary>
-/// Host-agnostic in-process Elsie runner (no ASP.NET). Uses <see cref="ElsieDispatcher"/>.
+/// Host-agnostic in-process Elsie runner (no TCP). Uses <see cref="ElsieDispatcher"/>.
 /// Creates an <see cref="IServiceScope"/> per request (ValidateScopes = true).
 /// </summary>
 public sealed class ElsieInMemoryHost : IAsyncDisposable

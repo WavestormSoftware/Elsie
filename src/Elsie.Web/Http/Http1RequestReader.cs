@@ -10,15 +10,21 @@ internal sealed class Http1RequestReader
     private readonly Stream _stream;
     private readonly int _maxRequestLineLength;
     private readonly int _maxHeaderBytes;
+    private long _maxBodyBytes = 10 * 1024 * 1024;
     private byte[] _buffer;
     private int _offset;
     private int _count;
 
-    public Http1RequestReader(Stream stream, int maxRequestLineLength = 8 * 1024, int maxHeaderBytes = 32 * 1024)
+    public Http1RequestReader(
+        Stream stream,
+        int maxRequestLineLength = 8 * 1024,
+        int maxHeaderBytes = 32 * 1024,
+        long maxBodyBytes = 10 * 1024 * 1024)
     {
         _stream = stream ?? throw new ArgumentNullException(nameof(stream));
         _maxRequestLineLength = maxRequestLineLength;
         _maxHeaderBytes = maxHeaderBytes;
+        _maxBodyBytes = maxBodyBytes > 0 ? maxBodyBytes : 10 * 1024 * 1024;
         _buffer = ArrayPool<byte>.Shared.Rent(16 * 1024);
     }
 
@@ -331,7 +337,7 @@ internal sealed class Http1RequestReader
 
     private async Task<Stream> ReadBodyAsync(long contentLength, CancellationToken cancellationToken)
     {
-        if (contentLength > int.MaxValue)
+        if (contentLength > int.MaxValue || contentLength > _maxBodyBytes)
         {
             throw new InvalidOperationException("Body too large.");
         }
@@ -385,6 +391,11 @@ internal sealed class Http1RequestReader
             if (!int.TryParse(hex, NumberStyles.HexNumber, CultureInfo.InvariantCulture, out var size) || size < 0)
             {
                 throw new InvalidOperationException("Invalid chunk size.");
+            }
+
+            if (ms.Length + size > _maxBodyBytes)
+            {
+                throw new InvalidOperationException("Body too large.");
             }
 
             if (size == 0)

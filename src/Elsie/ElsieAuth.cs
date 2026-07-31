@@ -46,7 +46,7 @@ public static class ElsieAuth
 
     /// <summary>
     /// Require <c>Authorization: Bearer …</c>. Optional <paramref name="validate"/> checks the token.
-    /// JWT/signature validation stays with the host (ASP.NET auth) — this is a thin gate.
+    /// JWT signature validation stays with <c>Elsie.Auth</c> / app code — this is a thin presence gate.
     /// </summary>
     public static Func<ElsieContext, ElsieResult?> RequireBearer(
         Func<string, bool>? validate = null,

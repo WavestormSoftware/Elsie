@@ -36,8 +36,20 @@ Override with `.Listen(...)` or `--urls http://…`.
 
 - Default protocol: **HTTP/1.1**
 - **HTTP/2**: opt-in via `ElsieHttpProtocols.Http2` / `Http1AndHttp2` (TLS + ALPN)
-- HTTP/2 is a focused subset (SETTINGS/HEADERS/DATA/PING/WINDOW_UPDATE/RST/GOAWAY + HPACK static/literal)
+- HTTP/2 supports SETTINGS/HEADERS/CONTINUATION/DATA/PING/WINDOW_UPDATE/RST/GOAWAY, concurrent streams, HPACK static + literal (+ Huffman decode)
 - Putting TLS termination on a reverse proxy and serving cleartext HTTP/1.1 is fully supported
+
+## Server limits
+
+```csharp
+.Server(o =>
+{
+    o.MaxRequestBodyBytes = 5 * 1024 * 1024;
+    o.MaxHeaderBytes = 32 * 1024;
+    o.MaxConcurrentStreams = 100;
+    o.MaxFrameSize = 16384;
+})
+```
 
 ## WebSockets
 

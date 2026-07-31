@@ -16,6 +16,7 @@ internal sealed class ConnectionHandler
     private readonly ElsieDispatcher _dispatcher;
     private readonly ElsieServerFeatures _features;
     private readonly ElsieListenOptions _listen;
+    private readonly ElsieServerOptions _serverOptions;
     private readonly Action<string>? _log;
     private readonly IElsieRequestFilter[] _filters;
     private readonly IElsiePrincipalAttacher[] _principalAttachers;
@@ -25,12 +26,14 @@ internal sealed class ConnectionHandler
         ElsieDispatcher dispatcher,
         ElsieServerFeatures features,
         ElsieListenOptions listen,
+        ElsieServerOptions serverOptions,
         Action<string>? log)
     {
         _services = services;
         _dispatcher = dispatcher;
         _features = features;
         _listen = listen;
+        _serverOptions = serverOptions ?? new ElsieServerOptions();
         _log = log;
         _filters = services.GetServices<IElsieRequestFilter>().ToArray();
         _principalAttachers = services.GetServices<IElsiePrincipalAttacher>().ToArray();
@@ -68,6 +71,7 @@ internal sealed class ConnectionHandler
                         _dispatcher,
                         _features,
                         _listen,
+                        _serverOptions,
                         _log,
                         socket.RemoteEndPoint);
                     await h2.RunAsync(cancellationToken).ConfigureAwait(false);
@@ -120,7 +124,11 @@ internal sealed class ConnectionHandler
 
     private async Task RunHttp1Async(Stream stream, EndPoint? remote, CancellationToken cancellationToken)
     {
-        var reader = new Http1RequestReader(stream);
+        var reader = new Http1RequestReader(
+            stream,
+            _serverOptions.MaxRequestLineLength,
+            _serverOptions.MaxHeaderBytes,
+            _serverOptions.MaxRequestBodyBytes);
         try
         {
             while (!cancellationToken.IsCancellationRequested)

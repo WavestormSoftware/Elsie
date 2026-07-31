@@ -10,6 +10,7 @@ internal sealed class ElsieServer : IAsyncDisposable
     private readonly ElsieDispatcher _dispatcher;
     private readonly ElsieServerFeatures _features;
     private readonly IReadOnlyList<ElsieListenOptions> _endpoints;
+    private readonly ElsieServerOptions _serverOptions;
     private readonly Action<string>? _log;
     private readonly List<TcpListener> _listeners = new();
     private readonly CancellationTokenSource _cts = new();
@@ -21,12 +22,14 @@ internal sealed class ElsieServer : IAsyncDisposable
         ElsieDispatcher dispatcher,
         ElsieServerFeatures features,
         IReadOnlyList<ElsieListenOptions> endpoints,
+        ElsieServerOptions serverOptions,
         Action<string>? log)
     {
         _services = services;
         _dispatcher = dispatcher;
         _features = features;
         _endpoints = endpoints;
+        _serverOptions = serverOptions ?? new ElsieServerOptions();
         _log = log;
     }
 
@@ -145,7 +148,7 @@ internal sealed class ElsieServer : IAsyncDisposable
             }
 
             socket.NoDelay = true;
-            var handler = new ConnectionHandler(_services, _dispatcher, _features, options, _log);
+            var handler = new ConnectionHandler(_services, _dispatcher, _features, options, _serverOptions, _log);
             _ = Task.Run(async () =>
             {
                 try

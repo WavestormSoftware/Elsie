@@ -2,77 +2,78 @@
 
 Two layers:
 
-1. **Core gates** in `Elsie` — header/API key/bearer/cookie checks (no principal)
-2. **`Elsie.Auth`** — ASP.NET cookie/JWT wiring + principal gates
+1. **`ElsieAuth`** (core) — header / API-key / bearer-string before-hooks (no crypto)
+2. **`Elsie.Auth`** — cookie session tickets + JWT validation + principal gates
 
-## Core gates (`ElsieAuth`)
+## Header / API key (core)
 
 ```csharp
-Before(ElsieAuth.RequireApiKey("dev-secret")); // all HTTP methods by default
 Before(ElsieAuth.RequireApiKey("dev-secret", onlyMutatingMethods: true));
 Before(ElsieAuth.RequireHeader("X-Tenant", "acme"));
 Before(ElsieAuth.RequireBearer(token => token == "ok"));
-Before(ElsieAuth.RequireCookie("session"));
+Before(ElsieAuth.RequireCookie("sid")); // cookie present
 ```
 
-Failures return problem+json **401**.
+## Cookie + JWT package
 
-## Package `Elsie.Auth`
-
-### Setup
+```bash
+dotnet add package Elsie.Auth
+```
 
 ```csharp
-builder.Services.AddElsieAuth(o =>
-{
-    o.Cookie = c =>
+ElsieApp.Create(args)
+    .Module<App>()
+    .Services(s =>
     {
-        c.Cookie.Name = "elsie-auth";
-        c.Cookie.HttpOnly = true;
-        c.SlidingExpiration = true;
-    };
-    // optional:
-    // o.JwtBearer = jwt => { jwt.Authority = "..."; jwt.Audience = "..."; };
-    // o.Authorization = a => a.AddPolicy("AdminsOnly", p => p.RequireRole("admin"));
-});
+        s.AddElsieAuth(o =>
+        {
+            o.Cookie = new ElsieCookieAuthOptions
+            {
+                CookieName = "elsie-auth",
+                HttpOnly = true,
+                SlidingExpiration = true,
+                ExpireTimeSpan = TimeSpan.FromHours(8)
+            };
+            o.Cookie.TicketKeyFromString(Environment.GetEnvironmentVariable("ELSIE_TICKET_KEY")
+                ?? "change-me-in-production");
 
-var app = builder.Build();
-app.UseElsieAuth(); // UseAuthentication + UseAuthorization — before MapElsie
-app.MapElsie();
+            // Optional JWT (requires SigningKey)
+            // o.JwtBearer = new ElsieJwtBearerOptions
+            // {
+            //     Issuer = "https://issuer",
+            //     Audience = "api",
+            //     SigningKey = new SymmetricSecurityKey(keyBytes)
+            // };
+        });
+    })
+    .Run();
 ```
 
-`AddElsieAuth` also calls `AddRouting()` so `ValidateOnBuild` hosts resolve authorization services.
+Or fluent: `.Auth(o => { ... })` via `ElsieAuthAppExtensions`.
 
-### Gates
+The host attaches a principal before dispatch (`IElsiePrincipalAttacher`): JWT bearer header first when configured, otherwise cookie ticket.
+
+## Gates
 
 ```csharp
 Before(ElsieAuthGates.RequireAuthenticated());
-Before(ElsieAuthGates.RequireRole("admin", "owner"));
+Before(ElsieAuthGates.RequireRole("admin"));
 Before(ElsieAuthGates.RequireClaim(ClaimTypes.Name, "ada"));
-Before(ElsieAuthGates.RequirePolicy("AdminsOnly")); // async before-hook
 ```
 
-| Result | When |
-|--------|------|
-| 401 | Anonymous |
-| 403 | Authenticated but role/claim/policy fails |
-
-### Principal helpers
+## Sign-in / sign-out
 
 ```csharp
-var user = ctx.GetUser(); // HttpContext.User when hosted on ASP.NET
-
 await ctx.SignInCookieAsync("ada", roles: ["user"]);
 await ctx.SignInAsync(principal);
-await ctx.SignOutAsync(CookieAuthenticationDefaults.AuthenticationScheme);
+await ctx.SignOutAsync();
+
+var user = ctx.GetUser(); // ClaimsPrincipal via ElsiePrincipal
 ```
 
-These require the ASP.NET host adapter (HttpContext stash). On the pure in-memory host, `GetUser()` returns an empty principal.
-
-## Sample
-
-See `samples/Elsie.Sample.Full` and the `elsie-api` template (`templates/elsie-api`).
+Cookie tickets are AES-GCM sealed (name/role claims + expiry). Set a stable `TicketKey` in production.
 
 ## See also
 
 - [pipelines-and-errors.md](pipelines-and-errors.md)
-- [cors.md](cors.md)
+- [hosting-and-aot.md](hosting-and-aot.md)

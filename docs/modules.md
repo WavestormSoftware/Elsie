@@ -1,64 +1,58 @@
 # Modules
 
-An **`ElsieModule`** is a class that registers routes and optional pipeline hooks in its constructor.
+Routes live on **`ElsieModule`** subclasses (singletons).
 
-## Shape
+## Registration
+
+```csharp
+// One module
+ElsieApp.Run<App>(args);
+
+// Explicit modules
+ElsieApp.Create(args)
+    .Configure(o => o.ScanEntryAssembly = false)
+    .Module<HomeModule>()
+    .Module<ApiModule>()
+    .Run();
+
+// Or DI
+.Services(s => s.AddElsieModule<ApiModule>());
+```
+
+| API | Use |
+|-----|-----|
+| `ElsieApp.Run<TModule>(args)` | Build host, register `TModule`, run |
+| `.Module<T>()` / `AddElsieModule<T>()` | Explicit registration (prefer in tests) |
+| `AddElsie()` / `.Configure(...)` | Core services + `ElsieOptions` |
+| `ScanEntryAssembly` | Default **true** for apps; tests set **false** |
+
+## Defining routes
 
 ```csharp
 public sealed class TodosModule : ElsieModule
 {
-    public TodosModule(ITodoStore store) // ctor DI — module is a singleton
+    public TodosModule(ITodoStore store)
     {
         Path("/api");
-        Before(ElsieAuth.RequireApiKey("dev-secret", onlyMutatingMethods: true));
+        Before(ElsieAuth.RequireApiKey("secret", onlyMutatingMethods: true));
 
         Group("/todos", () =>
         {
             Get("/", ctx => ctx.Json(store.List()));
-            Post("/", async (ctx, ct) => { /* ... */ });
+            Get("/{id:guid}", ctx => { /* … */ }).Named("getTodo");
+            Post("/", async (ctx, ct) => { /* … */ });
         });
     }
 }
 ```
 
-## Registration
-
-| API | Behavior |
-|-----|----------|
-| `ElsieWeb.Run<TModule>(args)` | Build host, register `TModule`, `MapElsie`, run |
-| `builder.AddElsie()` | Core services + optional `configure` on `ElsieOptions` |
-| `services.AddElsieModule<T>()` | Explicit module (preferred in tests) |
-| `ScanEntryAssembly = true` | Default: discover concrete `ElsieModule` types in the entry assembly |
-
-```csharp
-builder.AddElsie(o => o.ScanEntryAssembly = false);
-builder.Services.AddElsieModule<HomeModule>();
-builder.Services.AddElsieModule<TodosModule>();
-```
-
-## Lifetimes
-
-- **Modules are singletons.** Register once; share across requests.
-- Ctor-inject **singleton-safe** services only.
-- Request-scoped services: `ctx.GetRequiredService<T>()` or `ctx.Services`.
-- Test hosts enable `ValidateScopes` and create a scope per request.
-
-## Composition helpers
-
-| Helper | Purpose |
-|--------|---------|
-| `Path("/api")` | Prefix for subsequent routes in this module |
-| `Group("/todos", () => { ... })` | Nested prefix block |
-| `Before(...)` / `After(...)` | Module pipeline hooks |
-| `OnError(...)` | Module-level exception mapper |
-| `Get` / `Post` / `Put` / `Patch` / `Delete` / `Head` / `Options` | Verb helpers |
-| `Map(method, template, handler)` | Arbitrary method |
-| `MapMethods(methods, template, handler)` | Multi-method registration |
-
-Verb helpers return a **`RouteBuilder`** for metadata (`.Named`, `.WithTags`, `.Accepts`, `.Produces`, …).
+- `Path` / `Group` compose prefixes  
+- `Before` / `After` are module pipelines  
+- Handlers: sync `Func<ElsieContext, ElsieResult>` or async with `CancellationToken`  
+- Ctor DI for singletons; `ctx.GetRequiredService<T>()` for scoped  
 
 ## See also
 
 - [routing.md](routing.md)
 - [pipelines-and-errors.md](pipelines-and-errors.md)
-- [testing.md](testing.md)
+- [getting-started.md](getting-started.md)

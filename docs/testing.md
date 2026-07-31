@@ -2,73 +2,79 @@
 
 Package **`Elsie.Testing`**.
 
-## In-memory (no web server)
+## In-memory host (dispatcher only)
+
+Fast unit tests — no sockets:
 
 ```csharp
-await using var mem = ElsieInMemoryHost.Create(s =>
+await using var host = ElsieInMemoryHost.Create(s =>
 {
-    s.AddElsieModule<HelloModule>();
+    s.AddElsieModule<TodosModule>();
+    s.AddSingleton<ITodoStore, FakeStore>();
 });
 
-var r = await mem.GetAsync("/hello/Ada");
-Assert.Equal(200, r.StatusCode);
-Assert.Equal("Hello Ada!", r.ReadAsString());
-
-var created = await mem.PostJsonAsync("/items", new { Title = "x" });
+var res = await host.GetAsync("/api/todos");
+Assert.Equal(200, res.StatusCode);
 ```
 
-- Creates a **scope per request**, `ValidateScopes = true`
-- Sets `ScanEntryAssembly = false` — register modules explicitly
-- Returns **`ElsieInMemoryResponse`** (status, headers, body, dispatch status)
+Creates a DI scope per request (`ValidateScopes = true`). Entry-assembly scan is off by default.
 
-## ASP.NET TestServer
+## Loopback host (real HTTP/1.1)
+
+Exercises the custom server over TCP:
 
 ```csharp
 await using var host = ElsieTestHost.Create(s =>
 {
-    s.AddElsieModule<HelloModule>();
+    s.AddElsieAuth(o =>
+    {
+        o.Cookie = new ElsieCookieAuthOptions { CookieName = "t" };
+        o.Cookie.TicketKeyFromString("test-key");
+    });
+    s.AddElsieModule<SecureModule>();
 });
 
-var response = await host.GetAsync("/hello/Ada");
+var login = await host.PostJsonAsync("/login", new { user = "ada", password = "pass" });
+login.EnsureSuccessStatusCode();
+var me = await host.GetAsync("/me");
+```
+
+`HttpClient` has cookies enabled for session tests.
+
+## Fluent `ElsieApp` in tests
+
+```csharp
+await using var server = await ElsieApp.Create()
+    .QuietConsole(false)
+    .Listen(IPAddress.Loopback, 0)
+    .Configure(o => o.ScanEntryAssembly = false)
+    .Module<PingModule>()
+    .StartAsync();
+
+using var client = server.CreateClient();
+Assert.Equal("pong", await client.GetStringAsync("/ping"));
+```
+
+## Assert helpers
+
+```csharp
 response.AssertStatus(200);
-var text = await response.AssertTextAsync("Hello Ada!");
-```
-
-Optional host configuration:
-
-```csharp
-ElsieTestHost.Create(
-    services => { /* DI */ },
-    app => { app.UseElsieAuth(); app.MapElsie(); });
-```
-
-## Asserts
-
-```csharp
-response.AssertStatus(HttpStatusCode.Created);
-response.AssertHeader("Location", "/items/1");
-response.AssertHeaderContains("X-Trace", "abc");
-var dto = await response.AssertJsonAsync<Todo>();
+await response.AssertTextAsync("ok");
+await response.AssertJsonAsync<Todo>();
+response.AssertHeader("X-Test", "yes");
 ```
 
 ## Multipart
 
 ```csharp
-using var content = new MultipartFormBuilder()
+var form = new MultipartFormBuilder()
     .AddField("title", "hi")
-    .AddFile("file", "a.txt", new byte[] { 1, 2, 3 }, "text/plain")
+    .AddFile("file", "a.txt", Encoding.UTF8.GetBytes("data"))
     .Build();
-
-await host.Client.PostAsync("/upload", content);
+var res = await host.Client.PostAsync("/upload", form);
 ```
-
-## Tips
-
-- Prefer **`AddElsieModule<T>()`** over assembly scan in tests
-- Auth/CORS tests need the TestServer host + `UseElsieAuth` / `UseElsieCors`
-- Rate-limit tests: inject a fake `TimeProvider` into the gate factory
 
 ## See also
 
-- [modules.md](modules.md)
+- [getting-started.md](getting-started.md)
 - [auth.md](auth.md)
