@@ -476,13 +476,7 @@ internal sealed class RouteMatcher
                 }
                 else
                 {
-                    var rest = new string[parts.Length - _fixedCount];
-                    for (var i = 0; i < rest.Length; i++)
-                    {
-                        rest[i] = DecodeIfNeeded(parts[_fixedCount + i]);
-                    }
-
-                    map[catchAll.Name!] = string.Join('/', rest);
+                    map[catchAll.Name!] = DecodeCatchAll(parts, _fixedCount);
                 }
 
                 values = map;
@@ -501,7 +495,7 @@ internal sealed class RouteMatcher
             {
                 for (var i = 0; i < _segments.Length; i++)
                 {
-                    if (!MatchSegment(_segments[i], parts[i], null))
+                    if (!MatchStaticSegment(_segments[i], parts[i]))
                     {
                         values = null!;
                         return false;
@@ -546,13 +540,12 @@ internal sealed class RouteMatcher
 
         private static bool MatchSegment(Segment segment, string rawPart, Dictionary<string, string>? map)
         {
-            var value = DecodeIfNeeded(rawPart);
-
             if (segment.Kind == SegmentKind.Static)
             {
-                return string.Equals(value, segment.Literal, StringComparison.OrdinalIgnoreCase);
+                return MatchStaticSegment(segment, rawPart);
             }
 
+            var value = DecodeIfNeeded(rawPart);
             if (segment.Predicate is not null && !segment.Predicate(value))
             {
                 return false;
@@ -560,6 +553,32 @@ internal sealed class RouteMatcher
 
             map![segment.Name!] = value;
             return true;
+        }
+
+        private static bool MatchStaticSegment(Segment segment, string rawPart)
+        {
+            return string.Equals(DecodeIfNeeded(rawPart), segment.Literal, StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static string DecodeCatchAll(string[] parts, int start)
+        {
+            if (start == parts.Length - 1)
+            {
+                return DecodeIfNeeded(parts[start]);
+            }
+
+            var builder = new System.Text.StringBuilder();
+            for (var i = start; i < parts.Length; i++)
+            {
+                if (i > start)
+                {
+                    builder.Append('/');
+                }
+
+                builder.Append(DecodeIfNeeded(parts[i]));
+            }
+
+            return builder.ToString();
         }
     }
 
