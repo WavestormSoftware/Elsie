@@ -62,7 +62,9 @@ internal static class StaticFileHandler
         }
 
         var full = Path.GetFullPath(Path.Combine(root, relative));
-        if (!full.StartsWith(root, StringComparison.OrdinalIgnoreCase) || !File.Exists(full))
+        // Require directory boundary — StartsWith(root) alone allows sibling prefix escapes
+        // (root /var/www vs /var/www-evil).
+        if (!IsPathInsideRoot(full, root) || !File.Exists(full))
         {
             return null;
         }
@@ -254,6 +256,15 @@ internal static class StaticFileHandler
         }
 
         return requestPath.StartsWith('/') ? requestPath.TrimEnd('/') : "/" + requestPath.TrimEnd('/');
+    }
+
+    internal static bool IsPathInsideRoot(string fullPath, string root)
+    {
+        var rootFull = Path.GetFullPath(root);
+        var rootPrefix = rootFull.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)
+                         + Path.DirectorySeparatorChar;
+        return fullPath.StartsWith(rootPrefix, StringComparison.OrdinalIgnoreCase)
+               || string.Equals(fullPath, rootFull, StringComparison.OrdinalIgnoreCase);
     }
 }
 

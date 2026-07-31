@@ -135,13 +135,47 @@ internal sealed class HostDispatch
     {
         if (!string.IsNullOrWhiteSpace(request.TraceIdentifier))
         {
+            if (!IsSafeTraceId(request.TraceIdentifier))
+            {
+                request.TraceIdentifier = Guid.NewGuid().ToString("N");
+            }
+
             return;
         }
 
         var incoming = request.GetHeader("X-Request-Id") ?? request.GetHeader("X-Correlation-Id");
-        request.TraceIdentifier = string.IsNullOrWhiteSpace(incoming)
-            ? Guid.NewGuid().ToString("N")
-            : incoming.Trim();
+        if (!string.IsNullOrWhiteSpace(incoming))
+        {
+            incoming = incoming.Trim();
+            if (IsSafeTraceId(incoming))
+            {
+                request.TraceIdentifier = incoming;
+                return;
+            }
+        }
+
+        request.TraceIdentifier = Guid.NewGuid().ToString("N");
+    }
+
+    /// <summary>Reject CR/LF/NUL and oversized ids so echo into X-Request-Id cannot inject headers.</summary>
+    private static bool IsSafeTraceId(string value)
+    {
+        if (value.Length is 0 or > 128)
+        {
+            return false;
+        }
+
+        foreach (var c in value)
+        {
+            if (char.IsAsciiLetterOrDigit(c) || c is '-' or '_' or '.' or ':')
+            {
+                continue;
+            }
+
+            return false;
+        }
+
+        return true;
     }
 
     private static string Normalize(string path) =>

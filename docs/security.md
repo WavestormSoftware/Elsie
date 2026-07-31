@@ -57,6 +57,9 @@ Automated tests cover (Web + Auth suites):
 - HTTP/1.1 parser body/header limits
 - 405 / 404 problem bodies do not leak handler data
 - Antiforgery header + form field paths
+- Static path directory-boundary (sibling root-prefix)
+- Response header / cookie attribute / download-name CR/LF rejection
+- Unsafe `X-Request-Id` values are not echoed
 
 ## CI / supply chain
 

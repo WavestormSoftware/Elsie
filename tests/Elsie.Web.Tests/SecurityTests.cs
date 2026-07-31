@@ -330,6 +330,71 @@ public class SecurityTests
         Assert.Contains("Not Found", body, StringComparison.Ordinal);
     }
 
+    [Fact]
+    public void Static_path_boundary_rejects_sibling_prefix()
+    {
+        var baseDir = Path.Combine(Path.GetTempPath(), "elsie-sib-" + Guid.NewGuid().ToString("n"));
+        var root = Path.Combine(baseDir, "www");
+        var sibling = Path.Combine(baseDir, "www-evil");
+        Directory.CreateDirectory(root);
+        Directory.CreateDirectory(sibling);
+        var inside = Path.Combine(root, "ok.txt");
+        var outside = Path.Combine(sibling, "secret.txt");
+        File.WriteAllText(inside, "safe");
+        File.WriteAllText(outside, "leak");
+        try
+        {
+            Assert.True(Elsie.Web.Hosting.StaticFileHandler.IsPathInsideRoot(inside, root));
+            Assert.False(Elsie.Web.Hosting.StaticFileHandler.IsPathInsideRoot(outside, root));
+            // Classic StartsWith hole: outside path begins with root string
+            Assert.StartsWith(root, outside, StringComparison.Ordinal);
+        }
+        finally
+        {
+            try { Directory.Delete(baseDir, true); } catch { /* ignore */ }
+        }
+    }
+
+    [Fact]
+    public async Task X_Request_Id_with_crlf_is_not_echoed()
+    {
+        await using var server = await ElsieApp.Create()
+            .QuietConsole(false)
+            .Listen(IPAddress.Loopback, 0)
+            .Configure(o => o.ScanEntryAssembly = false)
+            .Module<EchoModule>()
+            .StartAsync();
+
+        using var client = server.CreateClient();
+        using var req = new HttpRequestMessage(HttpMethod.Get, "/whoami");
+        // HttpClient may strip raw CRLF; use a control-char id that is still invalid for our allow-list.
+        req.Headers.TryAddWithoutValidation("X-Request-Id", "bad id with spaces");
+        using var res = await client.SendAsync(req);
+        res.EnsureSuccessStatusCode();
+        Assert.True(res.Headers.TryGetValues("X-Request-Id", out var ids));
+        var id = Assert.Single(ids);
+        Assert.DoesNotContain(' ', id);
+        Assert.NotEqual("bad id with spaces", id);
+    }
+
+    [Fact]
+    public async Task X_Request_Id_safe_value_is_echoed()
+    {
+        await using var server = await ElsieApp.Create()
+            .QuietConsole(false)
+            .Listen(IPAddress.Loopback, 0)
+            .Configure(o => o.ScanEntryAssembly = false)
+            .Module<EchoModule>()
+            .StartAsync();
+
+        using var client = server.CreateClient();
+        using var req = new HttpRequestMessage(HttpMethod.Get, "/whoami");
+        req.Headers.TryAddWithoutValidation("X-Request-Id", "req-abc_123.def:1");
+        using var res = await client.SendAsync(req);
+        res.EnsureSuccessStatusCode();
+        Assert.Equal("req-abc_123.def:1", res.Headers.GetValues("X-Request-Id").Single());
+    }
+
     private sealed class AuthModule : ElsieModule
     {
         public AuthModule()

@@ -39,6 +39,7 @@ public sealed class ElsieHeaders : IEnumerable<KeyValuePair<string, IReadOnlyLis
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(name);
         ArgumentNullException.ThrowIfNull(value);
+        ValidateHeader(name, value);
         _map[name] = [value];
     }
 
@@ -54,6 +55,11 @@ public sealed class ElsieHeaders : IEnumerable<KeyValuePair<string, IReadOnlyLis
             return;
         }
 
+        foreach (var v in list)
+        {
+            ValidateHeader(name, v);
+        }
+
         _map[name] = list;
     }
 
@@ -62,6 +68,7 @@ public sealed class ElsieHeaders : IEnumerable<KeyValuePair<string, IReadOnlyLis
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(name);
         ArgumentNullException.ThrowIfNull(value);
+        ValidateHeader(name, value);
         if (!_map.TryGetValue(name, out var list))
         {
             list = [];
@@ -69,6 +76,32 @@ public sealed class ElsieHeaders : IEnumerable<KeyValuePair<string, IReadOnlyLis
         }
 
         list.Add(value);
+    }
+
+    private static void ValidateHeader(string name, string value)
+    {
+        if (ContainsCtl(name))
+        {
+            throw new ArgumentException("Header name contains invalid control characters.", nameof(name));
+        }
+
+        if (ContainsCtl(value))
+        {
+            throw new ArgumentException("Header value contains invalid control characters.", nameof(value));
+        }
+    }
+
+    private static bool ContainsCtl(string s)
+    {
+        foreach (var c in s)
+        {
+            if (c is '\r' or '\n' or '\0')
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     public bool Contains(string name)

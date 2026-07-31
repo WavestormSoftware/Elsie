@@ -29,6 +29,8 @@ internal static class ElsieCookieFormatter
         ArgumentException.ThrowIfNullOrWhiteSpace(name);
         ArgumentNullException.ThrowIfNull(value);
         options ??= new ElsieCookieOptions();
+        ValidateCookieAttribute(options.Path, nameof(options.Path));
+        ValidateCookieAttribute(options.Domain, nameof(options.Domain));
 
         // name=value; Path=/; ...
         var sb = new System.Text.StringBuilder();
@@ -98,4 +100,20 @@ internal static class ElsieCookieFormatter
         };
         return FormatSetCookie(name, string.Empty, delete);
     }
+    private static void ValidateCookieAttribute(string? value, string paramName)
+    {
+        if (string.IsNullOrEmpty(value))
+        {
+            return;
+        }
+
+        foreach (var c in value)
+        {
+            if (c is '\r' or '\n' or '\0' or ';')
+            {
+                throw new ArgumentException("Cookie attribute contains invalid characters.", paramName);
+            }
+        }
+    }
 }
+

@@ -173,8 +173,23 @@ internal sealed class RouteMatcher
         return raw.Split('/', StringSplitOptions.RemoveEmptyEntries);
     }
 
-    private static string DecodeIfNeeded(string raw) =>
-        raw.Contains('%') ? Uri.UnescapeDataString(raw) : raw;
+    private static string DecodeIfNeeded(string raw)
+    {
+        if (!raw.Contains('%'))
+        {
+            return raw;
+        }
+
+        try
+        {
+            return Uri.UnescapeDataString(raw);
+        }
+        catch (UriFormatException)
+        {
+            // Invalid percent-encoding must not 500 the request.
+            return raw;
+        }
+    }
 
     /// <summary>
     /// Merge two precedence-sorted lists into one sorted array (stable by original order).

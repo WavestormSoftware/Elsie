@@ -311,6 +311,15 @@ public sealed class ElsieResult
 
     private static string ContentDisposition(string downloadName)
     {
+        ArgumentException.ThrowIfNullOrWhiteSpace(downloadName);
+        foreach (var c in downloadName)
+        {
+            if (c is '\r' or '\n' or '\0')
+            {
+                throw new ArgumentException("Download name contains invalid control characters.", nameof(downloadName));
+            }
+        }
+
         // ASCII filename + RFC 5987 filename*
         var escaped = downloadName.Replace("\"", "'", StringComparison.Ordinal);
         return $"attachment; filename=\"{escaped}\"; filename*=UTF-8''{Uri.EscapeDataString(downloadName)}";
