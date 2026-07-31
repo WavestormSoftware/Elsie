@@ -37,6 +37,8 @@ public static class ElsieAntiforgeryServiceExtensions
 
 public sealed class ElsieAntiforgeryService
 {
+    private static readonly byte[] EphemeralDevelopmentKey = RandomNumberGenerator.GetBytes(32);
+
     private readonly ElsieAntiforgeryOptions _options;
     private readonly IServiceProvider _services;
 
@@ -192,8 +194,8 @@ public sealed class ElsieAntiforgeryService
             return ticket;
         }
 
-        // ephemeral process key — ok for single-node dev
-        return SHA256.HashData(Encoding.UTF8.GetBytes("elsie-csrf-dev-key-change-me!!"));
+        // Ephemeral process key — ok for single-node dev and avoids a globally forgeable default.
+        return EphemeralDevelopmentKey;
     }
 
     private static bool IsSafe(string method) =>
