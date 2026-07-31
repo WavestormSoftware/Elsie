@@ -29,7 +29,11 @@ No path match → host returns 404 problem+json (terminal host).
 
 ```csharp
 Get("/todos/{id:guid}", …).Named("getTodo");
-var url = ctx.UrlFor("getTodo", new { id });
+
+var relative = ctx.UrlFor("getTodo", new { id });
+// /todos/…
+var absolute = ctx.UrlFor("getTodo", new { id }, absolute: true);
+// https://host/todos/…  (uses request scheme/host + PathBase)
 ```
 
 ## See also

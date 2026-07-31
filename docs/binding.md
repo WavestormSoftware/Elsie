@@ -22,7 +22,9 @@ var body = bind.Value!;
 
 Honors `ElsieOptions.MaxBindBodySize`. Prefer `ctx.Json(...)` when using app `JsonSerializerOptions` / source-gen.
 
-## Form urlencoded + multipart
+Body reads go through **`Request.BufferBodyAsync`** once; later bind/antiforgery calls reuse the buffer (no double-read of the raw stream).
+
+## Form urlencoded + multipart fields
 
 ```csharp
 var form = await ctx.BindFormAsync<LoginForm>(ct);
@@ -41,7 +43,38 @@ public sealed class LoginForm
 }
 ```
 
+## Multipart files
+
+```csharp
+var form = await ctx.ReadFormAsync(ct);
+if (!form.IsSuccess) return form.Error!;
+
+var title = form.Value!.Get("title");           // fields
+var file = form.Value.GetFile("file");          // ElsieFormFile?
+// or:
+var files = await ctx.ReadFormFilesAsync(ct);   // all files
+await using var stream = file!.OpenReadStream();
+```
+
+`ElsieFormFile` exposes `Name`, `FileName`, `ContentType`, `Length`, and stream access. Cap body size with `MaxRequestBodyBytes` / `MaxBindBodySize`.
+
+## Validation (optional package)
+
+```bash
+dotnet add package Elsie.Validation
+```
+
+```csharp
+s.AddElsieDataAnnotationsValidation();
+
+var bind = await ctx.BindJsonAsync<CreateTodo>(ct);
+if (!bind.IsSuccess) return bind.Error!;
+if (ctx.ValidateWithDataAnnotations(bind.Value!) is { } invalid)
+    return invalid; // 400 validation problem
+```
+
 ## See also
 
 - [results.md](results.md)
+- [auth.md](auth.md) — antiforgery shares the buffered body with form bind
 - [testing.md](testing.md) — multipart client helper

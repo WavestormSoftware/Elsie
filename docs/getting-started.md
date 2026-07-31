@@ -5,15 +5,16 @@ Elsie is a Sinatra-style HTTP module framework for **.NET 8** and **.NET 10**. D
 ## Install
 
 ```bash
-dotnet add package Elsie          # host + Elsie.Core
+dotnet add package Elsie              # host + Elsie.Core (0.3.0-beta.2)
 # optional:
 dotnet add package Elsie.Auth
 dotnet add package Elsie.Cors
 dotnet add package Elsie.Views
-dotnet add package Elsie.Testing  # for *your* app's unit tests (hosts + asserts)
+dotnet add package Elsie.Validation   # DataAnnotations adapter
+dotnet add package Elsie.Testing      # for *your* app tests (hosts + asserts)
 ```
 
-`Elsie` is the **HTTP host package** (`src/Elsie`, assembly `Elsie.Web.dll`): `ElsieApp`, server, static files, OpenAPI. It depends on **`Elsie.Core`** so one install is enough.
+`Elsie` is the **HTTP host package** (`src/Elsie`, assembly `Elsie.Web.dll`): `ElsieApp`, server, static files, OpenAPI. It depends on **`Elsie.Core`** so one install is enough. Former package id **`Elsie.Web`** is retired — use **`Elsie`**.
 
 Templates:
 
@@ -62,6 +63,8 @@ ElsieApp.Create(args)
         o.MapException<KeyNotFoundException>((_, ex) => ElsieResult.NotFound(ex.Message));
     })
     .Listen("http://127.0.0.1:5000")
+    .Logging(loggerFactory)          // optional ILoggerFactory
+    .Compression()                   // optional gzip/br
     .OpenApi(o =>
     {
         o.Info.Title = "My API";
@@ -83,13 +86,31 @@ ElsieApp.Create(args)
 | `.Services(...)` | MS.DI registrations |
 | `.Configure(...)` | `ElsieOptions` |
 | `.Listen(...)` | Bind URLs (default `http://127.0.0.1:5000`) |
+| `.ContentRoot(...)` | Resolve views/static relative to a root |
+| `.Logging` / `.Compression` / `.Server` | Observability, gzip/br, limits |
 | `.OpenApi` / `.StaticFiles` | Host features |
 
 Modules are **singletons**. Inject singleton-safe services in the ctor; resolve request-scoped services with `ctx.GetRequiredService<T>()` / `ctx.Services`.
 
+## Samples
+
+| Sample | Focus |
+|--------|--------|
+| [HelloWorld](../samples/Elsie.Sample.HelloWorld) | `ElsieApp.Run` one-liner |
+| [Hello](../samples/Elsie.Sample.Hello) | DI, constraints, pipelines |
+| [Api](../samples/Elsie.Sample.Api) | CRUD, API key, OpenAPI, validation, compression |
+| [Views](../samples/Elsie.Sample.Views) | Fluid/Liquid |
+| [Dashboard](../samples/Elsie.Sample.Dashboard) | Multi-page views, cookie auth, form CSRF |
+| [Full](../samples/Elsie.Sample.Full) | Auth, CORS, rate limit, health, CSRF, static, views |
+
+```bash
+dotnet run --project samples/Elsie.Sample.HelloWorld
+```
+
 ## Next
 
 - [modules.md](modules.md) — routing in modules  
-- [hosting-and-aot.md](hosting-and-aot.md) — TLS, HTTP/2, WebSockets  
+- [hosting-and-aot.md](hosting-and-aot.md) — TLS, HTTP/2, WebSockets, limits  
+- [production-checklist.md](production-checklist.md) — deploy gates  
 - [testing.md](testing.md) — in-memory and loopback hosts  
-- [auth.md](auth.md) — cookies and JWT  
+- [auth.md](auth.md) — cookies, JWT, antiforgery  

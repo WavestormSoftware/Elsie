@@ -4,12 +4,13 @@ using Elsie;
 using Elsie.Web;
 using Elsie.Auth;
 
-// Elsie API template — CRUD + cookie auth + OpenAPI
+// Elsie API template — CRUD + cookie auth + CSRF + OpenAPI
 //   GET  /                  catalog
-//   POST /login             { "user":"ada", "password":"pass" }
-//   POST /logout
+//   GET  /csrf              antiforgery cookie + token (send as X-CSRF-TOKEN)
+//   POST /login             { "user":"ada", "password":"pass" } + X-CSRF-TOKEN
+//   POST /logout            + X-CSRF-TOKEN
 //   GET  /api/todos         requires auth
-//   POST /api/todos         requires auth
+//   POST /api/todos         requires auth + X-CSRF-TOKEN
 //   GET  /openapi.json
 
 ElsieApp.Create(args)
@@ -25,10 +26,15 @@ ElsieApp.Create(args)
             {
                 CookieName = "elsie-auth",
                 HttpOnly = true,
-                SlidingExpiration = true
+                SlidingExpiration = true,
+                SameSite = ElsieSameSite.Lax
             };
-            o.Cookie.TicketKeyFromString("change-me-in-production");
+            // Production: load from env/secret store (≥ 16 chars).
+            o.Cookie.TicketKeyFromString(
+                Environment.GetEnvironmentVariable("ELSIE_TICKET_KEY")
+                ?? "change-me-in-production");
         });
+        s.AddElsieAntiforgery();
     })
     .OpenApi(o =>
     {
@@ -67,11 +73,32 @@ sealed class PublicModule : ElsieModule
 {
     public PublicModule()
     {
+        Before(ElsieAntiforgeryService.RequireAntiforgery());
+
         Get("/", () => ElsieResult.Json(new
         {
             name = "ElsieApi",
-            links = new { login = "/login", todos = "/api/todos", openapi = "/openapi.json" }
+            links = new
+            {
+                csrf = "/csrf",
+                login = "/login",
+                todos = "/api/todos",
+                openapi = "/openapi.json",
+                scalar = "/scalar"
+            },
+            demo = new
+            {
+                user = "ada",
+                password = "pass",
+                note = "GET /csrf then send header X-CSRF-TOKEN on POST /login, /logout, and POST /api/todos"
+            }
         }));
+
+        Get("/csrf", ctx =>
+        {
+            var token = ctx.GetAntiforgeryToken();
+            return ctx.Json(new { token, header = "X-CSRF-TOKEN" });
+        });
 
         Post("/login", async (ctx, ct) =>
         {
@@ -105,6 +132,7 @@ sealed class TodosModule : ElsieModule
     {
         Path("/api");
         Before(ElsieAuthGates.RequireAuthenticated());
+        Before(ElsieAntiforgeryService.RequireAntiforgery());
 
         Group("/todos", () =>
         {

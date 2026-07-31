@@ -24,7 +24,7 @@ using Elsie.Views;
 //   POST /logout               + X-CSRF-TOKEN (from GET /csrf)
 //   GET  /csrf                 issue antiforgery cookie + token
 //   GET  /me                   requires cookie auth
-//   GET  /api/notes            requires auth + rate limit
+//   GET  /api/notes            requires auth + token-bucket rate limit
 //   POST /api/notes            requires auth + rate limit + validation
 //   GET  /openapi.json  |  /scalar
 //
@@ -209,7 +209,7 @@ namespace Elsie.Sample.Full
                 {
                     user = "ada",
                     password = "pass",
-                    note = "GET /csrf then send X-CSRF-TOKEN on POST /login and mutations; notes are rate-limited."
+                    note = "GET /csrf then send X-CSRF-TOKEN on POST /login and mutations; notes use TokenBucket(20, 5/s)."
                 }
             })).WithTags("catalog");
         }
@@ -290,7 +290,8 @@ namespace Elsie.Sample.Full
             Path("/api");
             Before(ElsieAuthGates.RequireAuthenticated());
             Before(ElsieAntiforgeryService.RequireAntiforgery());
-            Before(ElsieRateLimit.FixedWindow(permitLimit: 30, window: TimeSpan.FromMinutes(1)));
+            // Burst 20, steady ~5/s; FixedWindow/SlidingWindow also available.
+            Before(ElsieRateLimit.TokenBucket(capacity: 20, tokensPerSecond: 5));
 
             Group("/notes", () =>
             {

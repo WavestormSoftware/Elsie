@@ -6,6 +6,7 @@ Elsie host (`Elsie` package / `Elsie.Web` namespaces) serves static files via **
 
 ```csharp
 ElsieApp.Create(args)
+    .ContentRoot(Directory.GetCurrentDirectory()) // optional; resolves relative Root
     .Module<App>()
     .StaticFiles(s =>
     {
@@ -20,11 +21,18 @@ ElsieApp.Create(args)
 
 Path traversal (`..`) is rejected. Content types are inferred from file extensions.
 
+## Caching and ranges
+
+Streams file content (not fully buffered). Supports:
+
+- **ETag** + **If-None-Match** → **304**
+- **If-Modified-Since** → **304**
+- Single-range **Range** requests
+
+Optional security headers on dynamic responses via `ElsieSecurityHeaders.DefaultAfter()` (static short-circuit may not run app after-hooks — set cache/`MaxAge` deliberately).
+
 ## See also
 
 - [views.md](views.md)
 - [hosting-and-aot.md](hosting-and-aot.md)
 - [getting-started.md](getting-started.md)
-
-
-Streams file content (not fully buffered). Supports **ETag**, **If-None-Match**, **If-Modified-Since**, and single **Range** requests.

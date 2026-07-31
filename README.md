@@ -39,7 +39,7 @@ dotnet new elsie -n HelloApp        # minimal app
 dotnet new elsie-api -n TodosApi    # CRUD + cookie auth + OpenAPI
 ```
 
-Guides: [docs/](docs/) · Samples: [HelloWorld](samples/Elsie.Sample.HelloWorld) · [Hello](samples/Elsie.Sample.Hello) · [Api](samples/Elsie.Sample.Api) · [Views](samples/Elsie.Sample.Views) · [Dashboard](samples/Elsie.Sample.Dashboard) · [Full](samples/Elsie.Sample.Full) · NuGet: [Elsie](https://www.nuget.org/packages/Elsie)
+Guides: [docs/](docs/) · Samples: [HelloWorld](samples/Elsie.Sample.HelloWorld) · [Hello](samples/Elsie.Sample.Hello) · [Api](samples/Elsie.Sample.Api) (validation/OpenAPI) · [Views](samples/Elsie.Sample.Views) · [Dashboard](samples/Elsie.Sample.Dashboard) (cookie + form CSRF) · [Full](samples/Elsie.Sample.Full) (kitchen sink) · NuGet: [Elsie](https://www.nuget.org/packages/Elsie)
 
 ---
 
@@ -69,7 +69,9 @@ ElsieApp.Create(args)
 | `ElsieApp.Run<T>(args)` / `ElsieWeb.Run<T>` | Smallest host |
 | `ElsieApp.Create(args)` | Fluent host builder |
 | `.Module<T>()` / `.Services(...)` | Modules + MS.DI |
-| `.Listen(...)` / `.OpenApi(...)` / `.StaticFiles(...)` | Endpoints and host features |
+| `.Listen` / `.ContentRoot` / `.Server` | Bind, roots, limits |
+| `.Logging` / `.Compression` | Observability + gzip/br |
+| `.OpenApi(...)` / `.StaticFiles(...)` | Document UI + static files |
 
 Modules are **singletons**. Inject singleton-safe services in the ctor; resolve request-scoped services with `ctx.GetRequiredService<T>()` / `ctx.Services`.
 
@@ -140,6 +142,7 @@ ElsieResult.WebSocket(async (ws, ct) => { /* … */ })
 
 var bind = await ctx.BindJsonAsync<CreateTodo>(ct);
 var form = await ctx.BindFormAsync<LoginForm>(ct);
+var files = await ctx.ReadFormFilesAsync(ct);   // multipart ElsieFormFile
 var query = ctx.BindQuery<SearchQuery>();
 ctx.Route<int>("id");
 ctx.Query<bool>("shout");
@@ -148,8 +151,9 @@ ctx.RequireRoute("id", out Guid id, out var error);
 ctx.Request.Method / Path / Scheme / Host / PathBase / Protocol / RemoteIp
 ctx.Request.GetHeader / GetQuery / GetCookie
 ctx.UrlFor("getTodo", new { id })
+ctx.UrlFor("getTodo", new { id }, absolute: true)
 ctx.Response.Headers["X-App"] = "1";
-ctx.Response.SetCookie("sid", value, new ElsieCookieOptions { HttpOnly = true });
+ctx.Response.SetCookie("sid", value, new ElsieCookieOptions { HttpOnly = true, SameSite = ElsieSameSite.Lax });
 ctx.GetRequiredService<IMyService>();
 ```
 
@@ -199,7 +203,7 @@ Before(ElsieAuth.RequireBearer(token => token == "ok"));
 Before(ElsieAuth.RequireCookie("session"));
 ```
 
-Cookie sessions + JWT → **`Elsie.Auth`**.
+Cookie sessions + JWT + antiforgery → **`Elsie.Auth`**.
 
 ---
 
@@ -208,16 +212,27 @@ Cookie sessions + JWT → **`Elsie.Auth`**.
 ### Auth — `Elsie.Auth`
 
 ```csharp
-.Services(s => s.AddElsieAuth(o =>
+.Services(s =>
 {
-    o.Cookie = new ElsieCookieAuthOptions { CookieName = "elsie-auth" };
-    o.Cookie.TicketKeyFromString("change-me");
-}))
+    s.AddElsieAuth(o =>
+    {
+        o.Cookie = new ElsieCookieAuthOptions
+        {
+            CookieName = "elsie-auth",
+            HttpOnly = true,
+            SameSite = ElsieSameSite.Lax   // core enum
+        };
+        o.Cookie.TicketKeyFromString("change-me-at-least-16");
+    });
+    s.AddElsieAntiforgery(); // double-submit cookie
+})
 
 Before(ElsieAuthGates.RequireAuthenticated());
 Before(ElsieAuthGates.RequireRole("admin"));
+Before(ElsieAntiforgeryService.RequireAntiforgery()); // header X-CSRF-TOKEN or form field
 await ctx.SignInCookieAsync("ada", roles: ["user"]);
 var user = ctx.GetUser();
+var csrf = ctx.GetAntiforgeryToken(); // Base64Url
 ```
 
 ### CORS — `Elsie.Cors`
@@ -228,7 +243,7 @@ Preflight is handled by a host request filter; ACAO is applied on actual respons
 .Services(s => s.AddElsieCors(o => o.AddDefaultPolicy(p => p
     .AllowOrigins("http://localhost:5173")
     .AllowMethods("GET", "POST", "OPTIONS")
-    .AllowHeaders("Content-Type")
+    .AllowHeaders("Content-Type", "X-CSRF-TOKEN")
     .AllowCredentials())))
 // optional: Get(...).WithCors("policy-name")
 ```
@@ -250,25 +265,37 @@ Preflight is handled by a host request filter; ACAO is applied on actual respons
 Before(ElsieRateLimit.FixedWindow(100, TimeSpan.FromMinutes(1)));
 Before(ElsieRateLimit.SlidingWindow(30, TimeSpan.FromSeconds(10),
     partitionKey: ctx => ctx.Request.GetHeader("X-Api-Key") ?? "anon"));
-// 429 problem+json + Retry-After; uses TimeProvider
+Before(ElsieRateLimit.TokenBucket(capacity: 20, tokensPerSecond: 5));
+// 429 problem+json + Retry-After; default partition = RemoteIp only (not XFF)
+// Behind a trusted proxy: partitionKey: ElsieRateLimit.ForwardedPartitionKey
+```
+
+### Validation — `Elsie.Validation`
+
+```csharp
+.Services(s => s.AddElsieDataAnnotationsValidation())
+// after bind:
+if (ctx.ValidateWithDataAnnotations(body) is { } invalid) return invalid;
 ```
 
 ### OpenAPI (host)
 
-Route metadata (`.Named` / `.Accepts` / `.Produces` / `.WithSecurity` / …) builds the document.
+Route metadata (`.Named` / `.Accepts` / `.Produces` / `.WithSecurity` / `.WithExample` / …) builds the document.
 
 ```csharp
 .OpenApi(o =>
 {
     o.Info.Title = "My API";
-    o.UiPath = "/scalar";
+    o.UiPath = "/scalar";              // Scalar CDN by default
+    // o.UseScalarCdn = false;         // minimal embedded UI
+    // o.PrebuiltDocumentPath = "…";  // skip reflection at runtime
 })
 ```
 
 ### Views — `Elsie.Views` (Fluid / Liquid)
 
 ```csharp
-.Services(s => s.AddElsieViews(o => o.ContentRoot = Directory.GetCurrentDirectory()))
+.Services(s => s.AddElsieViews(o => o.ContentRoot = contentRoot))
 return await ctx.ViewAsync("home", new { Title = "Hi", Name = "Ada" }, cancellationToken: ct);
 ```
 
@@ -285,6 +312,7 @@ return await ctx.ViewAsync("home", new { Title = "Hi", Name = "Ada" }, cancellat
     s.Root = "wwwroot";
     s.RequestPath = "/assets";
 })
+// streams; ETag / If-Modified-Since / Range
 ```
 
 ### Testing — `Elsie.Testing`
@@ -344,22 +372,25 @@ Unmatched routes return 404 problem+json from the host.
 |-------|--|
 | [Getting started](docs/getting-started.md) | Install, smallest app, samples |
 | [Modules](docs/modules.md) | Registration, DI lifetimes |
-| [Routing](docs/routing.md) | Templates, constraints, precedence |
+| [Routing](docs/routing.md) | Templates, constraints, `UrlFor` |
 | [Results](docs/results.md) | Response factories |
-| [Binding](docs/binding.md) | Route/query/JSON/form/multipart |
+| [Binding](docs/binding.md) | Route/query/JSON/form/files + validation |
 | [Pipelines & errors](docs/pipelines-and-errors.md) | Before/after, exception maps |
-| [Auth](docs/auth.md) | Core gates + `Elsie.Auth` |
+| [Auth](docs/auth.md) | Gates, cookies, JWT, CSRF, OIDC helpers |
 | [CORS](docs/cors.md) | `Elsie.Cors` |
-| [Rate limiting](docs/rate-limiting.md) | Fixed/sliding windows |
+| [Rate limiting](docs/rate-limiting.md) | Fixed / sliding / token bucket |
 | [Health checks](docs/health-checks.md) | Live/ready |
-| [OpenAPI](docs/openapi.md) | Document + Scalar |
+| [OpenAPI](docs/openapi.md) | Document, Scalar, prebuilt JSON |
 | [Views](docs/views.md) | Fluid/Liquid |
-| [Static files](docs/static-files.md) | Built-in host static files |
+| [Static files](docs/static-files.md) | Stream, ETag, Range |
 | [Testing](docs/testing.md) | In-memory + loopback |
 | [Hosting & AOT](docs/hosting-and-aot.md) | TLS, HTTP/2, WebSockets, limits, reverse proxy |
-| [Security](docs/security.md) | Tickets, limits, forwarded headers |
+| [Security](docs/security.md) | Tickets, CSRF, XFF, CI scan |
 | [Production checklist](docs/production-checklist.md) | Deploy gates |
+| [Lifecycle](docs/lifecycle.md) | Socket → response path |
 | [Architecture](docs/architecture.md) | Package/host layout |
+| [Anti-patterns](docs/anti-patterns.md) | Common pitfalls |
+| [Minimal APIs migration](docs/minimal-apis-migration.md) | Cheat sheet |
 
 ### Production sketch
 

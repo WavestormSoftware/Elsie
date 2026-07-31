@@ -19,9 +19,14 @@ ElsieApp.Create(args)
 | `ElsieWeb.Run` | Thin wrapper over `ElsieApp` |
 | `ElsieApp.Create(args)` | Fluent host builder |
 | `.Listen(url)` / `.Listen(url, o => …)` | Bind endpoints; HTTPS needs a certificate |
-| `.OpenApi(...)` | OpenAPI JSON (+ optional Scalar UI) |
-| `.StaticFiles(...)` | Built-in static file serving |
+| `.ContentRoot(path)` | Base for views/static relative paths |
+| `.Server(o => …)` | Body/header/connection limits, forwarded headers |
+| `.Logging(ILoggerFactory)` | Optional host logging |
+| `.Compression()` | Optional gzip/br on eligible responses |
+| `.OpenApi(...)` | OpenAPI JSON (+ optional Scalar/embedded UI) |
+| `.StaticFiles(...)` | Built-in static file serving (stream, ETag, Range) |
 | `.Services(...)` / `.Module<T>()` | MS.DI + modules |
+| `CreateClient()` / `CreateHttpsClient()` | After `StartAsync` — HTTP vs HTTPS test clients |
 
 Default listen (when none specified): `http://127.0.0.1:5000`.  
 Override with `.Listen(...)` or `--urls http://…`.

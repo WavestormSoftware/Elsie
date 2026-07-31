@@ -40,6 +40,15 @@ TCP accept (+ optional TLS/ALPN)
 - Single materialize path: `ElsieHttpResponse.FromDispatch`.
 - MS.DI only; `ValidateScopes` on the host.
 - Security defaults: no XFF unless opted in; cookie tickets require a key; rate limit does not trust XFF by default.
+- Cookie/antiforgery `SameSite` uses core `ElsieSameSite` (not an Auth-local enum).
+- Package id **`Elsie`** is the host; assembly remains `Elsie.Web.dll`. Do not publish package id `Elsie.Web`.
+
+## Observability
+
+- `ActivitySource("Elsie")` around dispatch
+- `Meter("Elsie")` — connections, rejections, request totals
+- Optional `ILoggerFactory` via `.Logging(...)`
+- Request `TraceIdentifier` echoed as `X-Request-Id`
 
 ## HTTP/2
 
