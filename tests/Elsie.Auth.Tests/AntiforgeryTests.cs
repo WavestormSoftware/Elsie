@@ -78,6 +78,39 @@ public class AntiforgeryTests
     }
 
     [Fact]
+    public void Default_development_key_is_not_well_known()
+    {
+        var services = new ServiceCollection();
+        services.AddElsieAntiforgery();
+        var sp = services.BuildServiceProvider();
+        var svc = sp.GetRequiredService<ElsieAntiforgeryService>();
+
+        var issue = new ElsieContext(
+            new ElsieRequest("GET", "/", requestServices: sp),
+            new ElsieResponse(),
+            new Dictionary<string, string>());
+        var token = svc.GetAndStoreToken(issue);
+
+        var verifierServices = new ServiceCollection();
+        verifierServices.AddElsieAntiforgery(o =>
+            o.SigningKey = System.Security.Cryptography.SHA256.HashData(
+                Encoding.UTF8.GetBytes("elsie-csrf-dev-key-change-me!!")));
+        var verifier = verifierServices.BuildServiceProvider().GetRequiredService<ElsieAntiforgeryService>();
+
+        var headers = new Dictionary<string, string>
+        {
+            ["Cookie"] = $"elsie-csrf={Uri.EscapeDataString(token)}",
+            ["X-CSRF-TOKEN"] = token
+        };
+        var ctx = new ElsieContext(
+            new ElsieRequest("POST", "/x", headers: headers, requestServices: sp),
+            new ElsieResponse(),
+            new Dictionary<string, string>());
+
+        Assert.False(verifier.IsValid(ctx));
+    }
+
+    [Fact]
     public void Missing_token_fails()
     {
         var services = new ServiceCollection();
