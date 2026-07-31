@@ -13,11 +13,28 @@ Elsie is **unreleased** software; prereleases may include breaking API changes.
 - Package **Elsie** is now the HTTP host (was a metapackage over `Elsie.Web`).
 - Package **Elsie.Web** removed — use **Elsie** (same assembly `Elsie.Web.dll` / namespaces).
 - Project paths: `src/Elsie.Core` (kernel), `src/Elsie` (host). `src/Elsie.Meta` deleted.
+- Rate limit **default partition** no longer reads `X-Forwarded-For` (use `ForwardedPartitionKey`).
 
 ### Migration
 - Apps: keep `PackageReference Include="Elsie"` (recommended).
 - If you referenced **Elsie.Web** explicitly, switch to **Elsie**.
 - Monorepo `ProjectReference` consumers: point host at `src/Elsie/Elsie.csproj`, core at `src/Elsie.Core/Elsie.Core.csproj`.
+- Rate limit behind proxies: pass `partitionKey: ElsieRateLimit.ForwardedPartitionKey` when XFF is trusted.
+
+### Added
+- Connection caps, drain shutdown, header timeouts, listen backlog
+- Request `TraceIdentifier` + `X-Request-Id`; `ActivitySource("Elsie")`; `Meter("Elsie")`
+- Optional `ILoggerFactory` via `ElsieApp.Logging`
+- Response compression (`.Compression()`)
+- Static files: streaming, ETag, If-Modified-Since, Range
+- Multipart file uploads (`ElsieFormFile`, `ReadFormAsync`)
+- `IRateLimitStore`; security headers helper
+- Antiforgery + minimal OIDC helpers (`Elsie.Auth`)
+- `Elsie.Validation` DataAnnotations package
+- OpenAPI prebuilt document + embedded UI mode; `WriteToFileAsync`; `WithExample`
+- Absolute `UrlFor(..., absolute: true)`; Problem `type` URI
+- Docs: architecture, lifecycle, production checklist, anti-patterns, minimal APIs migration
+- CI: vulnerable package scan, coverage collect, Validation pack
 
 ### Non-breaking
 - Namespaces `Elsie` / `Elsie.Web` unchanged.

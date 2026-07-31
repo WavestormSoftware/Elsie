@@ -312,6 +312,7 @@ In tests, set `ScanEntryAssembly = false` and register modules explicitly.
 | [Elsie.Auth](https://www.nuget.org/packages/Elsie.Auth) | Cookie tickets + JWT + auth gates |
 | [Elsie.Cors](https://www.nuget.org/packages/Elsie.Cors) | Elsie-native CORS |
 | [Elsie.Views](https://www.nuget.org/packages/Elsie.Views) | Fluid/Liquid views |
+| [Elsie.Validation](https://www.nuget.org/packages/Elsie.Validation) | DataAnnotations validation adapter |
 | [Elsie.Testing](https://www.nuget.org/packages/Elsie.Testing) | Helpers for **your** tests (not the same as repo `tests/`) |
 | [Elsie.Templates](https://www.nuget.org/packages/Elsie.Templates) | `dotnet new elsie` / `elsie-api` |
 

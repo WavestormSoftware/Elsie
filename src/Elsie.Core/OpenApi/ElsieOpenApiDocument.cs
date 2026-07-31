@@ -159,6 +159,25 @@ public static partial class ElsieOpenApiDocument
     public static string ToJson(RouteTable table, ElsieOpenApiInfo? info = null, JsonSerializerOptions? options = null) =>
         Encoding.UTF8.GetString(ToUtf8Json(table, info, options));
 
+    /// <summary>Write OpenAPI JSON to a file (prebuild for AOT / static hosting).</summary>
+    public static async Task WriteToFileAsync(
+        string path,
+        RouteTable table,
+        ElsieOpenApiInfo? info = null,
+        JsonSerializerOptions? options = null,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(path);
+        var bytes = ToUtf8Json(table, info, options);
+        var dir = Path.GetDirectoryName(path);
+        if (!string.IsNullOrEmpty(dir))
+        {
+            Directory.CreateDirectory(dir);
+        }
+
+        await File.WriteAllBytesAsync(path, bytes, cancellationToken).ConfigureAwait(false);
+    }
+
     internal static (string Path, List<Dictionary<string, object>> Parameters) ConvertTemplate(string template)
     {
         var parameters = new List<Dictionary<string, object>>();

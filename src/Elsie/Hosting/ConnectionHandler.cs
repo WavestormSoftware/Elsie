@@ -6,6 +6,8 @@ using System.Security.Authentication;
 using Elsie.Web.Http;
 using Elsie.Web.Http2;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 
 namespace Elsie.Web.Hosting;
 
@@ -17,6 +19,7 @@ internal sealed class ConnectionHandler
     private readonly ElsieListenOptions _listen;
     private readonly ElsieServerOptions _serverOptions;
     private readonly Action<string>? _log;
+    private readonly ILogger _logger;
     private readonly HostDispatch _dispatch;
 
     public ConnectionHandler(
@@ -25,7 +28,8 @@ internal sealed class ConnectionHandler
         ElsieServerFeatures features,
         ElsieListenOptions listen,
         ElsieServerOptions serverOptions,
-        Action<string>? log)
+        Action<string>? log,
+        ILogger? logger = null)
     {
         _services = services;
         _dispatcher = dispatcher;
@@ -33,7 +37,8 @@ internal sealed class ConnectionHandler
         _listen = listen;
         _serverOptions = serverOptions ?? new ElsieServerOptions();
         _log = log;
-        _dispatch = new HostDispatch(services, dispatcher, features);
+        _logger = logger ?? NullLogger.Instance;
+        _dispatch = new HostDispatch(services, dispatcher, features, _serverOptions);
     }
 
     public async Task RunAsync(Socket socket, CancellationToken cancellationToken)
@@ -131,7 +136,19 @@ internal sealed class ConnectionHandler
                 ParsedHttpRequest? parsed;
                 try
                 {
-                    parsed = await reader.ReadAsync(cancellationToken).ConfigureAwait(false);
+                    using var headerCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+                    if (_serverOptions.RequestHeadersTimeout > TimeSpan.Zero)
+                    {
+                        headerCts.CancelAfter(_serverOptions.RequestHeadersTimeout);
+                    }
+
+                    parsed = await reader.ReadAsync(headerCts.Token).ConfigureAwait(false);
+                }
+                catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+                {
+                    await WriteErrorAsync(stream, 408, "Request Timeout", "Header read timed out.", keepAlive: false, cancellationToken)
+                        .ConfigureAwait(false);
+                    return;
                 }
                 catch (InvalidOperationException ex)
                 {

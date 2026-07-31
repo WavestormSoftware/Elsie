@@ -46,7 +46,9 @@ public sealed class ElsieDispatcher
             match.RouteValues,
             _options.JsonSerializerOptions,
             _routes,
-            _options.MaxBindBodySize);
+            _options.MaxBindBodySize,
+            _options.MaxFormFileBytes,
+            _options.MaxFormFiles);
 
         CancellationToken ct;
         CancellationTokenSource? linked = null;

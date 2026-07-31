@@ -15,6 +15,8 @@ public sealed class ElsieContext
 {
     private readonly RouteTable? _routes;
     private readonly long _maxBindBodySize;
+    private readonly long _maxFormFileBytes;
+    private readonly int _maxFormFiles;
 
     public ElsieContext(
         ElsieRequest request,
@@ -22,7 +24,9 @@ public sealed class ElsieContext
         IReadOnlyDictionary<string, string> routeValues,
         JsonSerializerOptions? jsonSerializerOptions = null,
         RouteTable? routes = null,
-        long maxBindBodySize = 4 * 1024 * 1024)
+        long maxBindBodySize = 4 * 1024 * 1024,
+        long maxFormFileBytes = 20 * 1024 * 1024,
+        int maxFormFiles = 20)
     {
         Request = request ?? throw new ArgumentNullException(nameof(request));
         Response = response ?? throw new ArgumentNullException(nameof(response));
@@ -30,6 +34,8 @@ public sealed class ElsieContext
         JsonSerializerOptions = jsonSerializerOptions ?? ElsieJson.DefaultOptions;
         _routes = routes;
         _maxBindBodySize = maxBindBodySize > 0 ? maxBindBodySize : 4 * 1024 * 1024;
+        _maxFormFileBytes = maxFormFileBytes > 0 ? maxFormFileBytes : 20 * 1024 * 1024;
+        _maxFormFiles = maxFormFiles > 0 ? maxFormFiles : 20;
     }
 
     public ElsieRequest Request { get; }
@@ -216,8 +222,9 @@ public sealed class ElsieContext
 
     /// <summary>
     /// Build a path for a named route. Values may be a dictionary or an anonymous object.
+    /// When <paramref name="absolute"/> is true, prefixes scheme://host and path base when available.
     /// </summary>
-    public string UrlFor(string name, object? values = null)
+    public string UrlFor(string name, object? values = null, bool absolute = false)
     {
         if (_routes is null)
         {
@@ -225,7 +232,85 @@ public sealed class ElsieContext
                 "Link generation requires a RouteTable on the context (normal dispatcher path).");
         }
 
-        return _routes.GetPathByName(name, values);
+        var path = _routes.GetPathByName(name, values);
+        if (!absolute)
+        {
+            return path;
+        }
+
+        var scheme = Request.Scheme ?? "http";
+        var host = Request.Host;
+        if (string.IsNullOrWhiteSpace(host))
+        {
+            return path;
+        }
+
+        var pathBase = Request.PathBase ?? string.Empty;
+        if (pathBase.Length > 0 && pathBase.EndsWith('/'))
+        {
+            pathBase = pathBase.TrimEnd('/');
+        }
+
+        return $"{scheme}://{host}{pathBase}{path}";
+    }
+
+    /// <summary>
+    /// Parse multipart or urlencoded form including file parts. Caller should dispose the result.
+    /// </summary>
+    public async Task<ElsieBindResult<ElsieFormCollection>> ReadFormAsync(CancellationToken cancellationToken = default)
+    {
+        var contentType = Request.ContentType ?? string.Empty;
+        if (contentType.Contains("multipart/", StringComparison.OrdinalIgnoreCase))
+        {
+            byte[] bytes;
+            try
+            {
+                bytes = await ReadBodyWithLimitAsync(cancellationToken).ConfigureAwait(false);
+            }
+            catch (InvalidOperationException ex)
+            {
+                return ElsieBindResult<ElsieFormCollection>.Fail(ElsieResult.BadRequest(ex.Message));
+            }
+
+            try
+            {
+                var form = MultipartFormParser.Parse(bytes, contentType, _maxFormFileBytes, _maxFormFiles);
+                return ElsieBindResult<ElsieFormCollection>.Success(form);
+            }
+            catch (InvalidOperationException ex)
+            {
+                return ElsieBindResult<ElsieFormCollection>.Fail(ElsieResult.BadRequest(ex.Message));
+            }
+        }
+
+        // urlencoded: fields only
+        byte[] bodyBytes;
+        try
+        {
+            bodyBytes = await ReadBodyWithLimitAsync(cancellationToken).ConfigureAwait(false);
+        }
+        catch (InvalidOperationException ex)
+        {
+            return ElsieBindResult<ElsieFormCollection>.Fail(ElsieResult.BadRequest(ex.Message));
+        }
+
+        var text = Encoding.UTF8.GetString(bodyBytes);
+        var multi = ParseFormUrlEncodedMulti(text);
+        return ElsieBindResult<ElsieFormCollection>.Success(
+            new ElsieFormCollection(multi, Array.Empty<ElsieFormFile>()));
+    }
+
+    /// <summary>Multipart files only (empty when not multipart).</summary>
+    public async Task<ElsieBindResult<IReadOnlyList<ElsieFormFile>>> ReadFormFilesAsync(
+        CancellationToken cancellationToken = default)
+    {
+        var form = await ReadFormAsync(cancellationToken).ConfigureAwait(false);
+        if (!form.IsSuccess)
+        {
+            return ElsieBindResult<IReadOnlyList<ElsieFormFile>>.Fail(form.Error!);
+        }
+
+        return ElsieBindResult<IReadOnlyList<ElsieFormFile>>.Success(form.Value!.Files);
     }
 
     /// <summary>

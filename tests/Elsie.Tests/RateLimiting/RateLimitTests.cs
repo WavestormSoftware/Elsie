@@ -103,14 +103,25 @@ public class RateLimitTests
     }
 
     [Fact]
-    public void Default_partition_uses_forwarded_for()
+    public void Default_partition_ignores_forwarded_for()
     {
         var req = new ElsieRequest(
             "GET",
             "/",
             headers: new Dictionary<string, string> { ["X-Forwarded-For"] = "9.9.9.9, 8.8.8.8" });
         var ctx = new ElsieContext(req, new ElsieResponse(), new Dictionary<string, string>());
-        Assert.Equal("9.9.9.9", ElsieRateLimit.DefaultPartitionKey(ctx));
+        Assert.Equal("unknown", ElsieRateLimit.DefaultPartitionKey(ctx));
+    }
+
+    [Fact]
+    public void Forwarded_partition_uses_xff_when_no_remote_ip()
+    {
+        var req = new ElsieRequest(
+            "GET",
+            "/",
+            headers: new Dictionary<string, string> { ["X-Forwarded-For"] = "9.9.9.9, 8.8.8.8" });
+        var ctx = new ElsieContext(req, new ElsieResponse(), new Dictionary<string, string>());
+        Assert.Equal("9.9.9.9", ElsieRateLimit.ForwardedPartitionKey(ctx));
     }
 
     [Fact]

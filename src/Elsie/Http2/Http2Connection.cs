@@ -36,7 +36,7 @@ internal sealed class Http2Connection
         _serverOptions = serverOptions;
         _log = log;
         _remote = remote;
-        _dispatch = new HostDispatch(services, dispatcher, features);
+        _dispatch = new HostDispatch(services, dispatcher, features, serverOptions);
     }
 
     public async Task RunAsync(CancellationToken cancellationToken)

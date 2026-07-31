@@ -8,6 +8,18 @@ public sealed class ElsieOpenApiHostOptions
     public ElsieOpenApiInfo Info { get; set; } = new();
     public string DocumentPath { get; set; } = "/openapi.json";
 
-    /// <summary>When set (e.g. <c>/scalar</c>), serves a Scalar CDN HTML page.</summary>
+    /// <summary>When set (e.g. <c>/scalar</c>), serves an API reference HTML page.</summary>
     public string? UiPath { get; set; }
+
+    /// <summary>
+    /// When true (default), UI page loads Scalar from CDN.
+    /// When false, serves a minimal embedded HTML that fetches the OpenAPI document (no CDN).
+    /// </summary>
+    public bool UseScalarCdn { get; set; } = true;
+
+    /// <summary>Optional prebuilt OpenAPI JSON bytes (skips reflection document build).</summary>
+    public byte[]? PrebuiltDocumentUtf8 { get; set; }
+
+    /// <summary>Optional path to a prebuilt openapi.json file.</summary>
+    public string? PrebuiltDocumentPath { get; set; }
 }

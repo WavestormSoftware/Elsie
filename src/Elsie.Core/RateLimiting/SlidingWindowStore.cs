@@ -2,7 +2,7 @@ using System.Collections.Concurrent;
 
 namespace Elsie.RateLimiting;
 
-internal sealed class SlidingWindowStore
+internal sealed class SlidingWindowStore : IRateLimitStore
 {
     private readonly int _permitLimit;
     private readonly long _windowTicks;

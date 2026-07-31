@@ -60,6 +60,12 @@ public sealed class ElsieOptions
     /// </summary>
     public long MaxBindBodySize { get; set; } = 4 * 1024 * 1024;
 
+    /// <summary>Max size of a single multipart file part (default 20 MB).</summary>
+    public long MaxFormFileBytes { get; set; } = 20 * 1024 * 1024;
+
+    /// <summary>Max number of multipart file parts accepted (default 20).</summary>
+    public int MaxFormFiles { get; set; } = 20;
+
     /// <summary>
     /// Custom route constraints keyed by name (case-insensitive). Built-ins cannot be overwritten.
     /// Example: <c>options.RouteConstraints["slug"] = v =&gt; v.All(char.IsLetterOrDigit);</c>

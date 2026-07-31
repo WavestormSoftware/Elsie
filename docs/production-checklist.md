@@ -1,0 +1,17 @@
+# Production checklist
+
+- [ ] `dotnet add package Elsie` (host + Core)
+- [ ] Explicit modules: `ScanEntryAssembly = false` + `.Module<T>()` in multi-assembly apps
+- [ ] Cookie auth: strong `TicketKey` from env/secret store; **never** `AllowInsecureDevelopmentKey`
+- [ ] Browser cookie apps: `AddElsieAntiforgery` + `RequireAntiforgery()` on mutating routes
+- [ ] TLS at reverse proxy **or** Elsie HTTPS; prefer proxy → loopback HTTP/1.1
+- [ ] `UseForwardedHeaders = true` **only** behind a trusted proxy that strips client XFF
+- [ ] Rate limits: default partition = `RemoteIp` only; use `ForwardedPartitionKey` only with trusted XFF
+- [ ] `.Server(o => { o.MaxRequestBodyBytes = …; o.MaxConcurrentConnections = …; })`
+- [ ] Enable `.Compression()` if serving large JSON/HTML from Elsie
+- [ ] `.Logging(loggerFactory)` + ship logs/metrics (`Meter("Elsie")`, `ActivitySource("Elsie")`)
+- [ ] Health checks on `/healthz` (live/ready) for orchestrators
+- [ ] Static files: content root outside secrets; rely on path checks
+- [ ] OpenAPI: prebuild JSON for trimmed/AOT or lock down UI path
+- [ ] Review security headers: `ElsieSecurityHeaders.DefaultAfter()`
+- [ ] Load test accept limits and body sizes under real traffic

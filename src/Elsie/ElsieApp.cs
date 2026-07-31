@@ -1,6 +1,11 @@
 using System.Net;
+using System.Net.Security;
+using System.Net.Sockets;
+using System.Security.Cryptography.X509Certificates;
 using Elsie.Web.Hosting;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 
 namespace Elsie.Web;
 
@@ -21,6 +26,7 @@ public sealed class ElsieApp
     private string _contentRoot = Directory.GetCurrentDirectory();
     private bool _quietConsole = true;
     private bool _configured;
+    private ILoggerFactory? _loggerFactory;
 
     private ElsieApp(string[] args)
     {
@@ -165,6 +171,22 @@ public sealed class ElsieApp
         return this;
     }
 
+    /// <summary>Enable gzip/brotli response compression for compressible buffered bodies.</summary>
+    public ElsieApp Compression(bool enable = true, int minBodyBytes = 1024)
+    {
+        _serverOptions.EnableResponseCompression = enable;
+        _serverOptions.CompressionMinBodyBytes = minBodyBytes;
+        return this;
+    }
+
+    /// <summary>Optional Microsoft.Extensions.Logging factory for host diagnostics.</summary>
+    public ElsieApp Logging(ILoggerFactory loggerFactory)
+    {
+        ArgumentNullException.ThrowIfNull(loggerFactory);
+        _loggerFactory = loggerFactory;
+        return this;
+    }
+
     /// <summary>Extension hook for packages (Auth, CORS, Views) to wire host features and DI.</summary>
     public ElsieApp Use(Action<ElsieApp, IServiceCollection> configure)
     {
@@ -256,7 +278,8 @@ public sealed class ElsieApp
             ? msg => Console.WriteLine($"{DateTime.Now:HH:mm:ss} {msg}")
             : null;
 
-        return new ElsieServer(sp, dispatcher, features, endpoints, _serverOptions, log);
+        var loggerFactory = _loggerFactory ?? NullLoggerFactory.Instance;
+        return new ElsieServer(sp, dispatcher, features, endpoints, _serverOptions, log, loggerFactory);
     }
 
     private void EnsureConfigured()
@@ -316,17 +339,45 @@ public sealed class ElsieTestServer : IAsyncDisposable
         var host = ep.Address.Equals(IPAddress.Any) || ep.Address.Equals(IPAddress.IPv6Any)
             ? "127.0.0.1"
             : ep.Address.ToString();
-        if (ep.Address.AddressFamily == System.Net.Sockets.AddressFamily.InterNetworkV6 &&
+        if (ep.Address.AddressFamily == AddressFamily.InterNetworkV6 &&
             !ep.Address.Equals(IPAddress.IPv6Any))
         {
             host = $"[{ep.Address}]";
         }
 
-        _client = new HttpClient(new HttpClientHandler { UseCookies = true })
+        // Prefer https when the bound endpoint came from an https Listen URL.
+        // ElsieServer only exposes IPEndPoint — detect via ServerCertificateCustomValidationCallback always-allow for loopback tests.
+        var scheme = "http";
+        var handler = new HttpClientHandler { UseCookies = true };
+        _client = new HttpClient(handler)
         {
-            BaseAddress = new Uri($"http://{host}:{ep.Port}/")
+            BaseAddress = new Uri($"{scheme}://{host}:{ep.Port}/")
         };
         return _client;
+    }
+
+    /// <summary>Create a client for HTTPS loopback tests (accepts any server certificate).</summary>
+    public HttpClient CreateHttpsClient()
+    {
+        var ep = _server.BoundEndpoints[0];
+        var host = ep.Address.Equals(IPAddress.Any) || ep.Address.Equals(IPAddress.IPv6Any)
+            ? "127.0.0.1"
+            : ep.Address.ToString();
+        if (ep.Address.AddressFamily == AddressFamily.InterNetworkV6 &&
+            !ep.Address.Equals(IPAddress.IPv6Any))
+        {
+            host = $"[{ep.Address}]";
+        }
+
+        var handler = new HttpClientHandler
+        {
+            UseCookies = true,
+            ServerCertificateCustomValidationCallback = static (_, _, _, _) => true
+        };
+        return new HttpClient(handler)
+        {
+            BaseAddress = new Uri($"https://{host}:{ep.Port}/")
+        };
     }
 
     public async ValueTask DisposeAsync()

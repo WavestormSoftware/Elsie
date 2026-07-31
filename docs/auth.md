@@ -80,3 +80,19 @@ Cookie tickets are AES-GCM sealed (name/role claims + expiry).
 
 - [pipelines-and-errors.md](pipelines-and-errors.md)
 - [hosting-and-aot.md](hosting-and-aot.md)
+
+
+## Antiforgery
+
+```csharp
+s.AddElsieAuth(...);
+s.AddElsieAntiforgery();
+// module:
+Before(ElsieAntiforgeryService.RequireAntiforgery());
+// views/forms:
+var token = ctx.GetAntiforgeryToken();
+```
+
+## OIDC (minimal)
+
+`ElsieOidc.BuildAuthorizeUrl` + `ExchangeCodeAsync` + `PrincipalFromIdToken`. Not a full OIDC middleware stack.
