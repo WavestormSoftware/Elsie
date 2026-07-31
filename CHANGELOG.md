@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 Elsie is **unreleased** software; prereleases may include breaking API changes.
 
+## [0.3.0-beta.2] — 2026-07-31
+
+### Breaking
+- Package **Elsie** is now the HTTP host (was a metapackage over `Elsie.Web`).
+- Package **Elsie.Web** removed — use **Elsie** (same assembly `Elsie.Web.dll` / namespaces).
+- Project paths: `src/Elsie.Core` (kernel), `src/Elsie` (host). `src/Elsie.Meta` deleted.
+
+### Migration
+- Apps: keep `PackageReference Include="Elsie"` (recommended).
+- If you referenced **Elsie.Web** explicitly, switch to **Elsie**.
+- Monorepo `ProjectReference` consumers: point host at `src/Elsie/Elsie.csproj`, core at `src/Elsie.Core/Elsie.Core.csproj`.
+
+### Non-breaking
+- Namespaces `Elsie` / `Elsie.Web` unchanged.
+- Assembly names `Elsie.dll` (core) and `Elsie.Web.dll` (host) unchanged.
+
 ## [0.3.0-beta.1] — 2026-07-31
 
 ### Added

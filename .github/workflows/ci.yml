@@ -47,9 +47,8 @@ jobs:
           rm -rf artifacts/nuget
           mkdir -p artifacts/nuget
           projects=(
+            src/Elsie.Core/Elsie.Core.csproj
             src/Elsie/Elsie.csproj
-            src/Elsie.Web/Elsie.Web.csproj
-            src/Elsie.Meta/Elsie.Meta.csproj
             src/Elsie.Auth/Elsie.Auth.csproj
             src/Elsie.Cors/Elsie.Cors.csproj
             src/Elsie.Testing/Elsie.Testing.csproj
@@ -70,7 +69,6 @@ jobs:
           required=(
             "Elsie.$version.nupkg"
             "Elsie.Core.$version.nupkg"
-            "Elsie.Web.$version.nupkg"
             "Elsie.Auth.$version.nupkg"
             "Elsie.Cors.$version.nupkg"
             "Elsie.Views.$version.nupkg"
@@ -87,23 +85,28 @@ jobs:
             fi
           done
 
-          # Metapackage Elsie must declare Elsie.Web dependency + TFMs
-          meta="artifacts/nuget/Elsie.$version.nupkg"
+          # Host package Elsie must depend on Elsie.Core and ship host assembly
+          host="artifacts/nuget/Elsie.$version.nupkg"
           tmp=$(mktemp -d)
-          unzip -q -o "$meta" -d "$tmp"
+          unzip -q -o "$host" -d "$tmp"
           nuspec=$(find "$tmp" -name '*.nuspec' | head -1)
           echo "--- Elsie.nuspec ---"
           cat "$nuspec"
-          if ! grep -q 'id="Elsie.Web"' "$nuspec"; then
-            echo "Elsie metapackage missing Elsie.Web dependency"
+          if ! grep -q 'id="Elsie.Core"' "$nuspec"; then
+            echo "Elsie host package missing Elsie.Core dependency"
             missing=1
           fi
-          if ! grep -q 'targetFramework="net8.0"' "$nuspec" && ! grep -q "targetFramework=\".NETCoreApp,Version=v8.0\"" "$nuspec"; then
-            # accept either short or long TFM form
-            if ! grep -qi 'net8' "$nuspec"; then
-              echo "Elsie metapackage missing net8.0 dependency group"
-              missing=1
-            fi
+          if ! find "$tmp" -name 'Elsie.Web.dll' | grep -q .; then
+            echo "Elsie host package missing Elsie.Web.dll"
+            missing=1
+          fi
+          if ! find "$tmp/lib" -type d -name 'net8.0' | grep -q .; then
+            echo "Elsie host package missing lib/net8.0"
+            missing=1
+          fi
+          if ! find "$tmp/lib" -type d -name 'net10.0' | grep -q .; then
+            echo "Elsie host package missing lib/net10.0"
+            missing=1
           fi
           rm -rf "$tmp"
           exit $missing

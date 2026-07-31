@@ -5,7 +5,7 @@ HTTP module framework for **.NET 8** and **.NET 10**. Define routes in small mod
 **Why Elsie?** Tiny Sinatra-style modules, one fluent host (`ElsieApp`), no ASP.NET tax. Hold the whole request path in your head — modules → results → server — without `WebApplication` ceremony or a shared-framework dependency.
 
 ```bash
-dotnet add package Elsie          # 0.3.0-beta.1 — pulls Elsie.Web + Elsie.Core
+dotnet add package Elsie          # 0.3.0-beta.2 — host + Elsie.Core
 ```
 
 ```csharp
@@ -307,8 +307,7 @@ In tests, set `ScanEntryAssembly = false` and register modules explicitly.
 
 | Package | Contents |
 |---------|----------|
-| **[Elsie](https://www.nuget.org/packages/Elsie)** | **App metapackage** — depends on `Elsie.Web` (+ `Elsie.Core`). Use this: `dotnet add package Elsie` |
-| [Elsie.Web](https://www.nuget.org/packages/Elsie.Web) | Host (`ElsieApp`), HTTP server, static files, OpenAPI |
+| **[Elsie](https://www.nuget.org/packages/Elsie)** | **HTTP host** (`ElsieApp`), server, static files, OpenAPI — depends on `Elsie.Core`. Use this: `dotnet add package Elsie` |
 | [Elsie.Core](https://www.nuget.org/packages/Elsie.Core) | Modules, routing, dispatcher, results, pipelines, health, rate limit |
 | [Elsie.Auth](https://www.nuget.org/packages/Elsie.Auth) | Cookie tickets + JWT + auth gates |
 | [Elsie.Cors](https://www.nuget.org/packages/Elsie.Cors) | Elsie-native CORS |
@@ -316,9 +315,9 @@ In tests, set `ScanEntryAssembly = false` and register modules explicitly.
 | [Elsie.Testing](https://www.nuget.org/packages/Elsie.Testing) | Helpers for **your** tests (not the same as repo `tests/`) |
 | [Elsie.Templates](https://www.nuget.org/packages/Elsie.Templates) | `dotnet new elsie` / `elsie-api` |
 
-Current version: **`0.3.0-beta.1`** (prerelease; APIs may still change).
+Current version: **`0.3.0-beta.2`** (prerelease; APIs may still change).
 
-Namespaces stay `Elsie` / `Elsie.Web` regardless of package id. Library authors who want the host-agnostic surface only should reference **`Elsie.Core`**.
+Namespaces stay `Elsie` / `Elsie.Web` (host assembly is still `Elsie.Web.dll`). Library authors who want the host-agnostic surface only should reference **`Elsie.Core`**. Former package id **`Elsie.Web`** is retired — use **`Elsie`**.
 
 ---
 

@@ -2,7 +2,7 @@
 
 ## Default host
 
-**`Elsie.Web`** ships a custom TCP server (`ElsieApp`):
+**Package `Elsie`** (assembly/namespaces `Elsie.Web`) ships a custom TCP server (`ElsieApp`):
 
 ```csharp
 ElsieApp.Run<App>(args);

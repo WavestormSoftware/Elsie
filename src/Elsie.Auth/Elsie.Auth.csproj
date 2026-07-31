@@ -6,8 +6,8 @@
     <PackageId>Elsie.Auth</PackageId>
   </PropertyGroup>
   <ItemGroup>
+    <ProjectReference Include="..\Elsie.Core\Elsie.Core.csproj" />
     <ProjectReference Include="..\Elsie\Elsie.csproj" />
-    <ProjectReference Include="..\Elsie.Web\Elsie.Web.csproj" />
   </ItemGroup>
   <ItemGroup Condition="'$(TargetFramework)' == 'net8.0'">
     <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" VersionOverride="8.0.2" />
@@ -21,4 +21,3 @@
     <InternalsVisibleTo Include="Elsie.Auth.Tests" />
   </ItemGroup>
 </Project>
-
