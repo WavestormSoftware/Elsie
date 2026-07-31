@@ -6,7 +6,6 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <IsPackable>false</IsPackable>
     <ManagePackageVersionsCentrally>false</ManagePackageVersionsCentrally>
-    <RootNamespace>Elsie.Sample.Api</RootNamespace>
   </PropertyGroup>
   <ItemGroup>
     <PackageReference Include="Elsie" Version="0.3.0-beta.2" />
