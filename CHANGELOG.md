@@ -43,6 +43,7 @@ Elsie is **unreleased** software; prereleases may include breaking API changes.
 ### Non-breaking
 - Namespaces `Elsie` / `Elsie.Web` unchanged.
 - Assembly names `Elsie.dll` (core) and `Elsie.Web.dll` (host) unchanged.
+- Docs/README/templates aligned with host package id **Elsie**, CSRF, token bucket, validation, production samples.
 
 ## [0.3.0-beta.1] — 2026-07-31
 

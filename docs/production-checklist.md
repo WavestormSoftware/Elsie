@@ -14,4 +14,6 @@
 - [ ] Static files: content root outside secrets; rely on path checks
 - [ ] OpenAPI: prebuild JSON for trimmed/AOT or lock down UI path
 - [ ] Review security headers: `ElsieSecurityHeaders.DefaultAfter()`
+- [ ] DataAnnotations (optional): `AddElsieDataAnnotationsValidation` + `ValidateWithDataAnnotations`
 - [ ] Load test accept limits and body sizes under real traffic
+- [ ] Pin package versions (`0.3.0-beta.2` prerelease) and watch Dependabot PRs

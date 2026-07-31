@@ -13,12 +13,13 @@ ElsieApp.Create(args)
         o.Info.Description = "…";
         o.Info.Version = "v1";
         o.DocumentPath = "/openapi.json"; // default
-        o.UiPath = "/scalar";             // optional Scalar CDN page
+        o.UiPath = "/scalar";             // optional UI page
+        o.UseScalarCdn = true;            // false → minimal embedded HTML (no CDN)
     })
     .Run();
 ```
 
-Document JSON is baked once when the server starts.
+Document JSON is baked once when the server starts (unless prebuilt — below).
 
 ## Route metadata
 
@@ -29,14 +30,33 @@ Get("/todos/{id:guid}", …)
     .Produces<Todo>()
     .WithSummary("Get a todo")
     .WithTags("todos")
-    .WithSecurity("ApiKey");
+    .WithSecurity("ApiKey")
+    .WithExample(new Todo(/* … */));
 
 Post("/todos", …)
     .Accepts<CreateTodo>()
     .Produces<Todo>(201);
 ```
 
+## Prebuilt document (trim / AOT friendly)
+
+Skip reflection at runtime:
+
+```csharp
+// offline / CI:
+await ElsieOpenApiDocument.WriteToFileAsync("openapi.json", routeTable, info);
+
+// host:
+.OpenApi(o =>
+{
+    o.PrebuiltDocumentPath = "openapi.json";
+    // or: o.PrebuiltDocumentUtf8 = File.ReadAllBytes("openapi.json");
+    o.UiPath = "/scalar";
+})
+```
+
 ## See also
 
 - [routing.md](routing.md)
 - [modules.md](modules.md)
+- [hosting-and-aot.md](hosting-and-aot.md)
