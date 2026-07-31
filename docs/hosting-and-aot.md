@@ -48,7 +48,11 @@ Override with `.Listen(...)` or `--urls http://…`.
     o.MaxHeaderBytes = 32 * 1024;
     o.MaxConcurrentStreams = 100;
     o.MaxFrameSize = 16384;
+    o.MaxConcurrentConnections = 10_000;
+    o.RequestHeadersTimeout = TimeSpan.FromSeconds(30);
 })
+.Compression()
+.Logging(loggerFactory)
 ```
 
 Bodies over the limit return **413** problem+json and close the connection.

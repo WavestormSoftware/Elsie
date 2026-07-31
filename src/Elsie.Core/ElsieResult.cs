@@ -67,7 +67,8 @@ public sealed class ElsieResult
         string? detail = null,
         JsonSerializerOptions? options = null,
         string? instance = null,
-        string? traceId = null)
+        string? traceId = null,
+        string? type = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(title);
         var payload = new Dictionary<string, object?>(StringComparer.Ordinal)
@@ -75,6 +76,11 @@ public sealed class ElsieResult
             ["status"] = statusCode,
             ["title"] = title
         };
+        if (!string.IsNullOrWhiteSpace(type))
+        {
+            payload["type"] = type;
+        }
+
         if (!string.IsNullOrWhiteSpace(detail))
         {
             payload["detail"] = detail;

@@ -29,8 +29,27 @@ jobs:
       - name: Build
         run: dotnet build Elsie.sln -c Release --no-restore
 
-      - name: Test
-        run: dotnet test Elsie.sln -c Release --no-build --verbosity normal
+      - name: Test + coverage
+        run: >
+          dotnet test Elsie.sln -c Release --no-build --verbosity normal
+          --collect:"XPlat Code Coverage"
+          --results-directory TestResults
+
+      - name: Vulnerable packages
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Fail the job if any vulnerable package is reported (exit code 1 from list).
+          if ! dotnet list Elsie.sln package --vulnerable --include-transitive 2>&1 | tee vuln.txt; then
+            echo "dotnet list package --vulnerable failed"
+            exit 1
+          fi
+          if grep -qiE 'has the following vulnerable|Severity' vuln.txt; then
+            echo "Vulnerable packages detected"
+            cat vuln.txt
+            exit 1
+          fi
+          echo "No vulnerable packages reported."
 
       - name: Read package version
         id: ver
@@ -53,6 +72,7 @@ jobs:
             src/Elsie.Cors/Elsie.Cors.csproj
             src/Elsie.Testing/Elsie.Testing.csproj
             src/Elsie.Views/Elsie.Views.csproj
+            src/Elsie.Validation/Elsie.Validation.csproj
             templates/Elsie.Templates.csproj
           )
           for proj in "${projects[@]}"; do
@@ -73,6 +93,7 @@ jobs:
             "Elsie.Cors.$version.nupkg"
             "Elsie.Views.$version.nupkg"
             "Elsie.Testing.$version.nupkg"
+            "Elsie.Validation.$version.nupkg"
             "Elsie.Templates.$version.nupkg"
           )
           missing=0
@@ -85,7 +106,6 @@ jobs:
             fi
           done
 
-          # Host package Elsie must depend on Elsie.Core and ship host assembly
           host="artifacts/nuget/Elsie.$version.nupkg"
           tmp=$(mktemp -d)
           unzip -q -o "$host" -d "$tmp"

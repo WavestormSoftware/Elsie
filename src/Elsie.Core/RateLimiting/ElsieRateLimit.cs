@@ -4,7 +4,7 @@ namespace Elsie.RateLimiting;
 
 /// <summary>
 /// Before-hook factories for fixed/sliding window rate limits.
-/// Each call creates a private in-memory store shared by the returned hook.
+/// Each call creates a private in-memory store shared by the returned hook unless a store is supplied.
 /// </summary>
 public static class ElsieRateLimit
 {
@@ -16,15 +16,16 @@ public static class ElsieRateLimit
         TimeSpan window,
         Func<ElsieContext, string>? partitionKey = null,
         TimeProvider? timeProvider = null,
-        int maxPartitions = 10_000)
+        int maxPartitions = 10_000,
+        IRateLimitStore? store = null)
     {
         Validate(permitLimit, window, maxPartitions);
-        var store = new FixedWindowStore(permitLimit, window, timeProvider ?? TimeProvider.System, maxPartitions);
+        var backend = store ?? new FixedWindowStore(permitLimit, window, timeProvider ?? TimeProvider.System, maxPartitions);
         var keySelector = partitionKey ?? DefaultPartitionKey;
         return ctx =>
         {
             var key = keySelector(ctx) ?? "unknown";
-            return store.TryAcquire(key, out var retryAfter)
+            return backend.TryAcquire(key, out var retryAfter)
                 ? null
                 : TooManyRequests(retryAfter);
         };
@@ -38,22 +39,37 @@ public static class ElsieRateLimit
         TimeSpan window,
         Func<ElsieContext, string>? partitionKey = null,
         TimeProvider? timeProvider = null,
-        int maxPartitions = 10_000)
+        int maxPartitions = 10_000,
+        IRateLimitStore? store = null)
     {
         Validate(permitLimit, window, maxPartitions);
-        var store = new SlidingWindowStore(permitLimit, window, timeProvider ?? TimeProvider.System, maxPartitions);
+        var backend = store ?? new SlidingWindowStore(permitLimit, window, timeProvider ?? TimeProvider.System, maxPartitions);
         var keySelector = partitionKey ?? DefaultPartitionKey;
         return ctx =>
         {
             var key = keySelector(ctx) ?? "unknown";
-            return store.TryAcquire(key, out var retryAfter)
+            return backend.TryAcquire(key, out var retryAfter)
                 ? null
                 : TooManyRequests(retryAfter);
         };
     }
 
-    /// <summary>Default partition: remote IP, else first X-Forwarded-For hop, else <c>unknown</c>.</summary>
+    /// <summary>
+    /// Default partition: <see cref="ElsieRequest.RemoteIp"/> only.
+    /// Does <b>not</b> read <c>X-Forwarded-For</c> (spoofable). Use
+    /// <see cref="ForwardedPartitionKey"/> only behind a trusted proxy with forwarded headers enabled.
+    /// </summary>
     public static string DefaultPartitionKey(ElsieContext ctx)
+    {
+        ArgumentNullException.ThrowIfNull(ctx);
+        return string.IsNullOrWhiteSpace(ctx.Request.RemoteIp) ? "unknown" : ctx.Request.RemoteIp;
+    }
+
+    /// <summary>
+    /// Partition by remote IP, else first <c>X-Forwarded-For</c> hop.
+    /// Only use when the host strips untrusted client XFF (e.g. <c>UseForwardedHeaders</c>).
+    /// </summary>
+    public static string ForwardedPartitionKey(ElsieContext ctx)
     {
         ArgumentNullException.ThrowIfNull(ctx);
         if (!string.IsNullOrWhiteSpace(ctx.Request.RemoteIp))

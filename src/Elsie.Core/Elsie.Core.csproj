@@ -13,4 +13,7 @@
     <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" />
     <PackageReference Include="Microsoft.Extensions.DependencyInjection" />
   </ItemGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="Elsie.Tests" />
+  </ItemGroup>
 </Project>

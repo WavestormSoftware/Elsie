@@ -48,6 +48,10 @@ Automated tests cover (Web + Auth suites):
 - HTTP/1.1 parser body/header limits
 - 405 / 404 problem bodies do not leak handler data
 
+## Antiforgery
+
+Browser cookie apps should register `AddElsieAntiforgery` and `Before(ElsieAntiforgeryService.RequireAntiforgery())` on mutating routes. Double-submit cookie + `X-CSRF-TOKEN` header.
+
 ## Out of scope (for now)
 
 - Full HTTP/2 adversarial fuzzing / h2spec CI

@@ -1,6 +1,9 @@
+using System.Collections.Concurrent;
 using System.Net;
 using System.Net.Sockets;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 
 namespace Elsie.Web.Hosting;
 
@@ -12,9 +15,12 @@ internal sealed class ElsieServer : IAsyncDisposable
     private readonly IReadOnlyList<ElsieListenOptions> _endpoints;
     private readonly ElsieServerOptions _serverOptions;
     private readonly Action<string>? _log;
+    private readonly ILogger _logger;
     private readonly List<TcpListener> _listeners = new();
     private readonly CancellationTokenSource _cts = new();
     private readonly List<Task> _acceptLoops = new();
+    private readonly ConcurrentDictionary<Task, byte> _connections = new();
+    private readonly SemaphoreSlim _connectionSlots;
     private int _started;
 
     public ElsieServer(
@@ -23,7 +29,8 @@ internal sealed class ElsieServer : IAsyncDisposable
         ElsieServerFeatures features,
         IReadOnlyList<ElsieListenOptions> endpoints,
         ElsieServerOptions serverOptions,
-        Action<string>? log)
+        Action<string>? log,
+        ILoggerFactory? loggerFactory = null)
     {
         _services = services;
         _dispatcher = dispatcher;
@@ -31,6 +38,9 @@ internal sealed class ElsieServer : IAsyncDisposable
         _endpoints = endpoints;
         _serverOptions = serverOptions ?? new ElsieServerOptions();
         _log = log;
+        _logger = (loggerFactory ?? NullLoggerFactory.Instance).CreateLogger("Elsie.Server");
+        var max = Math.Max(1, _serverOptions.MaxConcurrentConnections);
+        _connectionSlots = new SemaphoreSlim(max, max);
     }
 
     public IReadOnlyList<IPEndPoint> BoundEndpoints { get; private set; } = Array.Empty<IPEndPoint>();
@@ -42,7 +52,6 @@ internal sealed class ElsieServer : IAsyncDisposable
             throw new InvalidOperationException("Server already started.");
         }
 
-        // Warm route table + OpenAPI
         var routes = _services.GetRequiredService<Routing.RouteTable>();
         _features.WarmOpenApi(routes);
 
@@ -50,12 +59,14 @@ internal sealed class ElsieServer : IAsyncDisposable
         foreach (var ep in _endpoints)
         {
             var listener = new TcpListener(ep.Address, ep.Port);
-            listener.Start();
+            listener.Start(Math.Max(1, _serverOptions.ListenBacklog));
             var local = (IPEndPoint)listener.LocalEndpoint;
             bound.Add(local);
             _listeners.Add(listener);
             var scheme = ep.UseHttps ? "https" : "http";
-            _log?.Invoke($"Listening on {scheme}://{FormatHost(local)}/");
+            var msg = $"Listening on {scheme}://{FormatHost(local)}/";
+            _log?.Invoke(msg);
+            _logger.LogInformation("{Message}", msg);
             _acceptLoops.Add(AcceptLoopAsync(listener, ep, _cts.Token));
         }
 
@@ -72,7 +83,6 @@ internal sealed class ElsieServer : IAsyncDisposable
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
-            // normal shutdown
         }
         finally
         {
@@ -109,7 +119,20 @@ internal sealed class ElsieServer : IAsyncDisposable
         }
         catch
         {
-            // ignore accept cancellations
+            // ignore
+        }
+
+        // Drain in-flight connections
+        var pending = _connections.Keys.ToArray();
+        if (pending.Length > 0)
+        {
+            var drain = Task.WhenAll(pending);
+            var completed = await Task.WhenAny(drain, Task.Delay(_serverOptions.ConnectionDrainTimeout))
+                .ConfigureAwait(false);
+            if (completed != drain)
+            {
+                _logger.LogWarning("Connection drain timed out with {Count} still active.", pending.Length);
+            }
         }
     }
 
@@ -117,6 +140,7 @@ internal sealed class ElsieServer : IAsyncDisposable
     {
         await StopAsync().ConfigureAwait(false);
         _cts.Dispose();
+        _connectionSlots.Dispose();
         await _services.DisposeAsync().ConfigureAwait(false);
     }
 
@@ -147,9 +171,34 @@ internal sealed class ElsieServer : IAsyncDisposable
                 continue;
             }
 
+            if (!_connectionSlots.Wait(0))
+            {
+                ElsieMetrics.ConnectionsRejected.Add(1);
+                _logger.LogWarning("Rejecting connection: max concurrent connections reached.");
+                try
+                {
+                    socket.Dispose();
+                }
+                catch
+                {
+                    // ignore
+                }
+
+                continue;
+            }
+
             socket.NoDelay = true;
-            var handler = new ConnectionHandler(_services, _dispatcher, _features, options, _serverOptions, _log);
-            _ = Task.Run(async () =>
+            ElsieMetrics.ActiveConnections.Add(1);
+            var handler = new ConnectionHandler(
+                _services,
+                _dispatcher,
+                _features,
+                options,
+                _serverOptions,
+                _log,
+                _logger);
+
+            var task = Task.Run(async () =>
             {
                 try
                 {
@@ -159,7 +208,19 @@ internal sealed class ElsieServer : IAsyncDisposable
                 {
                     try { socket.Dispose(); } catch { /* ignore */ }
                 }
-            }, ct);
+                finally
+                {
+                    ElsieMetrics.ActiveConnections.Add(-1);
+                    _connectionSlots.Release();
+                }
+            }, CancellationToken.None);
+
+            _connections[task] = 0;
+            _ = task.ContinueWith(
+                t => _connections.TryRemove(t, out _),
+                CancellationToken.None,
+                TaskContinuationOptions.ExecuteSynchronously,
+                TaskScheduler.Default);
         }
     }
 

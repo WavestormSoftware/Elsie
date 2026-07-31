@@ -95,6 +95,7 @@ jobs:
             src/Elsie.Cors/Elsie.Cors.csproj
             src/Elsie.Testing/Elsie.Testing.csproj
             src/Elsie.Views/Elsie.Views.csproj
+            src/Elsie.Validation/Elsie.Validation.csproj
             templates/Elsie.Templates.csproj
           )
 
@@ -119,6 +120,7 @@ jobs:
             "Elsie.Cors.$version.nupkg"
             "Elsie.Testing.$version.nupkg"
             "Elsie.Views.$version.nupkg"
+            "Elsie.Validation.$version.nupkg"
             "Elsie.Templates.$version.nupkg"
           )
           missing=0

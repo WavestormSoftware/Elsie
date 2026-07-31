@@ -29,6 +29,16 @@ public sealed class ElsieHttpResponse
     public Func<Stream, CancellationToken, Task>? BodyWriter { get; }
     public Func<ElsieWebSocket, CancellationToken, Task>? WebSocketHandler { get; }
 
+    /// <summary>Construct a response directly (host transforms, compression, static files).</summary>
+    public static ElsieHttpResponse Create(
+        int statusCode,
+        string? contentType,
+        ElsieHeaders headers,
+        ReadOnlyMemory<byte>? body,
+        Func<Stream, CancellationToken, Task>? bodyWriter = null,
+        Func<ElsieWebSocket, CancellationToken, Task>? webSocketHandler = null) =>
+        new(statusCode, contentType, headers ?? new ElsieHeaders(), body, bodyWriter, webSocketHandler);
+
     /// <summary>
     /// Materialize a dispatch outcome.
     /// Returns <c>null</c> for <see cref="ElsieDispatchStatus.NotFound"/> (host fallthrough).

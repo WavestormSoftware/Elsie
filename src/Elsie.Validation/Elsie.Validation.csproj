@@ -1,0 +1,11 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <Description>DataAnnotations validation adapter for Elsie (IElsieValidator).</Description>
+    <RootNamespace>Elsie.Validation</RootNamespace>
+    <AssemblyName>Elsie.Validation</AssemblyName>
+    <PackageId>Elsie.Validation</PackageId>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\Elsie.Core\Elsie.Core.csproj" />
+  </ItemGroup>
+</Project>

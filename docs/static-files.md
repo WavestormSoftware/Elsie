@@ -25,3 +25,6 @@ Path traversal (`..`) is rejected. Content types are inferred from file extensio
 - [views.md](views.md)
 - [hosting-and-aot.md](hosting-and-aot.md)
 - [getting-started.md](getting-started.md)
+
+
+Streams file content (not fully buffered). Supports **ETag**, **If-None-Match**, **If-Modified-Since**, and single **Range** requests.

@@ -30,6 +30,7 @@ public sealed class RouteDescriptor
 
     public string? Summary { get; internal set; }
     public string? Description { get; internal set; }
+    public object? Example { get; internal set; }
     public IReadOnlyList<string> Tags => _tags;
     public Type? AcceptsType { get; internal set; }
     public Type? AcceptsQueryType { get; internal set; }
@@ -154,6 +155,14 @@ public sealed class RouteBuilder
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(scheme);
         Descriptor.AddSecurity(scheme);
+        return this;
+    }
+
+    /// <summary>Optional request/response example object for OpenAPI tooling.</summary>
+    public RouteBuilder WithExample(object example)
+    {
+        ArgumentNullException.ThrowIfNull(example);
+        Descriptor.Example = example;
         return this;
     }
 }

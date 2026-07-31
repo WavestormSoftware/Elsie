@@ -20,6 +20,7 @@ Instructions for coding agents working on this repository.
 | `src/Elsie.Views` | Fluid (Liquid) views + layouts/partials (`ViewAsync`, `IElsieViewEngine`) |
 | `src/Elsie.Auth` | Cookie/JWT wiring + RequireAuthenticated/Role/Claim/Policy gates |
 | `src/Elsie.Cors` | Elsie-native CORS (preflight middleware + after-hook ACAO) |
+| `src/Elsie.Validation` | DataAnnotations `IElsieValidator` adapter |
 | `src/Elsie.Testing` | **Keep.** Consumer test helpers (`ElsieInMemoryHost`, loopback `ElsieTestHost`, asserts). Distinct from `tests/` (our own unit tests of the framework). |
 | `templates/` | `dotnet new` templates (`elsie`, `elsie-api`) → `Elsie.Templates` |
 | `benchmarks/Elsie.Benchmarks` | BenchmarkDotNet (route/dispatch/views); not CI-gated |

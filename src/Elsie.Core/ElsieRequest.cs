@@ -96,6 +96,9 @@ public sealed class ElsieRequest
     public IServiceProvider RequestServices { get; }
     public CancellationToken RequestAborted { get; }
 
+    /// <summary>Per-request correlation id (host sets from X-Request-Id or generates).</summary>
+    public string? TraceIdentifier { get; set; }
+
     /// <summary>
     /// Per-request bag for host adapters and middleware (auth principal, features, etc.).
     /// </summary>
