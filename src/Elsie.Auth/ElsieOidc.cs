@@ -18,21 +18,36 @@ public sealed class ElsieOidcOptions
     /// <summary>Optional path under authority for authorize (default /authorize).</summary>
     public string AuthorizePath { get; set; } = "/authorize";
 
-    /// <summary>Optional token endpoint path (default /oauth/token or /connect/token via discovery later).</summary>
+    /// <summary>Optional token endpoint path (default /oauth/token; discovery later).</summary>
     public string TokenPath { get; set; } = "/oauth/token";
 }
 
 public static class ElsieOidc
 {
-    public static string CreateState() => Convert.ToBase64String(RandomNumberGenerator.GetBytes(24));
+    /// <summary>Cryptographic random state (Base64Url, URL-safe).</summary>
+    public static string CreateState() => Base64UrlEncode(RandomNumberGenerator.GetBytes(24));
 
-    public static string CreateNonce() => Convert.ToBase64String(RandomNumberGenerator.GetBytes(24));
+    /// <summary>Cryptographic random nonce (Base64Url, URL-safe).</summary>
+    public static string CreateNonce() => Base64UrlEncode(RandomNumberGenerator.GetBytes(24));
+
+    /// <summary>PKCE code_verifier (43–128 chars, unreserved).</summary>
+    public static string CreateCodeVerifier() => Base64UrlEncode(RandomNumberGenerator.GetBytes(32));
+
+    /// <summary>PKCE S256 code_challenge from <paramref name="codeVerifier"/>.</summary>
+    public static string CreateCodeChallenge(string codeVerifier)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(codeVerifier);
+        var hash = SHA256.HashData(Encoding.ASCII.GetBytes(codeVerifier));
+        return Base64UrlEncode(hash);
+    }
 
     /// <summary>Build the browser redirect URL for the authorization code flow.</summary>
     public static string BuildAuthorizeUrl(
         ElsieOidcOptions options,
         string state,
         string? nonce = null,
+        string? codeChallenge = null,
+        string codeChallengeMethod = "S256",
         string responseType = "code")
     {
         ArgumentNullException.ThrowIfNull(options);
@@ -54,6 +69,12 @@ public static class ElsieOidc
             qs.Append("&nonce=").Append(Uri.EscapeDataString(nonce));
         }
 
+        if (!string.IsNullOrEmpty(codeChallenge))
+        {
+            qs.Append("&code_challenge=").Append(Uri.EscapeDataString(codeChallenge));
+            qs.Append("&code_challenge_method=").Append(Uri.EscapeDataString(codeChallengeMethod));
+        }
+
         return $"{authority}{path}?{qs}";
     }
 
@@ -62,6 +83,7 @@ public static class ElsieOidc
         HttpClient http,
         ElsieOidcOptions options,
         string code,
+        string? codeVerifier = null,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(http);
@@ -82,6 +104,11 @@ public static class ElsieOidc
         if (!string.IsNullOrEmpty(options.ClientSecret))
         {
             form["client_secret"] = options.ClientSecret!;
+        }
+
+        if (!string.IsNullOrEmpty(codeVerifier))
+        {
+            form["code_verifier"] = codeVerifier;
         }
 
         using var content = new FormUrlEncodedContent(form);
@@ -106,9 +133,15 @@ public static class ElsieOidc
     }
 
     /// <summary>
-    /// Validate id_token with configured JWT options when possible; otherwise build a minimal principal from sub claim without signature check (dev only).
+    /// Build a principal from an id_token. Signature validation runs when <paramref name="jwt"/> has a signing key.
+    /// Unvalidated payload parse requires <paramref name="allowUnvalidated"/> = true (dev only).
+    /// When <paramref name="expectedNonce"/> is set, the id_token <c>nonce</c> claim must match.
     /// </summary>
-    public static ClaimsPrincipal? PrincipalFromIdToken(string? idToken, ElsieJwtBearerOptions? jwt)
+    public static ClaimsPrincipal? PrincipalFromIdToken(
+        string? idToken,
+        ElsieJwtBearerOptions? jwt,
+        bool allowUnvalidated = false,
+        string? expectedNonce = null)
     {
         if (string.IsNullOrWhiteSpace(idToken))
         {
@@ -117,10 +150,15 @@ public static class ElsieOidc
 
         if (jwt is not null && JwtTokenValidator.TryValidate(idToken, jwt, out var principal) && principal is not null)
         {
-            return principal;
+            return NonceMatches(principal, expectedNonce) ? principal : null;
         }
 
-        // Unvalidated parse of payload for non-prod fallback
+        if (!allowUnvalidated)
+        {
+            return null;
+        }
+
+        // Unvalidated parse of payload for non-prod fallback only
         var parts = idToken.Split('.');
         if (parts.Length < 2)
         {
@@ -145,12 +183,30 @@ public static class ElsieOidc
                 return null;
             }
 
-            return new ClaimsPrincipal(new ClaimsIdentity(claims, authenticationType: "oidc"));
+            var identity = new ClaimsIdentity(claims, authenticationType: "oidc");
+            var unvalidated = new ClaimsPrincipal(identity);
+            return NonceMatches(unvalidated, expectedNonce) ? unvalidated : null;
         }
         catch
         {
             return null;
         }
+    }
+
+    private static bool NonceMatches(ClaimsPrincipal principal, string? expectedNonce)
+    {
+        if (string.IsNullOrEmpty(expectedNonce))
+        {
+            return true;
+        }
+
+        var actual = principal.FindFirst("nonce")?.Value;
+        return string.Equals(actual, expectedNonce, StringComparison.Ordinal);
+    }
+
+    internal static string Base64UrlEncode(ReadOnlySpan<byte> data)
+    {
+        return Convert.ToBase64String(data).TrimEnd('=').Replace('+', '-').Replace('/', '_');
     }
 
     private static byte[] Base64UrlDecode(string input)

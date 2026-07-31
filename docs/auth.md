@@ -101,16 +101,31 @@ See [Dashboard](../samples/Elsie.Sample.Dashboard) (form field) and [Full](../sa
 
 ## OIDC (minimal helpers)
 
-Not a full OIDC middleware stack — helpers only:
+Not a full OIDC middleware stack — helpers only. Prefer **PKCE** + validated id_token:
 
 ```csharp
 var state = ElsieOidc.CreateState();
 var nonce = ElsieOidc.CreateNonce();
-var url = ElsieOidc.BuildAuthorizeUrl(options, redirectUri, state, nonce);
-var tokens = await ElsieOidc.ExchangeCodeAsync(options, code, redirectUri, http, ct);
-var principal = ElsieOidc.PrincipalFromIdToken(tokens.IdToken, jwtOptions);
-// PrincipalFromIdToken validates signature when JwtBearer SigningKey is set;
-// without validation it is a dev-only fallback — do not use unvalidated tokens in production.
+var verifier = ElsieOidc.CreateCodeVerifier();
+var challenge = ElsieOidc.CreateCodeChallenge(verifier);
+
+var options = new ElsieOidcOptions
+{
+    Authority = "https://idp.example",
+    ClientId = "app",
+    RedirectUri = "https://app.example/callback",
+    // ClientSecret optional for public clients using PKCE
+};
+
+var url = ElsieOidc.BuildAuthorizeUrl(options, state, nonce, codeChallenge: challenge);
+// redirect browser to url; on callback verify state, then:
+var tokens = await ElsieOidc.ExchangeCodeAsync(http, options, code, codeVerifier: verifier, ct);
+var principal = ElsieOidc.PrincipalFromIdToken(
+    tokens.IdToken,
+    jwtOptions,                 // must set SigningKey for signature validation
+    expectedNonce: nonce);
+// Unvalidated payload parse is opt-in only:
+// ElsieOidc.PrincipalFromIdToken(idToken, jwt: null, allowUnvalidated: true); // DEV ONLY
 ```
 
 ## See also

@@ -65,7 +65,7 @@ Repo CI runs `dotnet list package --vulnerable` and packs all package IDs. Depen
 ## Out of scope (for now)
 
 - Full HTTP/2 adversarial fuzzing / h2spec CI
-- Full OIDC middleware (helpers only; validate id_tokens yourself in production)
+- Full OIDC middleware (helpers + PKCE only; `PrincipalFromIdToken` requires JWT validation unless `allowUnvalidated: true`)
 - WAF / rate limit at the edge (use proxy + Elsie rate-limit hooks)
 
 ## See also

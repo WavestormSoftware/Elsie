@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 Elsie is **unreleased** software; prereleases may include breaking API changes.
 
+## [Unreleased]
+
+### Changed
+- OIDC: `PrincipalFromIdToken` no longer accepts unvalidated id_tokens by default (`allowUnvalidated` opt-in); optional `expectedNonce` check; state/nonce are Base64Url.
+
+### Added
+- OIDC PKCE helpers (`CreateCodeVerifier` / `CreateCodeChallenge`) + `code_challenge` / `code_verifier` on authorize/token exchange.
+
 ## [0.3.0-beta.2] — 2026-07-31
 
 ### Breaking
