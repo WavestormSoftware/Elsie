@@ -2,50 +2,63 @@
 
 ## Default host
 
-**`Elsie.Web`** on Kestrel / ASP.NET Core:
+**`Elsie.Web`** ships a custom TCP server (`ElsieApp`):
 
 ```csharp
-ElsieWeb.Run<App>(args);
+ElsieApp.Run<App>(args);
 // or
-ElsieWeb.Run(args); // scan-based
-// or builder.AddElsie() + MapElsie()
+ElsieApp.Create(args)
+    .Module<App>()
+    .Listen("http://127.0.0.1:5000")
+    .Run();
 ```
 
 | API | Notes |
 |-----|--------|
-| `ElsieWeb.Run` / `RunAsync` | Generic module or scan |
-| `ElsieWeb.CreateApp` | Build `WebApplication` without running |
-| `builder.AddElsie(configure, quietConsole: true)` | DI + log filter |
-| `app.MapElsie(terminal: false)` | Non-terminal default — unmatched falls through |
-| `app.MapElsie(terminal: true)` | Unmatched → 404 problem+json |
-| `app.UseElsie(terminal)` | Middleware form |
-| `app.MapElsieOpenApi` | OpenAPI JSON (+ optional UI) |
-| `app.UseStaticFiles()` | Static files (ASP.NET) |
+| `ElsieApp.Run` / `RunAsync` | Generic module or scan |
+| `ElsieWeb.Run` | Thin wrapper over `ElsieApp` |
+| `ElsieApp.Create(args)` | Fluent host builder |
+| `.Listen(url)` / `.Listen(url, o => …)` | Bind endpoints; HTTPS needs a certificate |
+| `.OpenApi(...)` | OpenAPI JSON (+ optional Scalar UI) |
+| `.StaticFiles(...)` | Built-in static file serving |
+| `.Services(...)` / `.Module<T>()` | MS.DI + modules |
 
-## Pipeline order (typical full app)
+Default listen (when none specified): `http://127.0.0.1:5000`.  
+Override with `.Listen(...)` or `--urls http://…`.
 
-```csharp
-app.UseElsieCors();
-app.UseElsieAuth();
-app.UseStaticFiles(new StaticFileOptions
-{
-    RequestPath = "/assets",
-    FileProvider = new Microsoft.Extensions.FileProviders.PhysicalFileProvider(wwwroot)
-});
-app.MapElsieOpenApi(o => o.UiPath = "/scalar");
-app.MapElsie();
-```
-
-## Escape hatch
+## TLS and protocols
 
 ```csharp
-using Elsie.Web;
-
-if (ctx.TryGetHttpContext(out var http))
-{
-    // full ASP.NET surface
-}
+.Listen("https://0.0.0.0:5001", https => https
+    .CertificateFromPem("cert.pem", "key.pem")
+    .WithProtocols(ElsieHttpProtocols.Http1AndHttp2))
 ```
+
+- Default protocol: **HTTP/1.1**
+- **HTTP/2**: opt-in via `ElsieHttpProtocols.Http2` / `Http1AndHttp2` (TLS + ALPN)
+- HTTP/2 is a focused subset (SETTINGS/HEADERS/DATA/PING/WINDOW_UPDATE/RST/GOAWAY + HPACK static/literal)
+- Putting TLS termination on a reverse proxy and serving cleartext HTTP/1.1 is fully supported
+
+## WebSockets
+
+```csharp
+Get("/ws", () => ElsieResult.WebSocket(async (ws, ct) =>
+{
+    var msg = await ws.ReceiveAsync(ct);
+    if (msg?.MessageType == System.Net.WebSockets.WebSocketMessageType.Text)
+        await ws.SendTextAsync("echo:" + msg.GetText(), ct);
+}));
+```
+
+HTTP/1.1 upgrade only (H2 extended CONNECT later).
+
+## Pipeline features (no middleware order)
+
+Features register on the host / DI — not as `UseX` ordering:
+
+- CORS: `AddElsieCors` → preflight filter + after-hook ACAO  
+- Auth: `AddElsieAuth` → principal attacher + cookie/JWT  
+- Static / OpenAPI: `.StaticFiles` / `.OpenApi` on `ElsieApp`
 
 ## JSON source generation
 
@@ -56,17 +69,16 @@ Elsie uses **`System.Text.Json`**. For trimmed / AOT-friendly serialization:
 [JsonSerializable(typeof(CreateTodo))]
 internal partial class AppJsonContext : JsonSerializerContext;
 
-builder.AddElsie(o =>
-{
-    o.JsonSerializerOptions = new JsonSerializerOptions
+ElsieApp.Create(args)
+    .Configure(o =>
     {
-        TypeInfoResolver = AppJsonContext.Default
-    };
-});
-
-// Handlers should prefer ctx.Json (app options) over ElsieResult.Json
-// when relying on source-gen resolvers.
-return ctx.Json(todo);
+        o.JsonSerializerOptions = new JsonSerializerOptions
+        {
+            TypeInfoResolver = AppJsonContext.Default
+        };
+    })
+    // ...
+    .Run();
 ```
 
 Static `ElsieResult.Json` still uses **`ElsieJson.DefaultOptions`** unless you pass `options:` explicitly.

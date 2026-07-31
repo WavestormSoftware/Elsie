@@ -1,37 +1,24 @@
 # Static files
 
-Elsie does not ship custom static-file middleware. Use ASP.NET Core **`UseStaticFiles`** (and optionally **`UseDefaultFiles`**) on the host.
-
-## Default `wwwroot`
-
-```csharp
-var app = builder.Build();
-
-app.UseDefaultFiles(); // optional
-app.UseStaticFiles();  // serves wwwroot at /
-
-app.MapElsie();
-app.Run();
-```
-
-Place static middleware **before** `MapElsie` so static paths win on overlap (normal ASP.NET pattern).
+Elsie.Web serves static files from the host via **`.StaticFiles(...)`**.
 
 ## Mount under a request path
 
 ```csharp
-using Microsoft.Extensions.FileProviders;
-
-app.UseStaticFiles(new StaticFileOptions
-{
-    RequestPath = "/assets",
-    FileProvider = new PhysicalFileProvider(
-        Path.Combine(app.Environment.ContentRootPath, "wwwroot"))
-});
-
-app.MapElsie();
+ElsieApp.Create(args)
+    .Module<App>()
+    .StaticFiles(s =>
+    {
+        s.Root = "wwwroot";
+        s.RequestPath = "/assets";
+        s.MaxAge = TimeSpan.FromHours(1);
+    })
+    .Run();
 ```
 
 `GET /assets/app.css` → `wwwroot/app.css`.
+
+Path traversal (`..`) is rejected. Content types are inferred from file extensions.
 
 ## See also
 
