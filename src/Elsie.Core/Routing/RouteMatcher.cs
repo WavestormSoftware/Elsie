@@ -557,12 +557,7 @@ internal sealed class RouteMatcher
 
         private static bool MatchStaticSegment(Segment segment, string rawPart)
         {
-            if (rawPart.Contains('%'))
-            {
-                rawPart = Uri.UnescapeDataString(rawPart);
-            }
-
-            return string.Equals(rawPart, segment.Literal, StringComparison.OrdinalIgnoreCase);
+            return string.Equals(DecodeIfNeeded(rawPart), segment.Literal, StringComparison.OrdinalIgnoreCase);
         }
 
         private static string DecodeCatchAll(string[] parts, int start)
