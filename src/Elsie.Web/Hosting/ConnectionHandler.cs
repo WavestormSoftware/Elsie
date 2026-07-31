@@ -137,6 +137,50 @@ internal sealed class ConnectionHandler
 
                 var start = Stopwatch.GetTimestamp();
                 var response = await ProcessAsync(parsed, remote, cancellationToken).ConfigureAwait(false);
+
+                if (response.WebSocketHandler is not null)
+                {
+                    if (!WebSocketUpgrade.IsUpgradeRequest(parsed))
+                    {
+                        await WriteSimpleErrorAsync(
+                                stream,
+                                400,
+                                "WebSocket upgrade headers required.",
+                                keepAlive: false,
+                                cancellationToken)
+                            .ConfigureAwait(false);
+                        return;
+                    }
+
+                    var key = parsed.Headers.TryGetValue("Sec-WebSocket-Key", out var keys) && keys.Count > 0
+                        ? keys[0]
+                        : null;
+                    if (string.IsNullOrEmpty(key))
+                    {
+                        await WriteSimpleErrorAsync(stream, 400, "Missing Sec-WebSocket-Key.", false, cancellationToken)
+                            .ConfigureAwait(false);
+                        return;
+                    }
+
+                    await WebSocketUpgrade.WriteHandshakeAsync(stream, parsed.Protocol, key!, cancellationToken)
+                        .ConfigureAwait(false);
+                    var msWs = Stopwatch.GetElapsedTime(start).TotalMilliseconds;
+                    _log?.Invoke($"{parsed.Method} {parsed.Path} → 101 {msWs:0}ms");
+                    await parsed.Body.DisposeAsync().ConfigureAwait(false);
+
+                    await using var ws = new ElsieWebSocket(stream, leaveOpen: true);
+                    try
+                    {
+                        await response.WebSocketHandler(ws, cancellationToken).ConfigureAwait(false);
+                    }
+                    catch (Exception ex)
+                    {
+                        _log?.Invoke($"WebSocket error: {ex.Message}");
+                    }
+
+                    return; // connection consumed by WebSocket
+                }
+
                 var keepAlive = parsed.KeepAlive;
                 var isHead = HttpMethods.IsHead(parsed.Method);
                 var isStreaming = response.BodyWriter is not null &&

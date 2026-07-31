@@ -15,19 +15,24 @@ public sealed class ElsieResult
         string? contentType,
         ReadOnlyMemory<byte>? body,
         Func<Stream, CancellationToken, Task>? bodyWriter,
-        ElsieHeaders? headers)
+        ElsieHeaders? headers,
+        Func<ElsieWebSocket, CancellationToken, Task>? webSocketHandler = null)
     {
         StatusCode = statusCode;
         ContentType = contentType;
         Body = body;
         BodyWriter = bodyWriter;
         _headers = headers;
+        WebSocketHandler = webSocketHandler;
     }
 
     public int StatusCode { get; }
     public string? ContentType { get; }
     public ReadOnlyMemory<byte>? Body { get; }
     public Func<Stream, CancellationToken, Task>? BodyWriter { get; }
+
+    /// <summary>When set, the host performs a WebSocket upgrade (status 101) and runs this handler.</summary>
+    public Func<ElsieWebSocket, CancellationToken, Task>? WebSocketHandler { get; }
 
     public ElsieHeaders Headers => _headers ?? EmptyHeadersHolder.Instance;
 
@@ -192,6 +197,16 @@ public sealed class ElsieResult
             headers: null);
     }
 
+    /// <summary>
+    /// Accept a WebSocket upgrade. The host writes <c>101 Switching Protocols</c> then runs
+    /// <paramref name="handler"/> on the duplex connection.
+    /// </summary>
+    public static ElsieResult WebSocket(Func<ElsieWebSocket, CancellationToken, Task> handler)
+    {
+        ArgumentNullException.ThrowIfNull(handler);
+        return new(101, contentType: null, body: null, bodyWriter: null, headers: null, webSocketHandler: handler);
+    }
+
     /// <summary>Creates a redirect response (302 by default, 301 when permanent).</summary>
     public static ElsieResult Redirect(string location, bool permanent = false)
     {
@@ -257,7 +272,7 @@ public sealed class ElsieResult
         ArgumentNullException.ThrowIfNull(value);
         var headers = _headers?.Clone() ?? new ElsieHeaders();
         headers.Set(name, value);
-        return new(StatusCode, ContentType, Body, BodyWriter, headers);
+        return new(StatusCode, ContentType, Body, BodyWriter, headers, WebSocketHandler);
     }
 
     /// <summary>Returns a copy with multiple headers set (Set semantics per key).</summary>
@@ -270,14 +285,14 @@ public sealed class ElsieResult
             bag.Set(name, value);
         }
 
-        return new(StatusCode, ContentType, Body, BodyWriter, bag);
+        return new(StatusCode, ContentType, Body, BodyWriter, bag, WebSocketHandler);
     }
 
     public ElsieResult WithCookie(string name, string value, ElsieCookieOptions? options = null)
     {
         var headers = _headers?.Clone() ?? new ElsieHeaders();
         headers.Add("Set-Cookie", ElsieCookieFormatter.FormatSetCookie(name, value, options));
-        return new(StatusCode, ContentType, Body, BodyWriter, headers);
+        return new(StatusCode, ContentType, Body, BodyWriter, headers, WebSocketHandler);
     }
 
     private static ElsieResult RedirectCore(int status, string location)

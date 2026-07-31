@@ -11,7 +11,8 @@ Elsie is **unreleased** software; alphas may include breaking API changes.
 
 ### Added
 - **`ElsieApp`** fluent host — TCP HTTP/1.1 server, listen URLs, OpenAPI routes, static files
-- HTTPS listen options (PEM/PFX via `SslStream`); HTTP/2 ALPN reserved (opt-in later)
+- HTTPS listen options (PEM/PFX via `SslStream`); HTTP/2 ALPN reserved (opt-in)
+- WebSocket upgrade via `ElsieResult.WebSocket(...)` (RFC 6455 framing, text/binary/ping/close)
 - Multipart `multipart/form-data` field binding in core (`BindFormAsync`)
 - `ElsiePrincipal` + native cookie tickets (AES-GCM) and JWT validation (`System.IdentityModel.Tokens.Jwt`)
 - CORS preflight as `IElsieRequestFilter` (no middleware pipeline)

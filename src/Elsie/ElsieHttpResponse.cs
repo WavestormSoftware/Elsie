@@ -11,13 +11,15 @@ public sealed class ElsieHttpResponse
         string? contentType,
         ElsieHeaders headers,
         ReadOnlyMemory<byte>? body,
-        Func<Stream, CancellationToken, Task>? bodyWriter)
+        Func<Stream, CancellationToken, Task>? bodyWriter,
+        Func<ElsieWebSocket, CancellationToken, Task>? webSocketHandler = null)
     {
         StatusCode = statusCode;
         ContentType = contentType;
         Headers = headers;
         Body = body;
         BodyWriter = bodyWriter;
+        WebSocketHandler = webSocketHandler;
     }
 
     public int StatusCode { get; }
@@ -25,6 +27,7 @@ public sealed class ElsieHttpResponse
     public ElsieHeaders Headers { get; }
     public ReadOnlyMemory<byte>? Body { get; }
     public Func<Stream, CancellationToken, Task>? BodyWriter { get; }
+    public Func<ElsieWebSocket, CancellationToken, Task>? WebSocketHandler { get; }
 
     /// <summary>
     /// Materialize a dispatch outcome.
@@ -70,7 +73,13 @@ public sealed class ElsieHttpResponse
                     }
                 }
 
-                return new(result.StatusCode, result.ContentType, headers, result.Body, result.BodyWriter);
+                return new(
+                    result.StatusCode,
+                    result.ContentType,
+                    headers,
+                    result.Body,
+                    result.BodyWriter,
+                    result.WebSocketHandler);
             }
 
             default:
