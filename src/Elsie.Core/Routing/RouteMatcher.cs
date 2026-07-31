@@ -562,6 +562,11 @@ internal sealed class RouteMatcher
 
         private static string DecodeCatchAll(string[] parts, int start)
         {
+            if (start == parts.Length - 1)
+            {
+                return DecodeIfNeeded(parts[start]);
+            }
+
             var builder = new System.Text.StringBuilder();
             for (var i = start; i < parts.Length; i++)
             {
