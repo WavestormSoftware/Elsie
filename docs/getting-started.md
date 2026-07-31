@@ -94,6 +94,8 @@ Modules are **singletons**. Inject singleton-safe services in the ctor; resolve 
 
 ## Samples
 
+Self-contained folders under [`samples/`](../samples/) — **NuGet package refs only** (copy a folder out of the repo and `dotnet run`). See [samples/README.md](../samples/README.md).
+
 | Sample | Focus |
 |--------|--------|
 | [HelloWorld](../samples/Elsie.Sample.HelloWorld) | `ElsieApp.Run` one-liner |
@@ -104,6 +106,8 @@ Modules are **singletons**. Inject singleton-safe services in the ctor; resolve 
 | [Full](../samples/Elsie.Sample.Full) | Auth, CORS, rate limit, health, CSRF, static, views |
 
 ```bash
+cd samples/Elsie.Sample.HelloWorld && dotnet run
+# or from repo root:
 dotnet run --project samples/Elsie.Sample.HelloWorld
 ```
 
