@@ -1,18 +1,21 @@
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 using System.Collections.Concurrent;
+using System.ComponentModel.DataAnnotations;
 using System.Security.Cryptography;
 using System.Text;
 using Elsie;
 using Elsie.Auth;
 using Elsie.Sample.Dashboard;
+using Elsie.Validation;
 using Elsie.Views;
 using Elsie.Web;
 
 // -----------------------------------------------------------------------------
-// Multi-page dashboard sample — Fluid views + cookie auth + form posts.
+// Multi-page dashboard sample — Fluid views + cookie auth + form CSRF + validation.
 //
 //   GET  /                     marketing home
-//   GET  /login  POST /login   form auth
+//   GET  /login  POST /login   form auth (+ antiforgery)
 //   GET  /register POST /register
 //   POST /logout
 //   GET  /dashboard            overview (auth)
@@ -24,10 +27,26 @@ using Elsie.Web;
 //   dotnet run --project samples/Elsie.Sample.Dashboard
 // -----------------------------------------------------------------------------
 
-var contentRoot = Directory.GetCurrentDirectory();
+var contentRoot = ResolveContentRoot();
+using var loggerFactory = LoggerFactory.Create(b => b.AddSimpleConsole(o => o.SingleLine = true).SetMinimumLevel(LogLevel.Information));
+
+static string ResolveContentRoot()
+{
+    var cwd = Directory.GetCurrentDirectory();
+    if (Directory.Exists(Path.Combine(cwd, "Views")))
+    {
+        return cwd;
+    }
+
+    // bin/Release/netX.0 → project dir when launched via dll
+    var project = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", ".."));
+    return Directory.Exists(Path.Combine(project, "Views")) ? project : cwd;
+}
 
 ElsieApp.Create(args)
     .ContentRoot(contentRoot)
+    .Logging(loggerFactory)
+    .Compression()
     .Configure(o =>
     {
         o.ScanEntryAssembly = false;
@@ -50,11 +69,14 @@ ElsieApp.Create(args)
             };
             o.Cookie.TicketKeyFromString("elsie-dashboard-sample-dev-key");
         });
+        s.AddElsieAntiforgery();
+        s.AddElsieDataAnnotationsValidation();
         s.AddElsieViews(o =>
         {
             o.ContentRoot = contentRoot;
             o.ReloadOnChange = true;
         });
+        s.ConfigureElsiePipelines(p => p.AddAfter(ElsieSecurityHeaders.DefaultAfter()));
     })
     .StaticFiles(s =>
     {
@@ -69,21 +91,33 @@ namespace Elsie.Sample.Dashboard
 
     public sealed class LoginForm
     {
+        [Required, EmailAddress]
         public string Email { get; set; } = "";
+
+        [Required]
         public string Password { get; set; } = "";
+
         public string? ReturnUrl { get; set; }
     }
 
     public sealed class RegisterForm
     {
+        [Required, EmailAddress]
         public string Email { get; set; } = "";
+
+        [Required, MinLength(1)]
         public string DisplayName { get; set; } = "";
+
+        [Required, MinLength(4)]
         public string Password { get; set; } = "";
+
+        [Required]
         public string ConfirmPassword { get; set; } = "";
     }
 
     public sealed class SettingsForm
     {
+        [Required, MinLength(1)]
         public string DisplayName { get; set; } = "";
     }
 
@@ -256,6 +290,9 @@ namespace Elsie.Sample.Dashboard
     {
         public HomeModule()
         {
+            // Logout form lives in layout when signed in.
+            Before(ElsieAntiforgeryService.RequireAntiforgery());
+
             Get("/", async (ctx, ct) =>
             {
                 var user = ctx.GetUser();
@@ -267,7 +304,8 @@ namespace Elsie.Sample.Dashboard
                         Title = "Elsie Dashboard",
                         Authenticated = authed,
                         UserName = authed ? user.Identity!.Name : null,
-                        Active = "home"
+                        Active = "home",
+                        CsrfToken = ctx.GetAntiforgeryToken()
                     },
                     cancellationToken: ct);
             }).WithSummary("Marketing home").WithTags("pages");
@@ -278,6 +316,8 @@ namespace Elsie.Sample.Dashboard
     {
         public AccountModule(IUserStore users, IActivityStore activity)
         {
+            Before(ElsieAntiforgeryService.RequireAntiforgery());
+
             Get("/login", async (ctx, ct) =>
             {
                 if (ctx.GetUser().Identity?.IsAuthenticated == true)
@@ -295,7 +335,8 @@ namespace Elsie.Sample.Dashboard
                         Active = "login",
                         Error = (string?)null,
                         Email = "",
-                        ReturnUrl = returnUrl ?? ""
+                        ReturnUrl = returnUrl ?? "",
+                        CsrfToken = ctx.GetAntiforgeryToken()
                     },
                     cancellationToken: ct);
             }).WithTags("auth");
@@ -309,6 +350,23 @@ namespace Elsie.Sample.Dashboard
                 }
 
                 var form = bind.Value!;
+                if (ctx.ValidateWithDataAnnotations(form) is { } invalid)
+                {
+                    return await ctx.ViewAsync(
+                        "login",
+                        new
+                        {
+                            Title = "Sign in",
+                            Authenticated = false,
+                            Active = "login",
+                            Error = "Enter a valid email and password.",
+                            Email = form.Email,
+                            ReturnUrl = form.ReturnUrl ?? "",
+                            CsrfToken = ctx.GetAntiforgeryToken()
+                        },
+                        cancellationToken: ct);
+                }
+
                 if (!users.Validate(form.Email, form.Password, out var account) || account is null)
                 {
                     return await ctx.ViewAsync(
@@ -320,7 +378,8 @@ namespace Elsie.Sample.Dashboard
                             Active = "login",
                             Error = "Invalid email or password.",
                             Email = form.Email,
-                            ReturnUrl = form.ReturnUrl ?? ""
+                            ReturnUrl = form.ReturnUrl ?? "",
+                            CsrfToken = ctx.GetAntiforgeryToken()
                         },
                         cancellationToken: ct);
                 }
@@ -346,7 +405,8 @@ namespace Elsie.Sample.Dashboard
                         Active = "register",
                         Error = (string?)null,
                         Email = "",
-                        DisplayName = ""
+                        DisplayName = "",
+                        CsrfToken = ctx.GetAntiforgeryToken()
                     },
                     cancellationToken: ct);
             }).WithTags("auth");
@@ -360,6 +420,11 @@ namespace Elsie.Sample.Dashboard
                 }
 
                 var form = bind.Value!;
+                if (ctx.ValidateWithDataAnnotations(form) is { } invalid)
+                {
+                    return await RegisterError(ctx, form, "Check the form fields and try again.", ct);
+                }
+
                 if (!string.Equals(form.Password, form.ConfirmPassword, StringComparison.Ordinal))
                 {
                     return await RegisterError(ctx, form, "Passwords do not match.", ct);
@@ -402,7 +467,8 @@ namespace Elsie.Sample.Dashboard
                     Active = "register",
                     Error = error,
                     Email = form.Email,
-                    DisplayName = form.DisplayName
+                    DisplayName = form.DisplayName,
+                    CsrfToken = ctx.GetAntiforgeryToken()
                 },
                 cancellationToken: ct);
     }
@@ -413,6 +479,7 @@ namespace Elsie.Sample.Dashboard
         {
             Path("/dashboard");
             Before(PageAuth.RequirePageUser());
+            Before(ElsieAntiforgeryService.RequireAntiforgery());
 
             Get("/", async (ctx, ct) =>
             {
@@ -428,6 +495,7 @@ namespace Elsie.Sample.Dashboard
                         Active = "overview",
                         UserName = email,
                         DisplayName = account?.DisplayName ?? email,
+                        CsrfToken = ctx.GetAntiforgeryToken(),
                         Stats = new
                         {
                             Projects = 3,
@@ -458,6 +526,7 @@ namespace Elsie.Sample.Dashboard
                         Active = "activity",
                         UserName = email,
                         DisplayName = account?.DisplayName ?? email,
+                        CsrfToken = ctx.GetAntiforgeryToken(),
                         Items = items.Select(a => new
                         {
                             a.Kind,
@@ -482,6 +551,7 @@ namespace Elsie.Sample.Dashboard
                         UserName = email,
                         DisplayName = account?.DisplayName ?? email,
                         Email = email,
+                        CsrfToken = ctx.GetAntiforgeryToken(),
                         Message = (string?)null,
                         Error = (string?)null
                     },
@@ -498,7 +568,9 @@ namespace Elsie.Sample.Dashboard
                 }
 
                 var form = bind.Value!;
-                if (!users.TryUpdateDisplayName(email, form.DisplayName, out var account) || account is null)
+                if (ctx.ValidateWithDataAnnotations(form) is { } invalid
+                    || !users.TryUpdateDisplayName(email, form.DisplayName, out var account)
+                    || account is null)
                 {
                     return await ctx.ViewAsync(
                         "dashboard/settings",
@@ -510,6 +582,7 @@ namespace Elsie.Sample.Dashboard
                             UserName = email,
                             DisplayName = form.DisplayName,
                             Email = email,
+                            CsrfToken = ctx.GetAntiforgeryToken(),
                             Message = (string?)null,
                             Error = "Display name cannot be empty."
                         },
@@ -527,6 +600,7 @@ namespace Elsie.Sample.Dashboard
                         UserName = email,
                         DisplayName = account.DisplayName,
                         Email = email,
+                        CsrfToken = ctx.GetAntiforgeryToken(),
                         Message = "Saved.",
                         Error = (string?)null
                     },

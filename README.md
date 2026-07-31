@@ -358,6 +358,32 @@ Unmatched routes return 404 problem+json from the host.
 | [Testing](docs/testing.md) | In-memory + loopback |
 | [Hosting & AOT](docs/hosting-and-aot.md) | TLS, HTTP/2, WebSockets, limits, reverse proxy |
 | [Security](docs/security.md) | Tickets, limits, forwarded headers |
+| [Production checklist](docs/production-checklist.md) | Deploy gates |
+| [Architecture](docs/architecture.md) | Package/host layout |
+
+### Production sketch
+
+```csharp
+ElsieApp.Create(args)
+    .Logging(loggerFactory)
+    .Compression()
+    .Server(o =>
+    {
+        o.MaxRequestBodyBytes = 1_000_000;
+        o.MaxConcurrentConnections = 10_000;
+    })
+    .Services(s =>
+    {
+        s.AddElsieAuth(/* TicketKey from secret store */);
+        s.AddElsieAntiforgery();
+        s.AddElsieDataAnnotationsValidation();
+        s.ConfigureElsiePipelines(p => p.AddAfter(ElsieSecurityHeaders.DefaultAfter()));
+    })
+    .Module<AppModule>()
+    .Run();
+```
+
+Full list: [production-checklist.md](docs/production-checklist.md).
 
 Changelog: [CHANGELOG.md](CHANGELOG.md)
 

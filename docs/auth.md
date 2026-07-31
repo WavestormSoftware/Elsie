@@ -84,6 +84,8 @@ Cookie tickets are AES-GCM sealed (name/role claims + expiry).
 
 ## Antiforgery
 
+Double-submit cookie. Mutating requests need header `X-CSRF-TOKEN` **or** form field `__RequestVerificationToken` (urlencoded/multipart; body buffered once, shared with `BindFormAsync`).
+
 ```csharp
 s.AddElsieAuth(...);
 s.AddElsieAntiforgery();
@@ -91,6 +93,7 @@ s.AddElsieAntiforgery();
 Before(ElsieAntiforgeryService.RequireAntiforgery());
 // views/forms:
 var token = ctx.GetAntiforgeryToken();
+// <input type="hidden" name="__RequestVerificationToken" value="…" />
 ```
 
 ## OIDC (minimal)

@@ -6,6 +6,7 @@
 {% partial '../_flash' %}
 
 <form method="post" action="/dashboard/settings">
+  <input type="hidden" name="__RequestVerificationToken" value="{{ CsrfToken }}" />
   <label for="displayName">Display name</label>
   <input id="displayName" name="DisplayName" type="text" value="{{ DisplayName }}" required />
 
