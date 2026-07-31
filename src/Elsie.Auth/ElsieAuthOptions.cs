@@ -23,7 +23,7 @@ public sealed class ElsieCookieAuthOptions
     public string? CookieDomain { get; set; }
     public bool HttpOnly { get; set; } = true;
     public bool Secure { get; set; }
-    public SameSiteMode SameSite { get; set; } = SameSiteMode.Lax;
+    public ElsieSameSite SameSite { get; set; } = ElsieSameSite.Lax;
     public TimeSpan ExpireTimeSpan { get; set; } = TimeSpan.FromHours(8);
     public bool SlidingExpiration { get; set; } = true;
 
@@ -91,9 +91,3 @@ public sealed class ElsieJwtBearerOptions
     }
 }
 
-public enum SameSiteMode
-{
-    None = 0,
-    Lax = 1,
-    Strict = 2
-}

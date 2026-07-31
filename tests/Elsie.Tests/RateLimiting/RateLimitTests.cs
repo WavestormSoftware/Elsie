@@ -46,6 +46,21 @@ public class RateLimitTests
     }
 
     [Fact]
+    public async Task Token_bucket_allows_burst_then_refills()
+    {
+        var time = new ManualTimeProvider(DateTimeOffset.Parse("2020-01-01T00:00:00Z", CultureInfo.InvariantCulture));
+        var gate = ElsieRateLimit.TokenBucket(capacity: 2, tokensPerSecond: 1, _ => "ip", time);
+        await using var host = CreateHost(gate);
+
+        Assert.Equal(200, (await host.GetAsync("/ping")).StatusCode);
+        Assert.Equal(200, (await host.GetAsync("/ping")).StatusCode);
+        Assert.Equal(429, (await host.GetAsync("/ping")).StatusCode);
+
+        time.Advance(TimeSpan.FromSeconds(1));
+        Assert.Equal(200, (await host.GetAsync("/ping")).StatusCode);
+    }
+
+    [Fact]
     public async Task Sliding_window_uses_trailing_window()
     {
         var time = new ManualTimeProvider(DateTimeOffset.Parse("2020-01-01T00:00:00Z", CultureInfo.InvariantCulture));

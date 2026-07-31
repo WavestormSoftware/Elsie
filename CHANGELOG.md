@@ -14,6 +14,7 @@ Elsie is **unreleased** software; prereleases may include breaking API changes.
 - Package **Elsie.Web** removed — use **Elsie** (same assembly `Elsie.Web.dll` / namespaces).
 - Project paths: `src/Elsie.Core` (kernel), `src/Elsie` (host). `src/Elsie.Meta` deleted.
 - Rate limit **default partition** no longer reads `X-Forwarded-For` (use `ForwardedPartitionKey`).
+- Cookie auth `SameSite` is now `ElsieSameSite` (removed Auth-local `SameSiteMode`).
 
 ### Migration
 - Apps: keep `PackageReference Include="Elsie"` (recommended).
@@ -28,7 +29,8 @@ Elsie is **unreleased** software; prereleases may include breaking API changes.
 - Response compression (`.Compression()`)
 - Static files: streaming, ETag, If-Modified-Since, Range
 - Multipart file uploads (`ElsieFormFile`, `ReadFormAsync`)
-- `IRateLimitStore`; security headers helper
+- `IRateLimitStore`; `ElsieRateLimit.TokenBucket`; security headers helper
+- Dependabot (NuGet + GitHub Actions)
 - Antiforgery (header **or** form field) + minimal OIDC helpers (`Elsie.Auth`)
 - Request body buffer shared across bind/antiforgery reads
 - `Elsie.Validation` DataAnnotations package
