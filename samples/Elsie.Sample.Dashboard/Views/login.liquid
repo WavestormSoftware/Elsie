@@ -7,6 +7,7 @@
   {% partial '_flash' %}
 
   <form method="post" action="/login" novalidate>
+    <input type="hidden" name="__RequestVerificationToken" value="{{ CsrfToken }}" />
     <input type="hidden" name="ReturnUrl" value="{{ ReturnUrl }}" />
 
     <label for="email">Email</label>

@@ -1,8 +1,11 @@
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 using System.Collections.Concurrent;
+using System.ComponentModel.DataAnnotations;
 using Elsie;
 using Elsie.Web;
 using Elsie.Sample.Api;
+using Elsie.Validation;
 
 // -----------------------------------------------------------------------------
 // Advanced sample — multi-module API.
@@ -18,7 +21,11 @@ using Elsie.Sample.Api;
 //   DELETE /api/todos/{id}
 // -----------------------------------------------------------------------------
 
+using var loggerFactory = LoggerFactory.Create(b => b.AddSimpleConsole(o => o.SingleLine = true).SetMinimumLevel(LogLevel.Information));
+
 ElsieApp.Create(args)
+    .Logging(loggerFactory)
+    .Compression()
     .Configure(o =>
     {
         o.ScanEntryAssembly = false;
@@ -36,6 +43,7 @@ ElsieApp.Create(args)
     {
         s.AddSingleton<ITodoStore, InMemoryTodoStore>();
         s.AddSingleton<IRequestClock, SystemRequestClock>();
+        s.AddElsieDataAnnotationsValidation();
         s.ConfigureElsiePipelines(p =>
         {
             p.AddBefore((ctx, _) =>
@@ -57,6 +65,7 @@ ElsieApp.Create(args)
                 ctx.Response.Headers["X-Elsie-Status"] = result.StatusCode.ToString();
                 return result;
             });
+            p.AddAfter(ElsieSecurityHeaders.DefaultAfter());
         });
     })
     .OpenApi(o =>
@@ -71,9 +80,28 @@ ElsieApp.Create(args)
 namespace Elsie.Sample.Api
 {
     public sealed record Todo(Guid Id, string Title, bool Done, DateTimeOffset UpdatedAt);
-    public sealed record CreateTodo(string Title);
-    public sealed record UpdateTodo(string Title, bool Done);
-    public sealed record PatchTodo(bool? Done, string? Title);
+
+    public sealed class CreateTodo
+    {
+        [Required, MinLength(1), MaxLength(200)]
+        public string Title { get; set; } = "";
+    }
+
+    public sealed class UpdateTodo
+    {
+        [Required, MinLength(1), MaxLength(200)]
+        public string Title { get; set; } = "";
+
+        public bool Done { get; set; }
+    }
+
+    public sealed class PatchTodo
+    {
+        public bool? Done { get; set; }
+
+        [MaxLength(200)]
+        public string? Title { get; set; }
+    }
     public sealed record TodoListQuery(string? Q, bool? Done);
     public sealed record TodoList(IReadOnlyList<Todo> Items, TodoListQuery Filter);
 
@@ -225,13 +253,13 @@ namespace Elsie.Sample.Api
                         return bind.Error!;
                     }
 
-                    var title = bind.Value!.Title?.Trim();
-                    if (string.IsNullOrWhiteSpace(title))
+                    var body = bind.Value!;
+                    if (ctx.ValidateWithDataAnnotations(body) is { } invalid)
                     {
-                        return ElsieResult.BadRequest("Title is required.");
+                        return invalid;
                     }
 
-                    var created = store.Add(title);
+                    var created = store.Add(body.Title.Trim());
                     return ElsieResult.Created(ctx.UrlFor("getTodo", new { id = created.Id }), created);
                 })
                 .Accepts<CreateTodo>()
@@ -252,13 +280,13 @@ namespace Elsie.Sample.Api
                         return bind.Error!;
                     }
 
-                    var title = bind.Value!.Title?.Trim();
-                    if (string.IsNullOrWhiteSpace(title))
+                    var body = bind.Value!;
+                    if (ctx.ValidateWithDataAnnotations(body) is { } invalid)
                     {
-                        return ElsieResult.BadRequest("Title is required.");
+                        return invalid;
                     }
 
-                    return ctx.Json(store.Update(id, title, bind.Value.Done));
+                    return ctx.Json(store.Update(id, body.Title.Trim(), body.Done));
                 })
                 .Accepts<UpdateTodo>()
                 .Produces<Todo>()

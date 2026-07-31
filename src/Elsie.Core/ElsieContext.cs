@@ -332,17 +332,25 @@ public sealed class ElsieContext
                 return ElsieBindResult<T>.Fail(ElsieResult.BadRequest("JSON body is required."));
             }
 
-            if (Request.ContentLength is { } declared && declared > _maxBindBodySize)
+            byte[] bytes;
+            try
+            {
+                bytes = await ReadBodyWithLimitAsync(cancellationToken).ConfigureAwait(false);
+            }
+            catch (InvalidOperationException ex)
             {
                 return ElsieBindResult<T>.Fail(ElsieResult.BadRequest(
-                    $"JSON body exceeds max size of {_maxBindBodySize} bytes."));
+                    ex.Message.Contains("max size", StringComparison.OrdinalIgnoreCase)
+                        ? ex.Message.Replace("Body exceeds", "JSON body exceeds", StringComparison.Ordinal)
+                        : ex.Message));
             }
 
-            await using var limited = new SizeLimitedStream(Request.Body, _maxBindBodySize);
-            var value = await JsonSerializer.DeserializeAsync<T>(
-                limited,
-                JsonSerializerOptions,
-                cancellationToken).ConfigureAwait(false);
+            if (bytes.Length == 0)
+            {
+                return ElsieBindResult<T>.Fail(ElsieResult.BadRequest("JSON body is required."));
+            }
+
+            var value = JsonSerializer.Deserialize<T>(bytes, JsonSerializerOptions);
 
             if (value is null)
             {
@@ -350,10 +358,6 @@ public sealed class ElsieContext
             }
 
             return ElsieBindResult<T>.Success(value);
-        }
-        catch (InvalidOperationException ex) when (ex.Message.Contains("max size", StringComparison.OrdinalIgnoreCase))
-        {
-            return ElsieBindResult<T>.Fail(ElsieResult.BadRequest(ex.Message));
         }
         catch (JsonException ex)
         {
@@ -385,10 +389,14 @@ public sealed class ElsieContext
             throw new InvalidOperationException($"Body exceeds max size of {_maxBindBodySize} bytes.");
         }
 
-        await using var limited = new SizeLimitedStream(Request.Body, _maxBindBodySize);
-        await using var ms = new MemoryStream();
-        await limited.CopyToAsync(ms, cancellationToken).ConfigureAwait(false);
-        return ms.ToArray();
+        // Cache on the request so before-hooks (e.g. antiforgery form field) and binders share one read.
+        var bytes = await Request.BufferBodyAsync(cancellationToken).ConfigureAwait(false);
+        if (bytes.LongLength > _maxBindBodySize)
+        {
+            throw new InvalidOperationException($"Body exceeds max size of {_maxBindBodySize} bytes.");
+        }
+
+        return bytes;
     }
 
 

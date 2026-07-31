@@ -7,6 +7,7 @@
   {% partial '_flash' %}
 
   <form method="post" action="/register" novalidate>
+    <input type="hidden" name="__RequestVerificationToken" value="{{ CsrfToken }}" />
     <label for="displayName">Display name</label>
     <input id="displayName" name="DisplayName" type="text" autocomplete="name" value="{{ DisplayName }}" required />
 

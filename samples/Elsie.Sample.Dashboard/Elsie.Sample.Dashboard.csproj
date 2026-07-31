@@ -9,6 +9,8 @@
   <ItemGroup>
     <ProjectReference Include="..\..\src\Elsie\Elsie.csproj" />
     <ProjectReference Include="..\..\src\Elsie.Auth\Elsie.Auth.csproj" />
+    <ProjectReference Include="..\..\src\Elsie.Validation\Elsie.Validation.csproj" />
     <ProjectReference Include="..\..\src\Elsie.Views\Elsie.Views.csproj" />
+    <PackageReference Include="Microsoft.Extensions.Logging.Console" VersionOverride="8.0.1" />
   </ItemGroup>
 </Project>

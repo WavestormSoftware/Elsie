@@ -17,6 +17,7 @@
       {% if Authenticated %}
         <a href="/dashboard" class="{% if Active == 'overview' or Active == 'activity' or Active == 'settings' %}active{% endif %}">Dashboard</a>
         <form method="post" action="/logout" style="display:inline;margin:0">
+          <input type="hidden" name="__RequestVerificationToken" value="{{ CsrfToken }}" />
           <button class="btn btn-ghost" type="submit">Sign out</button>
         </form>
       {% else %}

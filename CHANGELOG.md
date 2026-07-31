@@ -29,10 +29,12 @@ Elsie is **unreleased** software; prereleases may include breaking API changes.
 - Static files: streaming, ETag, If-Modified-Since, Range
 - Multipart file uploads (`ElsieFormFile`, `ReadFormAsync`)
 - `IRateLimitStore`; security headers helper
-- Antiforgery + minimal OIDC helpers (`Elsie.Auth`)
+- Antiforgery (header **or** form field) + minimal OIDC helpers (`Elsie.Auth`)
+- Request body buffer shared across bind/antiforgery reads
 - `Elsie.Validation` DataAnnotations package
 - OpenAPI prebuilt document + embedded UI mode; `WriteToFileAsync`; `WithExample`
 - Absolute `UrlFor(..., absolute: true)`; Problem `type` URI
+- Samples: Dashboard CSRF/validation; Full/Api compression, headers, validation, logging
 - Docs: architecture, lifecycle, production checklist, anti-patterns, minimal APIs migration
 - CI: vulnerable package scan, coverage collect, Validation pack
 

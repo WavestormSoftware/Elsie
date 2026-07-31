@@ -1,5 +1,7 @@
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 using System.Collections.Concurrent;
+using System.ComponentModel.DataAnnotations;
 using System.Security.Claims;
 using Elsie;
 using Elsie.Web;
@@ -8,28 +10,46 @@ using Elsie.Cors;
 using Elsie.HealthChecks;
 using Elsie.RateLimiting;
 using Elsie.Sample.Full;
+using Elsie.Validation;
 using Elsie.Views;
 
 // -----------------------------------------------------------------------------
-// Kitchen-sink sample — auth + cors + rate limit + health + static + views.
+// Kitchen-sink sample — auth + cors + rate limit + health + static + views +
+// compression + validation + security headers.
 //
 //   GET  /                     Liquid home
 //   GET  /assets/app.css       static files
 //   GET  /healthz[/live|/ready]
-//   POST /login                { "user":"ada", "password":"pass" }
-//   POST /logout
+//   POST /login                { "user":"ada", "password":"pass" } + X-CSRF-TOKEN
+//   POST /logout               + X-CSRF-TOKEN (from GET /csrf)
+//   GET  /csrf                 issue antiforgery cookie + token
 //   GET  /me                   requires cookie auth
 //   GET  /api/notes            requires auth + rate limit
-//   POST /api/notes            requires auth + rate limit
+//   POST /api/notes            requires auth + rate limit + validation
 //   GET  /openapi.json  |  /scalar
 //
 //   dotnet run --project samples/Elsie.Sample.Full
 // -----------------------------------------------------------------------------
 
-var contentRoot = Directory.GetCurrentDirectory();
+var contentRoot = ResolveContentRoot();
+using var loggerFactory = LoggerFactory.Create(b => b.AddSimpleConsole(o => o.SingleLine = true).SetMinimumLevel(LogLevel.Information));
+
+static string ResolveContentRoot()
+{
+    var cwd = Directory.GetCurrentDirectory();
+    if (Directory.Exists(Path.Combine(cwd, "Views")))
+    {
+        return cwd;
+    }
+
+    var project = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", ".."));
+    return Directory.Exists(Path.Combine(project, "Views")) ? project : cwd;
+}
 
 ElsieApp.Create(args)
     .ContentRoot(contentRoot)
+    .Logging(loggerFactory)
+    .Compression()
     .Configure(o =>
     {
         o.ScanEntryAssembly = false;
@@ -53,12 +73,14 @@ ElsieApp.Create(args)
             };
             o.Cookie.TicketKeyFromString("elsie-full-sample-dev-key");
         });
+        s.AddElsieAntiforgery();
+        s.AddElsieDataAnnotationsValidation();
         s.AddElsieCors(o =>
         {
             o.AddDefaultPolicy(p => p
                 .AllowOrigins("http://localhost:5173", "http://127.0.0.1:5173")
                 .AllowMethods("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS")
-                .AllowHeaders("Content-Type", "Authorization", "X-Request-Id")
+                .AllowHeaders("Content-Type", "Authorization", "X-Request-Id", "X-CSRF-TOKEN")
                 .AllowCredentials()
                 .SetPreflightMaxAge(TimeSpan.FromMinutes(10)));
         });
@@ -87,6 +109,7 @@ ElsieApp.Create(args)
                 ctx.Response.Headers["X-Elsie-Sample"] = "full";
                 return result;
             });
+            p.AddAfter(ElsieSecurityHeaders.DefaultAfter());
         });
     })
     .StaticFiles(s =>
@@ -97,7 +120,7 @@ ElsieApp.Create(args)
     .OpenApi(o =>
     {
         o.Info.Title = "Elsie Full Sample";
-        o.Info.Description = "Auth + CORS + rate limit + health + static + views";
+        o.Info.Description = "Auth + CORS + rate limit + health + static + views + CSRF + validation";
         o.Info.Version = "v1";
         o.UiPath = "/scalar";
     })
@@ -107,8 +130,21 @@ namespace Elsie.Sample.Full
 {
     public sealed record Note(Guid Id, string Title, string Owner, DateTimeOffset CreatedAt);
     public sealed record NoteList(string Owner, IReadOnlyList<Note> Items);
-    public sealed record CreateNote(string Title);
-    public sealed record LoginBody(string User, string Password);
+
+    public sealed class CreateNote
+    {
+        [Required, MinLength(1), MaxLength(200)]
+        public string Title { get; set; } = "";
+    }
+
+    public sealed class LoginBody
+    {
+        [Required]
+        public string User { get; set; } = "";
+
+        [Required]
+        public string Password { get; set; } = "";
+    }
 
     public interface INoteStore
     {
@@ -162,6 +198,7 @@ namespace Elsie.Sample.Full
                     home = "/",
                     me = "/me",
                     notes = "/api/notes",
+                    csrf = "/csrf",
                     login = "/login",
                     healthz = "/healthz",
                     assets = "/assets/app.css",
@@ -172,7 +209,7 @@ namespace Elsie.Sample.Full
                 {
                     user = "ada",
                     password = "pass",
-                    note = "Cookie session after POST /login; notes are rate-limited."
+                    note = "GET /csrf then send X-CSRF-TOKEN on POST /login and mutations; notes are rate-limited."
                 }
             })).WithTags("catalog");
         }
@@ -182,6 +219,14 @@ namespace Elsie.Sample.Full
     {
         public AuthModule()
         {
+            Before(ElsieAntiforgeryService.RequireAntiforgery());
+
+            Get("/csrf", ctx =>
+            {
+                var token = ctx.GetAntiforgeryToken();
+                return ctx.Json(new { token, header = "X-CSRF-TOKEN" });
+            }).WithSummary("Issue antiforgery cookie + token").WithTags("auth");
+
             Post("/login", async (ctx, ct) =>
             {
                 var bind = await ctx.BindJsonAsync<LoginBody>(ct);
@@ -191,6 +236,11 @@ namespace Elsie.Sample.Full
                 }
 
                 var body = bind.Value!;
+                if (ctx.ValidateWithDataAnnotations(body) is { } invalid)
+                {
+                    return invalid;
+                }
+
                 if (!string.Equals(body.User, "ada", StringComparison.Ordinal) ||
                     !string.Equals(body.Password, "pass", StringComparison.Ordinal))
                 {
@@ -239,6 +289,7 @@ namespace Elsie.Sample.Full
         {
             Path("/api");
             Before(ElsieAuthGates.RequireAuthenticated());
+            Before(ElsieAntiforgeryService.RequireAntiforgery());
             Before(ElsieRateLimit.FixedWindow(permitLimit: 30, window: TimeSpan.FromMinutes(1)));
 
             Group("/notes", () =>
@@ -261,12 +312,13 @@ namespace Elsie.Sample.Full
                         return bind.Error!;
                     }
 
-                    var title = bind.Value!.Title?.Trim();
-                    if (string.IsNullOrWhiteSpace(title))
+                    var body = bind.Value!;
+                    if (ctx.ValidateWithDataAnnotations(body) is { } invalid)
                     {
-                        return ElsieResult.BadRequest("Title is required.");
+                        return invalid;
                     }
 
+                    var title = body.Title.Trim();
                     var owner = ctx.GetUser().Identity?.Name
                         ?? throw new InvalidOperationException("Authenticated user missing name.");
                     var created = store.Add(owner, title);

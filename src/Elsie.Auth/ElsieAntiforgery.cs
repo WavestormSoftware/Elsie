@@ -1,5 +1,6 @@
 using System.Security.Cryptography;
 using System.Text;
+using Elsie.Pipelines;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 
@@ -59,11 +60,29 @@ public sealed class ElsieAntiforgeryService
         return token;
     }
 
+    /// <summary>Validate header double-submit (sync). Prefer <see cref="IsValidAsync"/> for form fields.</summary>
     public bool IsValid(ElsieContext ctx)
     {
         ArgumentNullException.ThrowIfNull(ctx);
         var cookie = ctx.Request.GetCookie(_options.CookieName);
-        if (string.IsNullOrEmpty(cookie))
+        if (string.IsNullOrEmpty(cookie) || !VerifyFormat(cookie))
+        {
+            return false;
+        }
+
+        var header = ctx.Request.GetHeader(_options.HeaderName);
+        return !string.IsNullOrEmpty(header) && FixedTimeEquals(header, cookie);
+    }
+
+    /// <summary>
+    /// Validate double-submit via header <c>X-CSRF-TOKEN</c> or form field <c>__RequestVerificationToken</c>.
+    /// Form path buffers the body once (shared with later <c>BindFormAsync</c> / <c>ReadFormAsync</c>).
+    /// </summary>
+    public async Task<bool> IsValidAsync(ElsieContext ctx, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(ctx);
+        var cookie = ctx.Request.GetCookie(_options.CookieName);
+        if (string.IsNullOrEmpty(cookie) || !VerifyFormat(cookie))
         {
             return false;
         }
@@ -71,17 +90,32 @@ public sealed class ElsieAntiforgeryService
         var header = ctx.Request.GetHeader(_options.HeaderName);
         if (!string.IsNullOrEmpty(header) && FixedTimeEquals(header, cookie))
         {
-            return VerifyFormat(cookie);
+            return true;
         }
 
-        // form field checked only if already buffered is hard — header is preferred
-        return false;
+        var contentType = ctx.Request.ContentType ?? string.Empty;
+        if (contentType.Length == 0
+            || (!contentType.Contains("application/x-www-form-urlencoded", StringComparison.OrdinalIgnoreCase)
+                && !contentType.Contains("multipart/", StringComparison.OrdinalIgnoreCase)))
+        {
+            return false;
+        }
+
+        var form = await ctx.ReadFormAsync(cancellationToken).ConfigureAwait(false);
+        if (!form.IsSuccess)
+        {
+            return false;
+        }
+
+        using var collection = form.Value!;
+        var field = collection.GetField(_options.FormFieldName);
+        return !string.IsNullOrEmpty(field) && FixedTimeEquals(field, cookie);
     }
 
-    /// <summary>401/400 when mutating method lacks valid CSRF token.</summary>
-    public static Func<ElsieContext, ElsieResult?> RequireAntiforgery()
+    /// <summary>Forbidden when mutating method lacks valid CSRF token (header or form field).</summary>
+    public static ElsieBeforeDelegate RequireAntiforgery()
     {
-        return ctx =>
+        return async (ctx, ct) =>
         {
             if (IsSafe(ctx.Request.Method))
             {
@@ -94,7 +128,7 @@ public sealed class ElsieAntiforgeryService
                 return ElsieResult.Problem(500, "Misconfigured", "Antiforgery is not registered.");
             }
 
-            return svc.IsValid(ctx)
+            return await svc.IsValidAsync(ctx, ct).ConfigureAwait(false)
                 ? null
                 : ElsieResult.Forbidden("Antiforgery token missing or invalid.");
         };
@@ -105,7 +139,8 @@ public sealed class ElsieAntiforgeryService
         var nonce = RandomNumberGenerator.GetBytes(32);
         var key = ResolveKey();
         var mac = HMACSHA256.HashData(key, nonce);
-        return Convert.ToBase64String(nonce) + "." + Convert.ToBase64String(mac);
+        // Base64Url — safe in cookies and application/x-www-form-urlencoded (no '+').
+        return ToBase64Url(nonce) + "." + ToBase64Url(mac);
     }
 
     private bool VerifyFormat(string token)
@@ -118,8 +153,8 @@ public sealed class ElsieAntiforgeryService
 
         try
         {
-            var nonce = Convert.FromBase64String(parts[0]);
-            var mac = Convert.FromBase64String(parts[1]);
+            var nonce = FromBase64Url(parts[0]);
+            var mac = FromBase64Url(parts[1]);
             var expected = HMACSHA256.HashData(ResolveKey(), nonce);
             return CryptographicOperations.FixedTimeEquals(mac, expected);
         }
@@ -127,6 +162,21 @@ public sealed class ElsieAntiforgeryService
         {
             return false;
         }
+    }
+
+    private static string ToBase64Url(byte[] data) =>
+        Convert.ToBase64String(data).TrimEnd('=').Replace('+', '-').Replace('/', '_');
+
+    private static byte[] FromBase64Url(string value)
+    {
+        var s = value.Replace('-', '+').Replace('_', '/');
+        return (s.Length % 4) switch
+        {
+            2 => Convert.FromBase64String(s + "=="),
+            3 => Convert.FromBase64String(s + "="),
+            0 => Convert.FromBase64String(s),
+            _ => throw new FormatException("Invalid Base64Url length.")
+        };
     }
 
     private byte[] ResolveKey()

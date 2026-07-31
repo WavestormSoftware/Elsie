@@ -50,7 +50,7 @@ Automated tests cover (Web + Auth suites):
 
 ## Antiforgery
 
-Browser cookie apps should register `AddElsieAntiforgery` and `Before(ElsieAntiforgeryService.RequireAntiforgery())` on mutating routes. Double-submit cookie + `X-CSRF-TOKEN` header.
+Browser cookie apps should register `AddElsieAntiforgery` and `Before(ElsieAntiforgeryService.RequireAntiforgery())` on mutating routes. Double-submit cookie + `X-CSRF-TOKEN` header **or** form field `__RequestVerificationToken` (see Dashboard sample).
 
 ## Out of scope (for now)
 
