@@ -45,7 +45,7 @@ jobs:
       id-token: write   # required for GitHub OIDC → NuGet Trusted Publishing
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Setup .NET
         uses: actions/setup-dotnet@v4
