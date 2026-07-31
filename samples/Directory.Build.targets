@@ -1,9 +1,0 @@
-<Project>
-  <!--
-    Root Directory.Packages.props enables CPM. Samples pin PackageReference Version=
-    so a folder can be copied out of the monorepo — opt out of CPM after NuGet imports.
-  -->
-  <PropertyGroup>
-    <ManagePackageVersionsCentrally>false</ManagePackageVersionsCentrally>
-  </PropertyGroup>
-</Project>

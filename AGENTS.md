@@ -25,7 +25,7 @@ Instructions for coding agents working on this repository.
 | `templates/` | `dotnet new` templates (`elsie`, `elsie-api`) → `Elsie.Templates` |
 | `benchmarks/Elsie.Benchmarks` | BenchmarkDotNet (route/dispatch/views); not CI-gated |
 | `tests/*` | Unit / integration tests |
-| `samples/*` | Runnable samples (NuGet PackageReference only — copy-paste friendly) |
+| `samples/*` | Runnable samples (NuGet refs; see `samples/README.md`) |
 | `docs/*.md` | Committed guides (not PLAN/ARCHITECTURE) |
 | `README.md` | Public product docs |
 | `CHANGELOG.md` | Release notes |
