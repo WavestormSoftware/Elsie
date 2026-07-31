@@ -1,14 +1,13 @@
-using Microsoft.AspNetCore.Authentication;
-using Microsoft.AspNetCore.Builder;
+using Elsie.Web;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 
 namespace Elsie.Auth;
 
 public static class ElsieAuthServiceCollectionExtensions
 {
     /// <summary>
-    /// Registers ASP.NET authentication/authorization for Elsie hosts.
-    /// Configure cookie and/or JWT via <paramref name="configure"/>; call <see cref="UseElsieAuth"/> in the pipeline.
+    /// Registers Elsie cookie and/or JWT authentication.
     /// </summary>
     public static IServiceCollection AddElsieAuth(
         this IServiceCollection services,
@@ -16,86 +15,72 @@ public static class ElsieAuthServiceCollectionExtensions
     {
         ArgumentNullException.ThrowIfNull(services);
 
-        // Authorization policy cache resolves EndpointDataSource (ValidateOnBuild hosts).
-        services.AddRouting();
-
         var options = new ElsieAuthOptions();
         configure?.Invoke(options);
 
         if (options.Cookie is null && options.JwtBearer is null)
         {
-            // Sensible cookie default so SignInAsync works out of the box.
-            options.Cookie = _ => { };
+            options.Cookie = new ElsieCookieAuthOptions();
+            options.Cookie.TicketKeyFromString("elsie-dev-insecure-key-change-me");
         }
 
-        var defaultScheme = options.DefaultScheme
-            ?? (options.Cookie is not null && options.JwtBearer is null
-                ? options.CookieScheme
-                : options.JwtBearer is not null && options.Cookie is null
-                    ? options.JwtBearerScheme
-                    : options.CookieScheme);
-
-        var authBuilder = services.AddAuthentication(o =>
+        if (options.Cookie is not null && options.Cookie.TicketKey is null)
         {
-            o.DefaultScheme = defaultScheme;
-            o.DefaultAuthenticateScheme = defaultScheme;
-            o.DefaultChallengeScheme = defaultScheme;
-        });
-
-        if (options.Cookie is not null)
-        {
-            authBuilder.AddCookie(options.CookieScheme, options.Cookie);
+            options.Cookie.TicketKeyFromString("elsie-dev-insecure-key-change-me");
         }
 
-        if (options.JwtBearer is not null)
-        {
-            authBuilder.AddJwtBearer(options.JwtBearerScheme, options.JwtBearer);
-        }
-
-        if (options.Authorization is not null)
-        {
-            services.AddAuthorization(options.Authorization);
-        }
-        else
-        {
-            services.AddAuthorization();
-        }
-
+        services.AddSingleton(options);
+        services.TryAddEnumerable(ServiceDescriptor.Singleton<IElsiePrincipalAttacher, ElsieAuthPrincipalAttacher>());
         return services;
     }
+}
 
-    /// <summary>
-    /// Advanced escape hatch — configure <see cref="AuthenticationBuilder"/> directly after defaults.
-    /// </summary>
-    public static AuthenticationBuilder AddElsieAuth(
-        this IServiceCollection services,
-        Action<AuthenticationBuilder> configureAuth,
-        Action<Microsoft.AspNetCore.Authorization.AuthorizationOptions>? configureAuthorization = null)
-    {
-        ArgumentNullException.ThrowIfNull(services);
-        ArgumentNullException.ThrowIfNull(configureAuth);
-
-        services.AddRouting();
-        var builder = services.AddAuthentication();
-        configureAuth(builder);
-        if (configureAuthorization is not null)
-        {
-            services.AddAuthorization(configureAuthorization);
-        }
-        else
-        {
-            services.AddAuthorization();
-        }
-
-        return builder;
-    }
-
-    /// <summary>Adds <c>UseAuthentication</c> + <c>UseAuthorization</c> (call before <c>MapElsie</c>).</summary>
-    public static IApplicationBuilder UseElsieAuth(this IApplicationBuilder app)
+public static class ElsieAuthAppExtensions
+{
+    public static ElsieApp Auth(this ElsieApp app, Action<ElsieAuthOptions>? configure = null)
     {
         ArgumentNullException.ThrowIfNull(app);
-        app.UseAuthentication();
-        app.UseAuthorization();
-        return app;
+        return app.Services(s => s.AddElsieAuth(configure));
+    }
+}
+
+internal sealed class ElsieAuthPrincipalAttacher : IElsiePrincipalAttacher
+{
+    private readonly ElsieAuthOptions _options;
+
+    public ElsieAuthPrincipalAttacher(ElsieAuthOptions options)
+    {
+        _options = options;
+    }
+
+    public void Attach(ElsieRequest request)
+    {
+        // Prefer JWT when Authorization bearer present; else cookie.
+        if (_options.JwtBearer is not null)
+        {
+            var auth = request.GetHeader("Authorization");
+            if (!string.IsNullOrEmpty(auth) &&
+                auth.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase))
+            {
+                var token = auth["Bearer ".Length..].Trim();
+                if (JwtTokenValidator.TryValidate(token, _options.JwtBearer, out var jwtPrincipal) &&
+                    jwtPrincipal is not null)
+                {
+                    ElsiePrincipal.SetUser(request, jwtPrincipal);
+                    return;
+                }
+            }
+        }
+
+        if (_options.Cookie is { TicketKey: { } key } cookie)
+        {
+            var raw = request.GetCookie(cookie.CookieName);
+            if (!string.IsNullOrEmpty(raw) &&
+                CookieTicketProtector.TryUnprotect(raw, key, out var principal, out _) &&
+                principal is not null)
+            {
+                ElsiePrincipal.SetUser(request, principal);
+            }
+        }
     }
 }

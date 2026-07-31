@@ -2,7 +2,7 @@ namespace Elsie;
 
 /// <summary>
 /// Fully baked HTTP response for any host to write.
-/// Produced by <see cref="FromDispatch"/> — single materialization path for ASP.NET + in-memory.
+/// Produced by <see cref="FromDispatch"/> — single materialization path for host + in-memory.
 /// </summary>
 public sealed class ElsieHttpResponse
 {

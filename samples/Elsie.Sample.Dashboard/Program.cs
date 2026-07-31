@@ -1,3 +1,4 @@
+using Microsoft.Extensions.DependencyInjection;
 using System.Collections.Concurrent;
 using System.Security.Cryptography;
 using System.Text;
@@ -6,7 +7,6 @@ using Elsie.Auth;
 using Elsie.Sample.Dashboard;
 using Elsie.Views;
 using Elsie.Web;
-using Microsoft.AspNetCore.Authentication.Cookies;
 
 // -----------------------------------------------------------------------------
 // Multi-page dashboard sample — Fluid views + cookie auth + form posts.
@@ -24,56 +24,44 @@ using Microsoft.AspNetCore.Authentication.Cookies;
 //   dotnet run --project samples/Elsie.Sample.Dashboard
 // -----------------------------------------------------------------------------
 
-var builder = WebApplication.CreateBuilder(args);
+var contentRoot = Directory.GetCurrentDirectory();
 
-builder.Services.AddSingleton<IUserStore, InMemoryUserStore>();
-builder.Services.AddSingleton<IActivityStore, InMemoryActivityStore>();
-
-builder.AddElsie(o =>
-{
-    o.ScanEntryAssembly = false;
-    o.MapException<ArgumentException>((_, ex) => ElsieResult.BadRequest(ex.Message));
-});
-
-builder.Services.AddElsieAuth(o =>
-{
-    o.Cookie = c =>
+ElsieApp.Create(args)
+    .ContentRoot(contentRoot)
+    .Configure(o =>
     {
-        c.Cookie.Name = "elsie-dashboard";
-        c.Cookie.HttpOnly = true;
-        c.SlidingExpiration = true;
-        c.LoginPath = "/login";
-        c.Events.OnRedirectToLogin = ctx =>
+        o.ScanEntryAssembly = false;
+        o.MapException<ArgumentException>((_, ex) => ElsieResult.BadRequest(ex.Message));
+    })
+    .Module<HomeModule>()
+    .Module<AccountModule>()
+    .Module<DashboardModule>()
+    .Services(s =>
+    {
+        s.AddSingleton<IUserStore, InMemoryUserStore>();
+        s.AddSingleton<IActivityStore, InMemoryActivityStore>();
+        s.AddElsieAuth(o =>
         {
-            // HTML apps prefer a real redirect over 401 for browser navigations.
-            var returnUrl = ctx.Request.Path + ctx.Request.QueryString;
-            ctx.Response.Redirect("/login?returnUrl=" + Uri.EscapeDataString(returnUrl));
-            return Task.CompletedTask;
-        };
-    };
-});
-
-builder.Services.AddElsieViews(o =>
-{
-    o.ContentRoot = builder.Environment.ContentRootPath;
-    o.ReloadOnChange = builder.Environment.IsDevelopment();
-});
-
-builder.Services.AddElsieModule<HomeModule>();
-builder.Services.AddElsieModule<AccountModule>();
-builder.Services.AddElsieModule<DashboardModule>();
-
-var app = builder.Build();
-
-app.UseElsieAuth();
-app.UseStaticFiles(new StaticFileOptions
-{
-    RequestPath = "/assets",
-    FileProvider = new Microsoft.Extensions.FileProviders.PhysicalFileProvider(
-        Path.Combine(app.Environment.ContentRootPath, "wwwroot"))
-});
-app.MapElsie();
-app.Run();
+            o.Cookie = new ElsieCookieAuthOptions
+            {
+                CookieName = "elsie-dashboard",
+                HttpOnly = true,
+                SlidingExpiration = true
+            };
+            o.Cookie.TicketKeyFromString("elsie-dashboard-sample-dev-key");
+        });
+        s.AddElsieViews(o =>
+        {
+            o.ContentRoot = contentRoot;
+            o.ReloadOnChange = true;
+        });
+    })
+    .StaticFiles(s =>
+    {
+        s.Root = "wwwroot";
+        s.RequestPath = "/assets";
+    })
+    .Run();
 
 namespace Elsie.Sample.Dashboard
 {
@@ -390,7 +378,7 @@ namespace Elsie.Sample.Dashboard
             Post("/logout", async (ctx, _) =>
             {
                 var email = PageAuth.CurrentEmail(ctx);
-                await ctx.SignOutAsync(CookieAuthenticationDefaults.AuthenticationScheme);
+                await ctx.SignOutAsync();
                 if (email is not null)
                 {
                     activity.Add(email, "auth", "Signed out.");

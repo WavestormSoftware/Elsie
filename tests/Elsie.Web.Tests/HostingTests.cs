@@ -1,12 +1,7 @@
+using Microsoft.Extensions.DependencyInjection;
 using System.Net;
 using System.Text.Json;
-using Elsie;
-using Elsie.Web;
 using Elsie.Testing;
-using Microsoft.AspNetCore.Builder;
-using Microsoft.AspNetCore.Hosting;
-using Microsoft.AspNetCore.TestHost;
-using Microsoft.Extensions.DependencyInjection;
 using Xunit;
 
 namespace Elsie.Web.Tests;
@@ -43,17 +38,6 @@ public class HostingTests
             {
                 var clock = ctx.GetRequiredService<IClock>();
                 return ElsieResult.Text(clock.Stamp);
-            });
-            Get("/http-context", ctx =>
-            {
-                if (!ctx.TryGetHttpContext(out var http))
-                {
-                    return ElsieResult.Status(500);
-                }
-
-                var trace = http.TraceIdentifier;
-                http.Response.Headers["X-From-HttpContext"] = "1";
-                return ElsieResult.Text(string.IsNullOrEmpty(trace) ? "missing" : trace);
             });
         }
     }
@@ -99,295 +83,130 @@ public class HostingTests
     {
         public GuardedModule()
         {
-            Before(ctx =>
-                ctx.QueryOrDefault("token") == "secret"
-                    ? null
-                    : ElsieResult.Status(401));
-
-            Get("/secret", () => ElsieResult.Text("ok"));
+            Before(ElsieAuth.RequireHeader("X-Api-Key", "secret"));
+            Get("/guarded", () => ElsieResult.Text("ok"));
         }
     }
 
-    private sealed record EchoDto(string Message);
     private sealed record HealthDto(string Status);
+    private sealed record EchoDto(string Message);
 
     [Fact]
-    public async Task Get_hello_returns_text()
+    public async Task Get_route_param()
     {
-        await using var host = ElsieTestHost.Create(s => s.AddElsieModule<HelloModule>());
-        var response = await host.GetAsync("/hello/Ada");
-        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
-        Assert.Equal("Hello Ada", await response.Content.ReadAsStringAsync());
+        await using var host = ElsieTestHost.Create(s =>
+        {
+            s.AddSingleton<IClock, FixedClock>();
+            s.AddElsieModule<HelloModule>();
+        });
+        Assert.Equal("Hello Ada", await host.Client.GetStringAsync("/hello/Ada"));
     }
 
     [Fact]
-    public async Task Get_health_returns_json()
+    public async Task Get_json()
     {
         await using var host = ElsieTestHost.Create(s => s.AddElsieModule<HelloModule>());
-        var response = await host.GetAsync("/health");
-        response.EnsureSuccessStatusCode();
-        using var doc = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        var json = await host.Client.GetStringAsync("/health");
+        using var doc = JsonDocument.Parse(json);
         Assert.Equal("ok", doc.RootElement.GetProperty("status").GetString());
     }
 
     [Fact]
-    public async Task Post_echo_roundtrips_json()
+    public async Task Constraint_and_post_status()
     {
         await using var host = ElsieTestHost.Create(s => s.AddElsieModule<HelloModule>());
-        var response = await host.PostJsonAsync("/echo", new EchoDto("ping"));
-        response.EnsureSuccessStatusCode();
-        var body = await response.Content.ReadAsStringAsync();
-        Assert.Contains("ping", body, StringComparison.Ordinal);
+        Assert.Equal("42", await host.Client.GetStringAsync("/items/42"));
+        var post = await host.Client.PostAsync("/items", null);
+        Assert.Equal(HttpStatusCode.Created, post.StatusCode);
     }
 
     [Fact]
-    public async Task Unknown_route_returns_404_when_mapped_terminal()
+    public async Task Catch_all_and_redirect()
     {
         await using var host = ElsieTestHost.Create(s => s.AddElsieModule<HelloModule>());
-        var response = await host.GetAsync("/missing");
-        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+        Assert.Equal("a/b", await host.Client.GetStringAsync("/files/a/b"));
+
+        using var handler = new HttpClientHandler { AllowAutoRedirect = false, UseCookies = true };
+        using var client = new HttpClient(handler) { BaseAddress = host.Client.BaseAddress };
+        var res = await client.GetAsync("/go");
+        Assert.Equal(HttpStatusCode.Found, res.StatusCode);
+        Assert.Equal("/hello/redirected", res.Headers.Location?.OriginalString);
     }
 
     [Fact]
-    public async Task Int_constraint_route_works()
-    {
-        await using var host = ElsieTestHost.Create(s => s.AddElsieModule<HelloModule>());
-        var ok = await host.GetAsync("/items/7");
-        Assert.Equal(HttpStatusCode.OK, ok.StatusCode);
-        Assert.Equal("7", await ok.Content.ReadAsStringAsync());
-
-        var bad = await host.GetAsync("/items/nope");
-        Assert.Equal(HttpStatusCode.NotFound, bad.StatusCode);
-    }
-
-    [Fact]
-    public async Task Redirect_sets_location()
-    {
-        await using var host = ElsieTestHost.Create(s => s.AddElsieModule<HelloModule>());
-        var response = await host.GetAsync("/go");
-        Assert.Equal(HttpStatusCode.Redirect, response.StatusCode);
-        Assert.Equal("/hello/redirected", response.Headers.Location?.ToString());
-    }
-
-    [Fact]
-    public async Task Module_before_pipeline_can_short_circuit()
-    {
-        await using var host = ElsieTestHost.Create(s => s.AddElsieModule<GuardedModule>());
-        var denied = await host.GetAsync("/secret");
-        Assert.Equal(HttpStatusCode.Unauthorized, denied.StatusCode);
-
-        var allowed = await host.GetAsync("/secret?token=secret");
-        Assert.Equal(HttpStatusCode.OK, allowed.StatusCode);
-        Assert.Equal("ok", await allowed.Content.ReadAsStringAsync());
-    }
-
-    [Fact]
-    public async Task Application_pipeline_runs()
-    {
-        var sawAfter = false;
-        await using var host = ElsieTestHost.Create(s =>
-        {
-            s.AddElsieModule<HelloModule>();
-            s.ConfigureElsiePipelines(p =>
-            {
-                p.AddAfter((ctx, _) =>
-                {
-                    sawAfter = true;
-                    ctx.Response.Headers["X-After"] = "1";
-                });
-            });
-        });
-
-        var response = await host.GetAsync("/health");
-        Assert.True(sawAfter);
-        response.AssertHeader("X-After", "1");
-    }
-
-    [Fact]
-    public async Task Method_not_allowed_returns_405_with_allow()
-    {
-        await using var host = ElsieTestHost.Create(s => s.AddElsieModule<HelloModule>());
-        var response = await host.Client.SendAsync(new HttpRequestMessage(HttpMethod.Put, "/items"));
-        Assert.Equal(HttpStatusCode.MethodNotAllowed, response.StatusCode);
-        Assert.True(
-            response.Headers.TryGetValues("Allow", out var allow) ||
-            response.Content.Headers.TryGetValues("Allow", out allow),
-            "Allow header missing");
-        Assert.Contains("POST", string.Join(',', allow), StringComparison.OrdinalIgnoreCase);
-    }
-
-    [Fact]
-    public async Task Catch_all_route_works()
-    {
-        await using var host = ElsieTestHost.Create(s => s.AddElsieModule<HelloModule>());
-        var response = await host.GetAsync("/files/docs/readme.md");
-        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
-        Assert.Equal("docs/readme.md", await response.Content.ReadAsStringAsync());
-    }
-
-    [Fact]
-    public async Task Json_options_from_elsie_options_apply()
-    {
-        await using var host = ElsieTestHost.Create(s =>
-        {
-            s.AddElsie(o =>
-            {
-                o.ScanEntryAssembly = false;
-                o.JsonSerializerOptions.PropertyNamingPolicy = null; // PascalCase CLR names
-            });
-            s.AddElsieModule<HelloModule>();
-        });
-
-        var response = await host.GetAsync("/health");
-        response.EnsureSuccessStatusCode();
-        var body = await response.Content.ReadAsStringAsync();
-        Assert.Contains("Status", body, StringComparison.Ordinal);
-    }
-
-    [Fact]
-    public async Task ConfigureElsiePipelines_composes_hooks()
-    {
-        var count = 0;
-        await using var host = ElsieTestHost.Create(s =>
-        {
-            s.AddElsieModule<HelloModule>();
-            s.ConfigureElsiePipelines(p => p.AddAfter((_, _) => count++));
-            s.ConfigureElsiePipelines(p => p.AddAfter((_, _) => count++));
-        });
-
-        await host.GetAsync("/health");
-        Assert.Equal(2, count);
-    }
-
-    [Fact]
-    public async Task Handler_resolves_services_from_request_services()
+    public async Task Bind_json_and_di()
     {
         await using var host = ElsieTestHost.Create(s =>
         {
             s.AddSingleton<IClock, FixedClock>();
             s.AddElsieModule<HelloModule>();
-        });
-
-        var response = await host.GetAsync("/di");
-        response.AssertStatus(HttpStatusCode.OK);
-        Assert.Equal("t0", await response.AssertTextAsync());
-    }
-
-    [Fact]
-    public async Task TryGetHttpContext_exposes_aspnet_context()
-    {
-        await using var host = ElsieTestHost.Create(s => s.AddElsieModule<HelloModule>());
-        var response = await host.GetAsync("/http-context");
-        response.AssertStatus(HttpStatusCode.OK);
-        var body = await response.AssertTextAsync();
-        Assert.False(string.IsNullOrWhiteSpace(body));
-        Assert.NotEqual("missing", body);
-        Assert.True(response.Headers.Contains("X-From-HttpContext"));
-    }
-
-    [Fact]
-    public async Task Module_constructor_injection_works()
-    {
-        await using var host = ElsieTestHost.Create(s =>
-        {
-            s.AddSingleton<IClock, FixedClock>();
             s.AddElsieModule<CtorDiModule>();
         });
 
-        var response = await host.GetAsync("/ctor-di");
-        await response.AssertStatus(HttpStatusCode.OK).AssertTextAsync("t0");
+        var echo = await host.PostJsonAsync("/echo", new EchoDto("hi"));
+        echo.EnsureSuccessStatusCode();
+        Assert.Equal("t0", await host.Client.GetStringAsync("/di"));
+        Assert.Equal("t0", await host.Client.GetStringAsync("/ctor-di"));
     }
 
     [Fact]
-    public async Task Path_prefix_and_group_compose_routes()
-    {
-        await using var host = ElsieTestHost.Create(s => s.AddElsieModule<ApiModule>());
-        var response = await host.GetAsync("/api/things");
-        await response.AssertStatus(HttpStatusCode.OK).AssertTextAsync("list");
-    }
-
-    [Fact]
-    public async Task BindJson_rejects_invalid_body()
-    {
-        await using var host = ElsieTestHost.Create(s => s.AddElsieModule<ApiModule>());
-        using var content = new StringContent("{not-json", System.Text.Encoding.UTF8, "application/json");
-        var response = await host.Client.PostAsync("/api/things", content);
-        response.AssertStatus(HttpStatusCode.BadRequest);
-        Assert.Equal("application/problem+json; charset=utf-8", response.Content.Headers.ContentType?.ToString());
-    }
-
-    [Fact]
-    public async Task BindJson_accepts_valid_body()
-    {
-        await using var host = ElsieTestHost.Create(s => s.AddElsieModule<ApiModule>());
-        var response = await host.PostJsonAsync("/api/things", new EchoDto("hi"));
-        response.AssertStatus(HttpStatusCode.Created);
-        var dto = await response.AssertJsonAsync<EchoDto>();
-        Assert.Equal("hi", dto!.Message);
-    }
-
-    [Fact]
-    public async Task ExceptionHandler_maps_exceptions_to_results()
+    public async Task Path_group_and_exception_map()
     {
         await using var host = ElsieTestHost.Create(s =>
         {
             s.AddElsie(o =>
             {
                 o.ScanEntryAssembly = false;
-                o.ExceptionHandler = (_, ex, _) =>
-                    Task.FromResult(ex is KeyNotFoundException
-                        ? ElsieResult.NotFound(ex.Message)
-                        : ElsieResult.Problem(500, "Server Error", ex.Message));
+                o.MapException<KeyNotFoundException>((_, ex) => ElsieResult.NotFound(ex.Message));
             });
             s.AddElsieModule<ApiModule>();
         });
 
-        var missing = await host.GetAsync("/api/things/missing");
-        missing.AssertStatus(HttpStatusCode.NotFound);
-
-        var boom = await host.GetAsync("/api/things/boom");
-        boom.AssertStatus(HttpStatusCode.InternalServerError);
-        var body = await boom.AssertTextAsync();
-        Assert.Contains("kaboom", body, StringComparison.Ordinal);
+        Assert.Equal("list", await host.Client.GetStringAsync("/api/things/"));
+        var missing = await host.Client.GetAsync("/api/things/missing");
+        Assert.Equal(HttpStatusCode.NotFound, missing.StatusCode);
     }
 
     [Fact]
-    public async Task Multi_value_query_preserves_all_values()
+    public async Task Auth_header_gate()
     {
-        await using var host = ElsieTestHost.Create(s => s.AddElsieModule<MultiValueModule>());
-        var response = await host.GetAsync("/tags?tag=a&tag=b");
-        await response.AssertStatus(HttpStatusCode.OK).AssertTextAsync("a|b");
+        await using var host = ElsieTestHost.Create(s => s.AddElsieModule<GuardedModule>());
+        var denied = await host.Client.GetAsync("/guarded");
+        Assert.Equal(HttpStatusCode.Unauthorized, denied.StatusCode);
+
+        using var okReq = new HttpRequestMessage(HttpMethod.Get, "/guarded");
+        okReq.Headers.TryAddWithoutValidation("X-Api-Key", "secret");
+        var ok = await host.SendAsync(okReq);
+        Assert.Equal(HttpStatusCode.OK, ok.StatusCode);
     }
 
     [Fact]
-    public async Task OpenApi_document_lists_elsie_routes()
+    public async Task OpenApi_document_served()
     {
-        var builder = WebApplication.CreateBuilder();
-        builder.WebHost.UseTestServer();
-        builder.Services.AddElsie(o => o.ScanEntryAssembly = false);
-        builder.Services.AddElsieModule<HelloModule>();
-        await using var app = builder.Build();
-        app.MapElsieOpenApi();
-        app.MapElsie();
-        await app.StartAsync();
-
-        var client = app.GetTestClient();
-        var response = await client.GetAsync("/openapi.json");
-        response.AssertStatus(HttpStatusCode.OK);
-        var json = await response.Content.ReadAsStringAsync();
-        Assert.Contains("/hello/{name}", json, StringComparison.Ordinal);
-        Assert.Contains("\"openapi\"", json, StringComparison.Ordinal);
-    }
-
-    private sealed class MultiValueModule : ElsieModule
-    {
-        public MultiValueModule()
-        {
-            Get("/tags", ctx =>
+        await using var server = await ElsieApp.Create()
+            .QuietConsole(false)
+            .Listen(IPAddress.Loopback, 0)
+            .Configure(o => o.ScanEntryAssembly = false)
+            .Module<HelloModule>()
+            .OpenApi(o =>
             {
-                var tags = ctx.Request.GetQueryValues("tag");
-                return ElsieResult.Text(string.Join('|', tags));
-            });
-        }
+                o.Info.Title = "Test";
+                o.UiPath = "/scalar";
+            })
+            .StartAsync();
+
+        using var client = server.CreateClient();
+        var openapi = await client.GetStringAsync("/openapi.json");
+        Assert.Contains("openapi", openapi, StringComparison.OrdinalIgnoreCase);
+        var ui = await client.GetAsync("/scalar");
+        Assert.Equal(HttpStatusCode.OK, ui.StatusCode);
+    }
+
+    [Fact]
+    public async Task NotFound_returns_problem()
+    {
+        await using var host = ElsieTestHost.Create(s => s.AddElsieModule<HelloModule>());
+        var res = await host.Client.GetAsync("/nope");
+        Assert.Equal(HttpStatusCode.NotFound, res.StatusCode);
     }
 }

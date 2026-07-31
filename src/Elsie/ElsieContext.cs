@@ -4,6 +4,7 @@ using System.Text.Json;
 using Elsie.Binding;
 using Elsie.Routing;
 using Microsoft.Extensions.DependencyInjection;
+// MultipartFormParser is internal in Binding
 
 namespace Elsie;
 
@@ -154,8 +155,8 @@ public sealed class ElsieContext
     }
 
     /// <summary>
-    /// Bind <c>application/x-www-form-urlencoded</c> body into <typeparamref name="T"/>.
-    /// Multipart is not parsed in core — use the ASP.NET <c>HttpContext</c> escape hatch.
+    /// Bind <c>application/x-www-form-urlencoded</c> or <c>multipart/form-data</c> into <typeparamref name="T"/>.
+    /// Multipart file parts are ignored for POCO binding (field values only).
     /// </summary>
     public async Task<ElsieBindResult<T>> BindFormAsync<T>(CancellationToken cancellationToken = default)
         where T : new()
@@ -164,15 +165,14 @@ public sealed class ElsieContext
         if (contentType.Length > 0
             && contentType.Contains("multipart/", StringComparison.OrdinalIgnoreCase))
         {
-            return ElsieBindResult<T>.Fail(ElsieResult.BadRequest(
-                "Multipart form data is not parsed by Elsie core. Use TryGetHttpContext and request.ReadFormAsync, or a testing multipart builder."));
+            return await BindMultipartFormAsync<T>(cancellationToken).ConfigureAwait(false);
         }
 
         if (contentType.Length > 0
             && !contentType.Contains("application/x-www-form-urlencoded", StringComparison.OrdinalIgnoreCase))
         {
             return ElsieBindResult<T>.Fail(ElsieResult.BadRequest(
-                "Expected Content-Type application/x-www-form-urlencoded."));
+                "Expected Content-Type application/x-www-form-urlencoded or multipart/form-data."));
         }
 
         byte[] bytes;
@@ -188,6 +188,30 @@ public sealed class ElsieContext
         var text = Encoding.UTF8.GetString(bytes);
         var map = ParseFormUrlEncodedMulti(text);
         return ElsieObjectBinder.Bind<T>(map);
+    }
+
+    private async Task<ElsieBindResult<T>> BindMultipartFormAsync<T>(CancellationToken cancellationToken)
+        where T : new()
+    {
+        byte[] bytes;
+        try
+        {
+            bytes = await ReadBodyWithLimitAsync(cancellationToken).ConfigureAwait(false);
+        }
+        catch (InvalidOperationException ex)
+        {
+            return ElsieBindResult<T>.Fail(ElsieResult.BadRequest(ex.Message));
+        }
+
+        try
+        {
+            var map = MultipartFormParser.ParseFields(bytes, Request.ContentType ?? string.Empty);
+            return ElsieObjectBinder.Bind<T>(map);
+        }
+        catch (InvalidOperationException ex)
+        {
+            return ElsieBindResult<T>.Fail(ElsieResult.BadRequest(ex.Message));
+        }
     }
 
     /// <summary>

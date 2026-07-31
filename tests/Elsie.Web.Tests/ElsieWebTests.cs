@@ -1,3 +1,4 @@
+using System.Net;
 using Elsie.Web;
 using Xunit;
 
@@ -14,41 +15,29 @@ public class ElsieWebTests
     }
 
     [Fact]
-    public async Task CreateApp_handles_get()
+    public async Task StartAsync_handles_get()
     {
-        await using var app = ElsieWeb.CreateApp<PingModule>(
-            args: ["--urls", "http://127.0.0.1:0"],
-            configure: o => o.ScanEntryAssembly = false);
+        await using var server = await ElsieApp.Create()
+            .QuietConsole(false)
+            .Listen(IPAddress.Loopback, 0)
+            .Configure(o => o.ScanEntryAssembly = false)
+            .Module<PingModule>()
+            .StartAsync();
 
-        await app.StartAsync();
-        try
-        {
-            using var client = new HttpClient { BaseAddress = new Uri(app.Urls.Single()) };
-            Assert.Equal("pong", await client.GetStringAsync("/ping"));
-        }
-        finally
-        {
-            await app.StopAsync();
-        }
+        using var client = server.CreateClient();
+        Assert.Equal("pong", await client.GetStringAsync("/ping"));
     }
 
     [Fact]
-    public async Task RunAsync_generic_serves_module()
+    public async Task ElsieWeb_RunAsync_serves_module()
     {
-        await using var app = ElsieWeb.CreateApp<PingModule>(
-            args: ["--urls", "http://127.0.0.1:0"],
-            configure: o => o.ScanEntryAssembly = false);
+        await using var server = await ElsieApp.Create(["--urls", "http://127.0.0.1:0"])
+            .QuietConsole(false)
+            .Configure(o => o.ScanEntryAssembly = false)
+            .Module<PingModule>()
+            .StartAsync();
 
-        var runTask = app.RunAsync();
-        try
-        {
-            using var client = new HttpClient { BaseAddress = new Uri(app.Urls.Single()) };
-            Assert.Equal("pong", await client.GetStringAsync("/ping"));
-        }
-        finally
-        {
-            await app.StopAsync();
-            await runTask;
-        }
+        using var client = server.CreateClient();
+        Assert.Equal("pong", await client.GetStringAsync("/ping"));
     }
 }

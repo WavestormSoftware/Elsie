@@ -3,51 +3,38 @@ using System.Text;
 
 namespace Elsie.Testing;
 
-/// <summary>
-/// Builds <see cref="MultipartFormDataContent"/> for ASP.NET TestServer tests.
-/// Core does not parse multipart — use this with <see cref="ElsieTestHost"/> / HttpClient.
-/// </summary>
+/// <summary>Builds multipart form content for HTTP client tests.</summary>
 public sealed class MultipartFormBuilder
 {
     private readonly MultipartFormDataContent _content = new();
 
     public MultipartFormBuilder AddField(string name, string value)
     {
-        ArgumentException.ThrowIfNullOrWhiteSpace(name);
-        ArgumentNullException.ThrowIfNull(value);
         _content.Add(new StringContent(value, Encoding.UTF8), name);
         return this;
     }
 
     public MultipartFormBuilder AddFile(
         string name,
-        byte[] bytes,
         string fileName,
+        byte[] bytes,
         string contentType = "application/octet-stream")
     {
-        ArgumentException.ThrowIfNullOrWhiteSpace(name);
-        ArgumentNullException.ThrowIfNull(bytes);
-        ArgumentException.ThrowIfNullOrWhiteSpace(fileName);
-
-        var file = new ByteArrayContent(bytes);
-        file.Headers.ContentType = new MediaTypeHeaderValue(contentType);
-        _content.Add(file, name, fileName);
+        var part = new ByteArrayContent(bytes);
+        part.Headers.ContentType = new MediaTypeHeaderValue(contentType);
+        _content.Add(part, name, fileName);
         return this;
     }
 
     public MultipartFormBuilder AddFile(
         string name,
-        Stream stream,
         string fileName,
+        Stream stream,
         string contentType = "application/octet-stream")
     {
-        ArgumentException.ThrowIfNullOrWhiteSpace(name);
-        ArgumentNullException.ThrowIfNull(stream);
-        ArgumentException.ThrowIfNullOrWhiteSpace(fileName);
-
-        var file = new StreamContent(stream);
-        file.Headers.ContentType = new MediaTypeHeaderValue(contentType);
-        _content.Add(file, name, fileName);
+        var part = new StreamContent(stream);
+        part.Headers.ContentType = new MediaTypeHeaderValue(contentType);
+        _content.Add(part, name, fileName);
         return this;
     }
 

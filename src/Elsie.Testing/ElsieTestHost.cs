@@ -1,64 +1,41 @@
+using System.Net;
 using System.Net.Http.Json;
 using Elsie.Web;
-using Microsoft.AspNetCore.Builder;
-using Microsoft.AspNetCore.Hosting;
-using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Hosting;
-// AddElsie lives in Elsie core; MapElsie in Elsie.Web.
 
 namespace Elsie.Testing;
 
 /// <summary>
-/// Lightweight in-process host for exercising Elsie modules in tests.
+/// Loopback HTTP test host over the real Elsie server (HTTP/1.1).
 /// Disables entry-assembly module scan by default; register modules explicitly.
-/// Uses <c>ValidateScopes = true</c>.
 /// </summary>
 public sealed class ElsieTestHost : IAsyncDisposable
 {
-    private readonly IHost _host;
+    private readonly ElsieTestServer _server;
 
-    private ElsieTestHost(IHost host, HttpClient client)
+    private ElsieTestHost(ElsieTestServer server, HttpClient client)
     {
-        _host = host;
+        _server = server;
         Client = client;
     }
 
     public HttpClient Client { get; }
 
     public static ElsieTestHost Create(Action<IServiceCollection> configure) =>
-        Create(configure, app => app.MapElsie());
+        CreateAsync(configure).GetAwaiter().GetResult();
 
-    /// <summary>
-    /// Create a test host with a custom ASP.NET pipeline (static files, terminal MapElsie, etc.).
-    /// </summary>
-    public static ElsieTestHost Create(
-        Action<IServiceCollection> configure,
-        Action<IApplicationBuilder> configureApp)
+    public static async Task<ElsieTestHost> CreateAsync(Action<IServiceCollection> configure)
     {
         ArgumentNullException.ThrowIfNull(configure);
-        ArgumentNullException.ThrowIfNull(configureApp);
 
-        var builder = new HostBuilder()
-            .UseDefaultServiceProvider(o =>
-            {
-                o.ValidateScopes = true;
-                o.ValidateOnBuild = true;
-            })
-            .ConfigureWebHost(web =>
-            {
-                web.UseTestServer();
-                web.ConfigureServices(services =>
-                {
-                    services.AddElsie(o => o.ScanEntryAssembly = false);
-                    configure(services);
-                });
-                web.Configure(configureApp);
-            });
+        var app = ElsieApp.Create()
+            .QuietConsole(false)
+            .Listen(IPAddress.Loopback, 0)
+            .Configure(o => o.ScanEntryAssembly = false)
+            .Services(configure);
 
-        var host = builder.Start();
-        var client = host.GetTestClient();
-        return new ElsieTestHost(host, client);
+        var server = await app.StartAsync().ConfigureAwait(false);
+        return new ElsieTestHost(server, server.CreateClient());
     }
 
     public Task<HttpResponseMessage> GetAsync(string path) => Client.GetAsync(path);
@@ -76,7 +53,6 @@ public sealed class ElsieTestHost : IAsyncDisposable
     public async ValueTask DisposeAsync()
     {
         Client.Dispose();
-        await _host.StopAsync().ConfigureAwait(false);
-        _host.Dispose();
+        await _server.DisposeAsync().ConfigureAwait(false);
     }
 }

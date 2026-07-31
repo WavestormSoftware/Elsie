@@ -1,11 +1,8 @@
 using System.Net;
 using System.Security.Claims;
 using System.Text.Json;
-using Elsie.Web;
 using Elsie.Auth;
 using Elsie.Testing;
-using Microsoft.AspNetCore.Authentication.Cookies;
-using Microsoft.AspNetCore.Builder;
 using Xunit;
 
 namespace Elsie.Auth.Tests;
@@ -30,7 +27,7 @@ public class AuthPackageTests
 
             Post("/logout", async (ctx, _) =>
             {
-                await ctx.SignOutAsync(CookieAuthenticationDefaults.AuthenticationScheme);
+                await ctx.SignOutAsync();
                 return ElsieResult.NoContent();
             });
         }
@@ -76,65 +73,29 @@ public class AuthPackageTests
         }
     }
 
-    private sealed class PolicyModule : ElsieModule
-    {
-        public PolicyModule()
-        {
-            Path("/policy");
-            Before(ElsieAuthGates.RequirePolicy("AdminsOnly"));
-            Get("/", () => ElsieResult.Text("policy-ok"));
-        }
-    }
-
     private sealed record LoginBody(string User, string Password);
 
     private static ElsieTestHost CreateHost() =>
-        ElsieTestHost.Create(
-            services =>
+        ElsieTestHost.Create(services =>
+        {
+            services.AddElsieAuth(o =>
             {
-                services.AddElsieAuth(o =>
+                o.Cookie = new ElsieCookieAuthOptions
                 {
-                    o.Cookie = c =>
-                    {
-                        c.Cookie.Name = "elsie-auth";
-                        c.Cookie.HttpOnly = true;
-                        c.Cookie.SecurePolicy = Microsoft.AspNetCore.Http.CookieSecurePolicy.None;
-                        c.SlidingExpiration = false;
-                    };
-                    o.Authorization = a =>
-                    {
-                        a.AddPolicy("AdminsOnly", p => p.RequireRole("admin"));
-                    };
-                });
-                services.AddElsieModule<PublicModule>();
-                services.AddElsieModule<SecureModule>();
-                services.AddElsieModule<RoleModule>();
-                services.AddElsieModule<ClaimModule>();
-                services.AddElsieModule<PolicyModule>();
-            },
-            app =>
-            {
-                app.UseElsieAuth();
-                app.MapElsie();
+                    CookieName = "elsie-auth",
+                    HttpOnly = true,
+                    SlidingExpiration = false
+                };
+                o.Cookie.TicketKeyFromString("test-ticket-key");
             });
-
-    private static async Task<string> LoginCookieAsync(ElsieTestHost host)
-    {
-        var login = await host.PostJsonAsync("/login", new LoginBody("ada", "pass"));
-        Assert.Equal(HttpStatusCode.NoContent, login.StatusCode);
-        var setCookie = login.Headers.GetValues("Set-Cookie").First();
-        return setCookie.Split(';')[0];
-    }
-
-    private static async Task<HttpResponseMessage> GetWithCookieAsync(ElsieTestHost host, string path, string cookie)
-    {
-        using var req = new HttpRequestMessage(HttpMethod.Get, path);
-        req.Headers.Add("Cookie", cookie);
-        return await host.SendAsync(req);
-    }
+            services.AddElsieModule<PublicModule>();
+            services.AddElsieModule<SecureModule>();
+            services.AddElsieModule<RoleModule>();
+            services.AddElsieModule<ClaimModule>();
+        });
 
     [Fact]
-    public async Task Anonymous_secure_is_401()
+    public async Task Secure_requires_auth()
     {
         await using var host = CreateHost();
         var res = await host.GetAsync("/secure");
@@ -142,49 +103,33 @@ public class AuthPackageTests
     }
 
     [Fact]
-    public async Task Login_sets_cookie_and_unlocks_routes()
+    public async Task Login_cookie_unlocks_secure()
     {
         await using var host = CreateHost();
-        var cookie = await LoginCookieAsync(host);
-        Assert.StartsWith("elsie-auth=", cookie, StringComparison.Ordinal);
+        var login = await host.PostJsonAsync("/login", new LoginBody("ada", "pass"));
+        Assert.Equal(HttpStatusCode.NoContent, login.StatusCode);
+        Assert.True(login.Headers.TryGetValues("Set-Cookie", out var cookies));
+        Assert.Contains(cookies, c => c.StartsWith("elsie-auth=", StringComparison.Ordinal));
 
-        using var me = await GetWithCookieAsync(host, "/me", cookie);
-        Assert.Equal(HttpStatusCode.OK, me.StatusCode);
-        using var doc = JsonDocument.Parse(await me.Content.ReadAsStringAsync());
+        // HttpClient handler stores cookies by default when using same client
+        var me = await host.GetAsync("/me");
+        me.EnsureSuccessStatusCode();
+        var json = await me.Content.ReadAsStringAsync();
+        using var doc = JsonDocument.Parse(json);
         Assert.Equal("ada", doc.RootElement.GetProperty("name").GetString());
 
-        using var secure = await GetWithCookieAsync(host, "/secure", cookie);
-        Assert.Equal(HttpStatusCode.OK, secure.StatusCode);
-        Assert.Equal("ok", await secure.Content.ReadAsStringAsync());
-
-        using var admin = await GetWithCookieAsync(host, "/roles/admin", cookie);
-        Assert.Equal(HttpStatusCode.OK, admin.StatusCode);
-
-        using var claim = await GetWithCookieAsync(host, "/claims/named", cookie);
-        Assert.Equal(HttpStatusCode.OK, claim.StatusCode);
-
-        using var policy = await GetWithCookieAsync(host, "/policy", cookie);
-        Assert.Equal(HttpStatusCode.OK, policy.StatusCode);
+        Assert.Equal("ok", await host.Client.GetStringAsync("/secure"));
+        Assert.Equal("admin-ok", await host.Client.GetStringAsync("/roles/admin"));
+        Assert.Equal("named-ok", await host.Client.GetStringAsync("/claims/named"));
     }
 
     [Fact]
-    public async Task Role_gate_unauthorized_when_anonymous()
+    public async Task Logout_clears_session()
     {
         await using var host = CreateHost();
-        var res = await host.GetAsync("/roles/admin");
+        (await host.PostJsonAsync("/login", new LoginBody("ada", "pass"))).EnsureSuccessStatusCode();
+        (await host.Client.PostAsync("/logout", null)).EnsureSuccessStatusCode();
+        var res = await host.GetAsync("/secure");
         Assert.Equal(HttpStatusCode.Unauthorized, res.StatusCode);
-    }
-
-    [Fact]
-    public async Task Logout_issues_set_cookie()
-    {
-        await using var host = CreateHost();
-        var cookie = await LoginCookieAsync(host);
-
-        using var logoutReq = new HttpRequestMessage(HttpMethod.Post, "/logout");
-        logoutReq.Headers.Add("Cookie", cookie);
-        var logout = await host.SendAsync(logoutReq);
-        Assert.Equal(HttpStatusCode.NoContent, logout.StatusCode);
-        Assert.True(logout.Headers.Contains("Set-Cookie"));
     }
 }

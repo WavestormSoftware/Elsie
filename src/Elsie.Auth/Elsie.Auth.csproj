@@ -1,18 +1,20 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
-    <Description>ASP.NET cookie/JWT auth wiring for Elsie — gates, GetUser/SignIn/SignOut.</Description>
+    <Description>Elsie cookie sessions and JWT bearer auth (no ASP.NET).</Description>
     <RootNamespace>Elsie.Auth</RootNamespace>
     <AssemblyName>Elsie.Auth</AssemblyName>
     <PackageId>Elsie.Auth</PackageId>
   </PropertyGroup>
   <ItemGroup>
-    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+    <ProjectReference Include="..\Elsie\Elsie.csproj" />
     <ProjectReference Include="..\Elsie.Web\Elsie.Web.csproj" />
   </ItemGroup>
   <ItemGroup Condition="'$(TargetFramework)' == 'net8.0'">
-    <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" VersionOverride="8.0.11" />
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" VersionOverride="8.0.2" />
+    <PackageReference Include="System.IdentityModel.Tokens.Jwt" VersionOverride="8.22.0" />
   </ItemGroup>
   <ItemGroup Condition="'$(TargetFramework)' == 'net10.0'">
-    <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" />
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" />
+    <PackageReference Include="System.IdentityModel.Tokens.Jwt" />
   </ItemGroup>
 </Project>

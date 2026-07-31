@@ -1,6 +1,6 @@
 # Elsie
 
-HTTP module framework for **.NET 8** and **.NET 10**. Define routes in small modules, return results, host on ASP.NET Core.
+HTTP module framework for **.NET 8** and **.NET 10**. Define routes in small modules, return results, run on Elsie’s own lightweight host.
 
 ```bash
 dotnet add package Elsie          # 0.3.0-alpha.1 — pulls Elsie.Web + Elsie.Core
@@ -10,7 +10,7 @@ dotnet add package Elsie          # 0.3.0-alpha.1 — pulls Elsie.Web + Elsie.Co
 using Elsie;
 using Elsie.Web;
 
-ElsieWeb.Run<App>(args);
+ElsieApp.Run<App>(args);
 
 public sealed class App : ElsieModule
 {
@@ -34,36 +34,40 @@ Templates:
 ```bash
 dotnet new install Elsie.Templates
 dotnet new elsie -n HelloApp        # minimal app
-dotnet new elsie-api -n TodosApi    # CRUD + API key + OpenAPI
+dotnet new elsie-api -n TodosApi    # CRUD + cookie auth + OpenAPI
 ```
 
 Guides: [docs/](docs/) · Samples: [HelloWorld](samples/Elsie.Sample.HelloWorld) · [Hello](samples/Elsie.Sample.Hello) · [Api](samples/Elsie.Sample.Api) · [Views](samples/Elsie.Sample.Views) · [Dashboard](samples/Elsie.Sample.Dashboard) · [Full](samples/Elsie.Sample.Full) · NuGet: [Elsie](https://www.nuget.org/packages/Elsie)
 
 ---
 
-## Quickstart (builder)
+## Quickstart (fluent host)
 
 ```csharp
-var builder = WebApplication.CreateBuilder(args);
-builder.AddElsie();                              // DI + quieter console logs
-builder.Services.AddElsieModule<TodosModule>();  // or rely on entry-assembly scan
-
-var app = builder.Build();
-app.MapElsieOpenApi(o =>
-{
-    o.Info.Title = "My API";
-    o.UiPath = "/scalar";                        // optional Scalar CDN UI
-});
-app.MapElsie();
-app.Run();
+ElsieApp.Create(args)
+    .Module<TodosModule>()
+    .Services(s => s.AddSingleton<ITodoStore, TodoStore>())
+    .Configure(o => o.ScanEntryAssembly = false)
+    .Listen("http://127.0.0.1:5000")
+    .OpenApi(o =>
+    {
+        o.Info.Title = "My API";
+        o.UiPath = "/scalar";
+    })
+    .StaticFiles(s =>
+    {
+        s.Root = "wwwroot";
+        s.RequestPath = "/assets";
+    })
+    .Run();
 ```
 
 | API | Use |
 |-----|-----|
-| `ElsieWeb.Run<T>(args)` | Smallest host |
-| `builder.AddElsie()` | Wire DI (`ScanEntryAssembly = true` by default) |
-| `AddElsieModule<T>()` | Explicit module registration (prefer in tests) |
-| `app.MapElsie()` | Map Elsie into the pipeline (non-terminal by default) |
+| `ElsieApp.Run<T>(args)` / `ElsieWeb.Run<T>` | Smallest host |
+| `ElsieApp.Create(args)` | Fluent host builder |
+| `.Module<T>()` / `.Services(...)` | Modules + MS.DI |
+| `.Listen(...)` / `.OpenApi(...)` / `.StaticFiles(...)` | Endpoints and host features |
 
 Modules are **singletons**. Inject singleton-safe services in the ctor; resolve request-scoped services with `ctx.GetRequiredService<T>()` / `ctx.Services`.
 

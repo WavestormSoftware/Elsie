@@ -1,7 +1,7 @@
 <Project>
   <PropertyGroup>
     <ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>
-    <!-- Keep false: TFM-aligned packages (TestHost, MS.Ext) use VersionOverride per TFM. -->
+    <!-- Keep false: TFM-aligned packages use VersionOverride per TFM. -->
     <CentralPackageTransitivePinningEnabled>false</CentralPackageTransitivePinningEnabled>
   </PropertyGroup>
   <ItemGroup>
@@ -16,12 +16,11 @@
     <PackageVersion Include="Fluid.ViewEngine" Version="2.31.0" />
     <PackageVersion Include="Microsoft.Extensions.FileProviders.Physical" Version="10.0.0" />
 
-    <!-- Auth (JwtBearer is not in the shared framework) -->
-    <PackageVersion Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="10.0.0" />
+    <!-- Auth JWT -->
+    <PackageVersion Include="System.IdentityModel.Tokens.Jwt" Version="8.22.0" />
 
     <!-- Defaults for net10; net8 projects VersionOverride to 8.x -->
     <PackageVersion Include="Microsoft.Extensions.DependencyInjection" Version="10.0.0" />
     <PackageVersion Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="10.0.0" />
-    <PackageVersion Include="Microsoft.AspNetCore.TestHost" Version="10.0.0" />
   </ItemGroup>
 </Project>

@@ -1,3 +1,4 @@
+using Microsoft.Extensions.DependencyInjection;
 using Elsie;
 using Elsie.Web;
 using Elsie.Views;
@@ -6,18 +7,19 @@ using Elsie.Views;
 //   dotnet run --project samples/Elsie.Sample.Views
 //   GET /
 
-var builder = WebApplication.CreateBuilder(args);
-builder.AddElsie(o => o.ScanEntryAssembly = false);
-builder.Services.AddElsieViews(o =>
-{
-    o.ContentRoot = builder.Environment.ContentRootPath;
-    o.ReloadOnChange = builder.Environment.IsDevelopment();
-});
-builder.Services.AddElsieModule<HomeModule>();
-
-var app = builder.Build();
-app.MapElsie();
-app.Run();
+ElsieApp.Create(args)
+    .ContentRoot(Directory.GetCurrentDirectory())
+    .Configure(o => o.ScanEntryAssembly = false)
+    .Module<HomeModule>()
+    .Services(s =>
+    {
+        s.AddElsieViews(o =>
+        {
+            o.ContentRoot = Directory.GetCurrentDirectory();
+            o.ReloadOnChange = true;
+        });
+    })
+    .Run();
 
 public sealed class HomeModule : ElsieModule
 {

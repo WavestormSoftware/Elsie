@@ -4,7 +4,7 @@ Instructions for coding agents working on this repository.
 
 ## What this is
 
-**Elsie** is a greenfield, MIT-licensed, lightweight HTTP module framework for .NET (net8/net10). Core is **host-agnostic**; `Elsie.Web` adapts ASP.NET Core. Inspired by Sinatra-style DX — **not** a NancyFx fork.
+**Elsie** is a greenfield, MIT-licensed, lightweight HTTP module framework for .NET (net8/net10). Core is **host-agnostic**; `Elsie.Web` is the custom HTTP host (`ElsieApp`). Inspired by Sinatra-style DX — **not** a NancyFx fork.
 
 ## Clean-room (mandatory)
 
@@ -16,7 +16,7 @@ Instructions for coding agents working on this repository.
 | Path | Role |
 |------|------|
 | `src/Elsie` | Host-agnostic core (package **`Elsie.Core`**): modules, routing, dispatcher, context, results, pipelines, OpenAPI builder, `ElsieAuth`, HealthChecks, RateLimiting |
-| `src/Elsie.Web` | Host package: `ElsieWeb` / `MapElsie` / `UseElsie` / `MapElsieOpenApi`, logging, `HttpContext` adapter |
+| `src/Elsie.Web` | Host package: `ElsieApp` / `ElsieWeb.Run`, HTTP/1.1 server, static files, OpenAPI routes |
 | `src/Elsie.Meta` | App meta-package **`Elsie`** → pulls `Elsie.Web` (+ transitive `Elsie.Core`) |
 | `src/Elsie.Views` | Fluid (Liquid) views + layouts/partials (`ViewAsync`, `IElsieViewEngine`) |
 | `src/Elsie.Auth` | Cookie/JWT wiring + RequireAuthenticated/Role/Claim/Policy gates |
@@ -58,21 +58,19 @@ Changelog: `CHANGELOG.md`.
 
 ## Architecture rules
 
-- **No `HttpContext` in core or Views.** Use `ElsieRequest` / `ElsieResponse` / `ElsieDispatcher`.
-- Core package refs: MS.DI only (no `Microsoft.AspNetCore.App`).
-- ASP.NET types stay in `Elsie.Web` (and Testing’s TestServer host).
-- App DX: prefer `ElsieWeb.Run` / `builder.AddElsie()` (`quietConsole: true` default).
-- Tests: `IServiceCollection.AddElsie` (no log rewiring).
-- Auth: `ElsieAuth.RequireApiKey` / `RequireHeader` / `RequireBearer` / `RequireCookie` before-hooks.
-- OpenAPI: core `ElsieOpenApiDocument`; host `MapElsieOpenApi` (JSON only; UI optional).
-- Dispatch bake: `ElsieHttpResponse.FromDispatch` — single materialize path (ASP.NET + in-memory).
+- **No ASP.NET types in the repo.** Use `ElsieRequest` / `ElsieResponse` / `ElsieDispatcher`.
+- Core package refs: MS.DI only.
+- App DX: prefer `ElsieApp.Run` / `ElsieApp.Create` / `ElsieWeb.Run` (`quietConsole: true` default).
+- Tests: `ElsieInMemoryHost` or `ElsieTestHost` (loopback); `IServiceCollection.AddElsie`.
+- Auth: `ElsieAuth.*` header gates + `Elsie.Auth` cookie/JWT principal.
+- OpenAPI: core `ElsieOpenApiDocument`; host `.OpenApi(...)`.
+- Dispatch bake: `ElsieHttpResponse.FromDispatch` — single materialize path (host + in-memory).
 - Routing: `RouteTable.Lookup` owns matcher (`RouteMatcher` internal).
-- Do not reintroduce FrameworkReference on `Elsie` without an explicit product decision.
 
 ## Module registration
 
-- Apps: `ElsieWeb.Run<T>()` or `builder.AddElsie()` + `AddElsieModule<T>()`.
-- Prefer **explicit** `AddElsieModule<T>()` in tests.
+- Apps: `ElsieApp.Run<T>()` or `ElsieApp.Create().Module<T>().Run()`.
+- Prefer **explicit** `.Module<T>()` / `AddElsieModule<T>()` in tests.
 - `AddElsie()` defaults `ScanEntryAssembly = true`.
 - Test hosts set `ScanEntryAssembly = false`.
 - Modules are **singletons**. Ctor-inject singleton-safe services; `ctx.GetRequiredService<T>()` / `ctx.Services` for request scope (test hosts ValidateScopes + per-request scope).
@@ -80,17 +78,17 @@ Changelog: `CHANGELOG.md`.
 - Routing: precedence static > constrained > param > catch-all; startup validates constraints/ambiguity/dup names; `RouteBuilder` metadata + `ctx.UrlFor`.
 - `Path` / `Group`, `BindJsonAsync`, problem results, optional `ExceptionHandler`.
 - Views: `AddElsieViews` + `ctx.ViewAsync` (`Elsie.Views`, Fluid/Liquid `.liquid`; `IElsieViewEngine` seam).
-- OpenAPI: route metadata (`.Named`/`.Accepts`/`.Produces`/`.WithSecurity`/`.AcceptsQuery`) → `ElsieOpenApiDocument`; host `MapElsieOpenApi` (+ optional `UiPath` Scalar CDN page).
+- OpenAPI: route metadata (`.Named`/`.Accepts`/`.Produces`/`.WithSecurity`/`.AcceptsQuery`) → `ElsieOpenApiDocument`; host `.OpenApi(...)` (+ optional `UiPath` Scalar CDN page).
 
 ## Samples
 
-- HelloWorld: `ElsieWeb.Run` — `samples/Elsie.Sample.HelloWorld`
+- HelloWorld: `ElsieWeb.Run` / `ElsieApp.Run` — `samples/Elsie.Sample.HelloWorld`
 - Easy: `samples/Elsie.Sample.Hello`
 - Advanced API: `samples/Elsie.Sample.Api`
 - Views: `samples/Elsie.Sample.Views`
 - Dashboard (multi-page views + cookie auth): `samples/Elsie.Sample.Dashboard`
 - Full kitchen sink: `samples/Elsie.Sample.Full` (auth, CORS, rate limit, health, static, views)
-- All samples use ASP.NET Core
+- All samples use the Elsie host
 
 ## Engineering rules
 

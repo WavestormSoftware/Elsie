@@ -1,56 +1,59 @@
 using System.Security.Claims;
-using Elsie.Web;
-using Microsoft.AspNetCore.Authentication;
-using Microsoft.AspNetCore.Authentication.Cookies;
-using Microsoft.AspNetCore.Http;
 
 namespace Elsie.Auth;
 
-/// <summary>Principal + sign-in helpers over the stashed ASP.NET <see cref="HttpContext"/>.</summary>
+/// <summary>Principal + sign-in helpers for Elsie-native auth.</summary>
 public static class ElsieAuthContextExtensions
 {
-    /// <summary>
-    /// Returns <see cref="HttpContext.User"/> when hosted on ASP.NET Core; otherwise an empty principal.
-    /// </summary>
     public static ClaimsPrincipal GetUser(this ElsieContext context)
     {
         ArgumentNullException.ThrowIfNull(context);
-        return context.TryGetHttpContext(out var http)
-            ? http.User
-            : new ClaimsPrincipal(new ClaimsIdentity());
+        return ElsiePrincipal.GetUser(context);
     }
 
-    /// <summary>Sign in with the default scheme (cookie when configured via <c>AddElsieAuth</c>).</summary>
-    public static Task SignInAsync(
-        this ElsieContext context,
-        ClaimsPrincipal principal,
-        AuthenticationProperties? properties = null)
+    public static Task SignInAsync(this ElsieContext context, ClaimsPrincipal principal, TimeSpan? expires = null)
     {
         ArgumentNullException.ThrowIfNull(context);
         ArgumentNullException.ThrowIfNull(principal);
-        return context.GetHttpContext().SignInAsync(principal, properties);
+
+        var options = context.GetRequiredService<ElsieAuthOptions>();
+        var cookie = options.Cookie
+            ?? throw new InvalidOperationException("Cookie authentication is not configured. Call AddElsieAuth with Cookie options.");
+
+        if (cookie.TicketKey is null)
+        {
+            throw new InvalidOperationException("Cookie TicketKey is not configured.");
+        }
+
+        var lifetime = expires ?? cookie.ExpireTimeSpan;
+        var exp = DateTimeOffset.UtcNow.Add(lifetime);
+        var token = CookieTicketProtector.Protect(principal, exp, cookie.TicketKey);
+
+        var cookieOptions = new ElsieCookieOptions
+        {
+            HttpOnly = cookie.HttpOnly,
+            Secure = cookie.Secure,
+            Path = cookie.CookiePath,
+            Domain = cookie.CookieDomain,
+            MaxAge = lifetime,
+            SameSite = cookie.SameSite switch
+            {
+                SameSiteMode.None => ElsieSameSite.None,
+                SameSiteMode.Strict => ElsieSameSite.Strict,
+                _ => ElsieSameSite.Lax
+            }
+        };
+
+        context.Response.SetCookie(cookie.CookieName, token, cookieOptions);
+        ElsiePrincipal.SetUser(context.Request, principal);
+        return Task.CompletedTask;
     }
 
-    /// <summary>Sign in with an explicit scheme.</summary>
-    public static Task SignInAsync(
-        this ElsieContext context,
-        string scheme,
-        ClaimsPrincipal principal,
-        AuthenticationProperties? properties = null)
-    {
-        ArgumentNullException.ThrowIfNull(context);
-        ArgumentException.ThrowIfNullOrWhiteSpace(scheme);
-        ArgumentNullException.ThrowIfNull(principal);
-        return context.GetHttpContext().SignInAsync(scheme, principal, properties);
-    }
-
-    /// <summary>Convenience cookie sign-in from name/role claims.</summary>
     public static Task SignInCookieAsync(
         this ElsieContext context,
         string userName,
         IEnumerable<string>? roles = null,
-        AuthenticationProperties? properties = null,
-        string scheme = CookieAuthenticationDefaults.AuthenticationScheme)
+        TimeSpan? expires = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(userName);
         var claims = new List<Claim> { new(ClaimTypes.Name, userName) };
@@ -65,25 +68,29 @@ public static class ElsieAuthContextExtensions
             }
         }
 
-        var identity = new ClaimsIdentity(claims, scheme);
-        return context.SignInAsync(scheme, new ClaimsPrincipal(identity), properties);
+        var identity = new ClaimsIdentity(claims, authenticationType: "Cookies");
+        return context.SignInAsync(new ClaimsPrincipal(identity), expires);
     }
 
-    /// <summary>Sign out of the default scheme.</summary>
-    public static Task SignOutAsync(this ElsieContext context, AuthenticationProperties? properties = null)
+    public static Task SignOutAsync(this ElsieContext context)
     {
         ArgumentNullException.ThrowIfNull(context);
-        return context.GetHttpContext().SignOutAsync(properties);
-    }
+        var options = context.GetService<ElsieAuthOptions>();
+        var cookie = options?.Cookie;
+        if (cookie is not null)
+        {
+            context.Response.SetCookie(cookie.CookieName, string.Empty, new ElsieCookieOptions
+            {
+                HttpOnly = cookie.HttpOnly,
+                Secure = cookie.Secure,
+                Path = cookie.CookiePath,
+                Domain = cookie.CookieDomain,
+                MaxAge = TimeSpan.Zero,
+                SameSite = ElsieSameSite.Lax
+            });
+        }
 
-    /// <summary>Sign out of an explicit scheme.</summary>
-    public static Task SignOutAsync(
-        this ElsieContext context,
-        string scheme,
-        AuthenticationProperties? properties = null)
-    {
-        ArgumentNullException.ThrowIfNull(context);
-        ArgumentException.ThrowIfNullOrWhiteSpace(scheme);
-        return context.GetHttpContext().SignOutAsync(scheme, properties);
+        ElsiePrincipal.SetUser(context.Request, new ClaimsPrincipal(new ClaimsIdentity()));
+        return Task.CompletedTask;
     }
 }

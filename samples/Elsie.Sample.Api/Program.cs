@@ -1,10 +1,11 @@
+using Microsoft.Extensions.DependencyInjection;
 using System.Collections.Concurrent;
 using Elsie;
 using Elsie.Web;
 using Elsie.Sample.Api;
 
 // -----------------------------------------------------------------------------
-// Advanced ASP.NET sample — multi-module API.
+// Advanced sample — multi-module API.
 //
 //   GET  /                         catalog
 //   GET  /health
@@ -15,66 +16,57 @@ using Elsie.Sample.Api;
 //   PUT  /api/todos/{id}           JSON { "title": "...", "done": true }
 //   PATCH /api/todos/{id}          JSON { "done": true }    (partial)
 //   DELETE /api/todos/{id}
-//
-// Path/Group, DI, BindJsonAsync, MapException, module Before gate,
-// app After headers, OpenAPI (+ optional Scalar UI).
 // -----------------------------------------------------------------------------
 
-var builder = WebApplication.CreateBuilder(args);
-
-builder.Services.AddSingleton<ITodoStore, InMemoryTodoStore>();
-builder.Services.AddSingleton<IRequestClock, SystemRequestClock>();
-builder.AddElsie(o =>
-{
-    o.ScanEntryAssembly = false; // explicit modules only
-    o.MapException<KeyNotFoundException>((_, ex) => ElsieResult.NotFound(ex.Message));
-    o.MapException<ArgumentException>((_, ex) => ElsieResult.BadRequest(ex.Message));
-    o.ExceptionHandler = (ctx, ex, _) =>
+ElsieApp.Create(args)
+    .Configure(o =>
     {
-        ctx.Response.Headers["X-Elsie-Error"] = ex.GetType().Name;
-        return Task.FromResult(ElsieResult.Problem(500, "Internal Server Error"));
-    };
-});
-builder.Services.AddElsieModule<HomeModule>();
-builder.Services.AddElsieModule<TodosModule>();
-builder.Services.ConfigureElsiePipelines(p =>
-{
-    p.AddBefore((ctx, _) =>
-    {
-        if (string.IsNullOrEmpty(ctx.Request.GetHeader("X-Request-Id")))
+        o.ScanEntryAssembly = false;
+        o.MapException<KeyNotFoundException>((_, ex) => ElsieResult.NotFound(ex.Message));
+        o.MapException<ArgumentException>((_, ex) => ElsieResult.BadRequest(ex.Message));
+        o.ExceptionHandler = (ctx, ex, _) =>
         {
-            ctx.Response.Headers["X-Request-Id"] = Guid.NewGuid().ToString("n");
-        }
-        else
-        {
-            ctx.Response.Headers["X-Request-Id"] = ctx.Request.GetHeader("X-Request-Id")!;
-        }
-
-        return Task.FromResult<ElsieResult?>(null);
-    });
-    p.AddAfter((ctx, result) =>
+            ctx.Response.Headers["X-Elsie-Error"] = ex.GetType().Name;
+            return Task.FromResult(ElsieResult.Problem(500, "Internal Server Error"));
+        };
+    })
+    .Module<HomeModule>()
+    .Module<TodosModule>()
+    .Services(s =>
     {
-        ctx.Response.Headers["X-Elsie-Sample"] = "api";
-        ctx.Response.Headers["X-Elsie-Status"] = result.StatusCode.ToString();
-        return result;
-    });
-});
+        s.AddSingleton<ITodoStore, InMemoryTodoStore>();
+        s.AddSingleton<IRequestClock, SystemRequestClock>();
+        s.ConfigureElsiePipelines(p =>
+        {
+            p.AddBefore((ctx, _) =>
+            {
+                if (string.IsNullOrEmpty(ctx.Request.GetHeader("X-Request-Id")))
+                {
+                    ctx.Response.Headers["X-Request-Id"] = Guid.NewGuid().ToString("n");
+                }
+                else
+                {
+                    ctx.Response.Headers["X-Request-Id"] = ctx.Request.GetHeader("X-Request-Id")!;
+                }
 
-var app = builder.Build();
-
-var store = app.Services.GetRequiredService<ITodoStore>();
-store.Add("Try Elsie BindJsonAsync");
-store.Add("Ship host-agnostic core");
-
-app.MapElsieOpenApi(o =>
-{
-    o.Info.Title = "Elsie Sample API";
-    o.Info.Description = "Todos demo — mutating routes need X-Api-Key: dev-secret";
-    o.Info.Version = "v1";
-    o.UiPath = "/scalar";
-});
-app.MapElsie();
-app.Run();
+                return Task.FromResult<ElsieResult?>(null);
+            });
+            p.AddAfter((ctx, result) =>
+            {
+                ctx.Response.Headers["X-Elsie-Sample"] = "api";
+                ctx.Response.Headers["X-Elsie-Status"] = result.StatusCode.ToString();
+                return result;
+            });
+        });
+    })
+    .OpenApi(o =>
+    {
+        o.Info.Title = "Elsie Sample API";
+        o.Info.Description = "Todos demo — mutating routes need X-Api-Key: dev-secret";
+        o.Info.Version = "v1";
+        o.UiPath = "/scalar";
+    })
+    .Run();
 
 namespace Elsie.Sample.Api
 {
@@ -195,8 +187,6 @@ namespace Elsie.Sample.Api
         public TodosModule(ITodoStore store)
         {
             Path("/api");
-
-            // Sample keeps mutating-only gate; RequireApiKey defaults to all methods.
             Before(ElsieAuth.RequireApiKey("dev-secret", onlyMutatingMethods: true));
 
             Group("/todos", () =>

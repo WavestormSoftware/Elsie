@@ -1,25 +1,26 @@
+using Microsoft.Extensions.DependencyInjection;
 using Elsie;
 using Elsie.Web;
 
 // Easy sample — DI, typed route/query, constraints, pipelines (after HelloWorld).
 // Try:  GET /  |  GET /hello/Ada  |  GET /hello/Ada?shout=true  |  GET /health  |  GET /items/42
 
-var builder = WebApplication.CreateBuilder(args);
-builder.Services.AddSingleton<IGreeter, Greeter>();
-builder.AddElsie(o => o.ScanEntryAssembly = false);
-builder.Services.AddElsieModule<HelloModule>();
-builder.Services.ConfigureElsiePipelines(p =>
-{
-    p.AddAfter((ctx, result) =>
+ElsieApp.Create(args)
+    .Configure(o => o.ScanEntryAssembly = false)
+    .Module<HelloModule>()
+    .Services(s =>
     {
-        ctx.Response.Headers["X-Elsie-Sample"] = "hello";
-        return result;
-    });
-});
-
-var app = builder.Build();
-app.MapElsie();
-app.Run();
+        s.AddSingleton<IGreeter, Greeter>();
+        s.ConfigureElsiePipelines(p =>
+        {
+            p.AddAfter((ctx, result) =>
+            {
+                ctx.Response.Headers["X-Elsie-Sample"] = "hello";
+                return result;
+            });
+        });
+    })
+    .Run();
 
 public interface IGreeter
 {

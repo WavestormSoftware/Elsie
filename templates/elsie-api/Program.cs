@@ -1,8 +1,8 @@
+using Microsoft.Extensions.DependencyInjection;
 using System.Collections.Concurrent;
 using Elsie;
 using Elsie.Web;
 using Elsie.Auth;
-using Microsoft.AspNetCore.Authentication.Cookies;
 
 // Elsie API template — CRUD + cookie auth + OpenAPI
 //   GET  /                  catalog
@@ -12,33 +12,31 @@ using Microsoft.AspNetCore.Authentication.Cookies;
 //   POST /api/todos         requires auth
 //   GET  /openapi.json
 
-var builder = WebApplication.CreateBuilder(args);
-
-builder.Services.AddSingleton<ITodoStore, InMemoryTodoStore>();
-builder.AddElsie(o => o.ScanEntryAssembly = false);
-builder.Services.AddElsieAuth(o =>
-{
-    o.Cookie = c =>
+ElsieApp.Create(args)
+    .Configure(o => o.ScanEntryAssembly = false)
+    .Module<PublicModule>()
+    .Module<TodosModule>()
+    .Services(s =>
     {
-        c.Cookie.Name = "elsie-auth";
-        c.Cookie.HttpOnly = true;
-        c.SlidingExpiration = true;
-    };
-});
-builder.Services.AddElsieModule<PublicModule>();
-builder.Services.AddElsieModule<TodosModule>();
-
-var app = builder.Build();
-
-app.UseElsieAuth();
-app.MapElsieOpenApi(o =>
-{
-    o.Info.Title = "ElsieApi";
-    o.Info.Description = "CRUD + cookie auth sample from dotnet new elsie-api";
-    o.UiPath = "/scalar";
-});
-app.MapElsie();
-app.Run();
+        s.AddSingleton<ITodoStore, InMemoryTodoStore>();
+        s.AddElsieAuth(o =>
+        {
+            o.Cookie = new ElsieCookieAuthOptions
+            {
+                CookieName = "elsie-auth",
+                HttpOnly = true,
+                SlidingExpiration = true
+            };
+            o.Cookie.TicketKeyFromString("change-me-in-production");
+        });
+    })
+    .OpenApi(o =>
+    {
+        o.Info.Title = "ElsieApi";
+        o.Info.Description = "CRUD + cookie auth sample from dotnet new elsie-api";
+        o.UiPath = "/scalar";
+    })
+    .Run();
 
 sealed record Todo(Guid Id, string Title, bool Done);
 sealed record CreateTodo(string Title);
@@ -95,7 +93,7 @@ sealed class PublicModule : ElsieModule
 
         Post("/logout", async (ctx, _) =>
         {
-            await ctx.SignOutAsync(CookieAuthenticationDefaults.AuthenticationScheme);
+            await ctx.SignOutAsync();
             return ElsieResult.NoContent();
         });
     }

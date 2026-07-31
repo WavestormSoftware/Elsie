@@ -155,7 +155,15 @@ public sealed class ElsieRequest
                 continue;
             }
 
-            return part[(eq + 1)..].Trim();
+            var raw = part[(eq + 1)..].Trim();
+            try
+            {
+                return Uri.UnescapeDataString(raw);
+            }
+            catch (UriFormatException)
+            {
+                return raw;
+            }
         }
 
         return null;

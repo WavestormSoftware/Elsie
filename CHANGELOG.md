@@ -10,28 +10,36 @@ Elsie is **unreleased** software; alphas may include breaking API changes.
 ## [0.3.0-alpha.1] — unreleased
 
 ### Added
-- Sample **`Elsie.Sample.Dashboard`** — multi-page Fluid views (home, login, register, dashboard overview/activity/settings) with cookie auth + form posts
+- **`ElsieApp`** fluent host — TCP HTTP/1.1 server, listen URLs, OpenAPI routes, static files
+- HTTPS listen options (PEM/PFX via `SslStream`); HTTP/2 ALPN reserved (opt-in later)
+- Multipart `multipart/form-data` field binding in core (`BindFormAsync`)
+- `ElsiePrincipal` + native cookie tickets (AES-GCM) and JWT validation (`System.IdentityModel.Tokens.Jwt`)
+- CORS preflight as `IElsieRequestFilter` (no middleware pipeline)
+- Loopback `ElsieTestHost` over the real host
+- Sample **`Elsie.Sample.Dashboard`** — multi-page Fluid views with cookie auth + form posts
 
 ### Changed
-- Package rename: **Elsie.AspNetCore → Elsie.Web** (namespace `Elsie.Web`)
-- Package layout: HealthChecks + RateLimiting folded into **Elsie.Core** (namespaces unchanged)
-- Meta package **Elsie** → **Elsie.Web** → **Elsie.Core**
+- **Elsie.Web** is a self-contained host (MS.DI only); no shared-framework host dependency
+- Host entrypoint: prefer `ElsieApp` / `ElsieWeb.Run` (thin wrapper)
+- Auth/CORS packages wire through DI + host filters/principal attachers
+- Package layout: HealthChecks + RateLimiting in **Elsie.Core**; meta **Elsie** → **Elsie.Web** → **Elsie.Core**
 - Default `ExceptionHandler` returns 500 problem+json without exception detail (set `null` to rethrow)
 - Cookie defaults: `HttpOnly = true`, `SameSite = Lax` (`Secure` still false for local HTTP)
 - Health checks hide exception details by default; optional `DefaultTimeout`
 - Routing: precompiled constraint predicates + first-segment candidate index
-- Request adapter: lazy first-wins views; ASP.NET query/header wrappers (no full copy)
-- OpenAPI JSON baked once at `MapElsieOpenApi`
+- OpenAPI JSON baked when the host starts
 - `BindJsonAsync` returns **415** for non-JSON Content-Type (empty type still accepted)
 - Query/form binding supports repeated keys → `string[]` / `List<T>`
 - `ctx.Problem(...)` adds `instance` + optional `traceId`
 
 ### Security
 - Constant-time compare for `ElsieAuth.RequireHeader` / `RequireApiKey`
+- Cookie session tickets encrypted with AES-GCM
 
 ### Removed
-- Package IDs: **Elsie.AspNetCore** (renamed), **Elsie.HealthChecks**, **Elsie.RateLimiting**, **Elsie.FluentValidation**
-- `MapElsieStaticFiles` / `ElsieStaticFileOptions` (use ASP.NET `UseStaticFiles`)
+- `WebApplication` / `MapElsie` / `UseElsie` / `MapElsieOpenApi` / `TryGetHttpContext` host APIs
+- ASP.NET Authentication / TestServer dependencies from Auth, Cors, Testing
+- Package IDs: **Elsie.AspNetCore** (historical), **Elsie.HealthChecks**, **Elsie.RateLimiting**, **Elsie.FluentValidation**
 - `ctx.Negotiate`, legacy typed route/query helpers, `ReadJsonAsync`
 - `ElsieResult.NotAcceptable` (was only used by Negotiate)
 - `RouteTable.TryMatch` (use `Lookup`)

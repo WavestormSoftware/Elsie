@@ -1,13 +1,6 @@
-using System.Security.Claims;
-using Elsie.Web;
-using Microsoft.AspNetCore.Authorization;
-using Microsoft.AspNetCore.Http;
-
 namespace Elsie.Auth;
 
-/// <summary>
-/// Before-hook gates over the ASP.NET <see cref="HttpContext.User"/> stashed by the Elsie host adapter.
-/// </summary>
+/// <summary>Before-hook gates over <see cref="ElsiePrincipal"/>.</summary>
 public static class ElsieAuthGates
 {
     /// <summary>401 when the principal is missing or unauthenticated.</summary>
@@ -57,30 +50,6 @@ public static class ElsieAuthGates
                 : user.HasClaim(type, value);
 
             return ok ? null : ElsieResult.Forbidden($"Missing required claim '{type}'.");
-        };
-    }
-
-    /// <summary>
-    /// Runs <see cref="IAuthorizationService"/> against a named policy (async before-hook).
-    /// 401 if anonymous; 403 if policy fails.
-    /// </summary>
-    public static Elsie.Pipelines.ElsieBeforeDelegate RequirePolicy(string policyName)
-    {
-        ArgumentException.ThrowIfNullOrWhiteSpace(policyName);
-
-        return async (ctx, ct) =>
-        {
-            var user = ctx.GetUser();
-            if (user.Identity?.IsAuthenticated != true)
-            {
-                return ElsieResult.Unauthorized("Authentication required.");
-            }
-
-            var authz = ctx.GetRequiredService<IAuthorizationService>();
-            var result = await authz.AuthorizeAsync(user, resource: null, policyName).ConfigureAwait(false);
-            return result.Succeeded
-                ? null
-                : ElsieResult.Forbidden($"Policy '{policyName}' failed.");
         };
     }
 }

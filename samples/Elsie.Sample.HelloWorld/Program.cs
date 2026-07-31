@@ -5,7 +5,7 @@ using Elsie.Web;
 //   dotnet run --project samples/Elsie.Sample.HelloWorld
 //   GET /  |  GET /hello/Ada
 
-ElsieWeb.Run<HelloModule>(args);
+ElsieApp.Run<HelloModule>(args);
 
 public sealed class HelloModule : ElsieModule
 {

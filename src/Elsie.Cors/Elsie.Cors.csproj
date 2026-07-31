@@ -1,12 +1,18 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
-    <Description>Elsie-native CORS with preflight handling (ASP.NET UseCors cannot see Elsie OPTIONS).</Description>
+    <Description>Elsie-native CORS (preflight filter + after-hook ACAO).</Description>
     <RootNamespace>Elsie.Cors</RootNamespace>
     <AssemblyName>Elsie.Cors</AssemblyName>
     <PackageId>Elsie.Cors</PackageId>
   </PropertyGroup>
   <ItemGroup>
-    <FrameworkReference Include="Microsoft.AspNetCore.App" />
     <ProjectReference Include="..\Elsie\Elsie.csproj" />
+    <ProjectReference Include="..\Elsie.Web\Elsie.Web.csproj" />
+  </ItemGroup>
+  <ItemGroup Condition="'$(TargetFramework)' == 'net8.0'">
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" VersionOverride="8.0.2" />
+  </ItemGroup>
+  <ItemGroup Condition="'$(TargetFramework)' == 'net10.0'">
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" />
   </ItemGroup>
 </Project>

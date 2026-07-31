@@ -1,3 +1,4 @@
+using Microsoft.Extensions.DependencyInjection;
 using System.Collections.Concurrent;
 using System.Security.Claims;
 using Elsie;
@@ -8,7 +9,6 @@ using Elsie.HealthChecks;
 using Elsie.RateLimiting;
 using Elsie.Sample.Full;
 using Elsie.Views;
-using Microsoft.AspNetCore.Authentication.Cookies;
 
 // -----------------------------------------------------------------------------
 // Kitchen-sink sample — auth + cors + rate limit + health + static + views.
@@ -26,97 +26,82 @@ using Microsoft.AspNetCore.Authentication.Cookies;
 //   dotnet run --project samples/Elsie.Sample.Full
 // -----------------------------------------------------------------------------
 
-var builder = WebApplication.CreateBuilder(args);
+var contentRoot = Directory.GetCurrentDirectory();
 
-builder.Services.AddSingleton<INoteStore, InMemoryNoteStore>();
-
-builder.AddElsie(o =>
-{
-    o.ScanEntryAssembly = false;
-    o.MapException<KeyNotFoundException>((_, ex) => ElsieResult.NotFound(ex.Message));
-    o.MapException<ArgumentException>((_, ex) => ElsieResult.BadRequest(ex.Message));
-});
-
-builder.Services.AddElsieAuth(o =>
-{
-    o.Cookie = c =>
+ElsieApp.Create(args)
+    .ContentRoot(contentRoot)
+    .Configure(o =>
     {
-        c.Cookie.Name = "elsie-full";
-        c.Cookie.HttpOnly = true;
-        c.SlidingExpiration = true;
-        c.Events.OnRedirectToLogin = ctx =>
+        o.ScanEntryAssembly = false;
+        o.MapException<KeyNotFoundException>((_, ex) => ElsieResult.NotFound(ex.Message));
+        o.MapException<ArgumentException>((_, ex) => ElsieResult.BadRequest(ex.Message));
+    })
+    .Module<HomeModule>()
+    .Module<AuthModule>()
+    .Module<MeModule>()
+    .Module<NotesModule>()
+    .Services(s =>
+    {
+        s.AddSingleton<INoteStore, InMemoryNoteStore>();
+        s.AddElsieAuth(o =>
         {
-            ctx.Response.StatusCode = StatusCodes.Status401Unauthorized;
-            return Task.CompletedTask;
-        };
-    };
-});
-
-builder.Services.AddElsieCors(o =>
-{
-    o.AddDefaultPolicy(p => p
-        .AllowOrigins("http://localhost:5173", "http://127.0.0.1:5173")
-        .AllowMethods("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS")
-        .AllowHeaders("Content-Type", "Authorization", "X-Request-Id")
-        .AllowCredentials()
-        .SetPreflightMaxAge(TimeSpan.FromMinutes(10)));
-});
-
-builder.Services.AddElsieHealthChecks(o =>
-{
-    o.AddCheck("self", () => ElsieHealthCheckResult.Healthy("process up"), ElsieHealthCheckTags.Live);
-    o.AddCheck("notes", () => ElsieHealthCheckResult.Healthy("in-memory store"), ElsieHealthCheckTags.Ready);
-});
-
-builder.Services.AddElsieViews(o =>
-{
-    o.ContentRoot = builder.Environment.ContentRootPath;
-    o.ReloadOnChange = builder.Environment.IsDevelopment();
-});
-
-builder.Services.AddElsieModule<HomeModule>();
-builder.Services.AddElsieModule<AuthModule>();
-builder.Services.AddElsieModule<MeModule>();
-builder.Services.AddElsieModule<NotesModule>();
-
-builder.Services.ConfigureElsiePipelines(p =>
-{
-    p.AddBefore((ctx, _) =>
+            o.Cookie = new ElsieCookieAuthOptions
+            {
+                CookieName = "elsie-full",
+                HttpOnly = true,
+                SlidingExpiration = true
+            };
+            o.Cookie.TicketKeyFromString("elsie-full-sample-dev-key");
+        });
+        s.AddElsieCors(o =>
+        {
+            o.AddDefaultPolicy(p => p
+                .AllowOrigins("http://localhost:5173", "http://127.0.0.1:5173")
+                .AllowMethods("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS")
+                .AllowHeaders("Content-Type", "Authorization", "X-Request-Id")
+                .AllowCredentials()
+                .SetPreflightMaxAge(TimeSpan.FromMinutes(10)));
+        });
+        s.AddElsieHealthChecks(o =>
+        {
+            o.AddCheck("self", () => ElsieHealthCheckResult.Healthy("process up"), ElsieHealthCheckTags.Live);
+            o.AddCheck("notes", () => ElsieHealthCheckResult.Healthy("in-memory store"), ElsieHealthCheckTags.Ready);
+        });
+        s.AddElsieViews(o =>
+        {
+            o.ContentRoot = contentRoot;
+            o.ReloadOnChange = true;
+        });
+        s.ConfigureElsiePipelines(p =>
+        {
+            p.AddBefore((ctx, _) =>
+            {
+                var id = ctx.Request.GetHeader("X-Request-Id");
+                ctx.Response.Headers["X-Request-Id"] = string.IsNullOrEmpty(id)
+                    ? Guid.NewGuid().ToString("n")
+                    : id!;
+                return Task.FromResult<ElsieResult?>(null);
+            });
+            p.AddAfter((ctx, result) =>
+            {
+                ctx.Response.Headers["X-Elsie-Sample"] = "full";
+                return result;
+            });
+        });
+    })
+    .StaticFiles(s =>
     {
-        var id = ctx.Request.GetHeader("X-Request-Id");
-        ctx.Response.Headers["X-Request-Id"] = string.IsNullOrEmpty(id)
-            ? Guid.NewGuid().ToString("n")
-            : id!;
-        return Task.FromResult<ElsieResult?>(null);
-    });
-    p.AddAfter((ctx, result) =>
+        s.Root = "wwwroot";
+        s.RequestPath = "/assets";
+    })
+    .OpenApi(o =>
     {
-        ctx.Response.Headers["X-Elsie-Sample"] = "full";
-        return result;
-    });
-});
-
-var app = builder.Build();
-
-app.UseElsieCors();
-app.UseElsieAuth();
-
-// Static files via ASP.NET (before MapElsie so /assets wins on overlap).
-app.UseStaticFiles(new StaticFileOptions
-{
-    RequestPath = "/assets",
-    FileProvider = new Microsoft.Extensions.FileProviders.PhysicalFileProvider(
-        Path.Combine(app.Environment.ContentRootPath, "wwwroot"))
-});
-app.MapElsieOpenApi(o =>
-{
-    o.Info.Title = "Elsie Full Sample";
-    o.Info.Description = "Auth + CORS + rate limit + health + static + views";
-    o.Info.Version = "v1";
-    o.UiPath = "/scalar";
-});
-app.MapElsie();
-app.Run();
+        o.Info.Title = "Elsie Full Sample";
+        o.Info.Description = "Auth + CORS + rate limit + health + static + views";
+        o.Info.Version = "v1";
+        o.UiPath = "/scalar";
+    })
+    .Run();
 
 namespace Elsie.Sample.Full
 {
@@ -218,7 +203,7 @@ namespace Elsie.Sample.Full
 
             Post("/logout", async (ctx, _) =>
             {
-                await ctx.SignOutAsync(CookieAuthenticationDefaults.AuthenticationScheme);
+                await ctx.SignOutAsync();
                 return ElsieResult.NoContent();
             }).WithTags("auth");
         }
