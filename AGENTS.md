@@ -51,6 +51,7 @@ dotnet run --project samples/Elsie.Sample.Dashboard
 dotnet run --project samples/Elsie.Sample.Full
 dotnet pack Elsie.sln -c Release -o artifacts/nuget
 dotnet pack templates/Elsie.Templates.csproj -c Release -o artifacts/nuget
+# packages land in artifacts/nuget/ (gitignored)
 ```
 
 Guides (committed): `docs/*.md` — not `docs/PLAN.md` / `docs/ARCHITECTURE.md` (gitignored).

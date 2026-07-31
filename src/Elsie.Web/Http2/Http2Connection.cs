@@ -10,14 +10,11 @@ internal sealed class Http2Connection
 {
     private readonly Stream _stream;
     private readonly ServiceProvider _services;
-    private readonly ElsieDispatcher _dispatcher;
-    private readonly ElsieServerFeatures _features;
     private readonly ElsieListenOptions _listen;
     private readonly ElsieServerOptions _serverOptions;
     private readonly Action<string>? _log;
     private readonly EndPoint? _remote;
-    private readonly IElsieRequestFilter[] _filters;
-    private readonly IElsiePrincipalAttacher[] _attachers;
+    private readonly HostDispatch _dispatch;
     private readonly ConcurrentDictionary<int, StreamState> _streams = new();
     private int _activeStreams;
     private int _serverWindow = 65535;
@@ -35,14 +32,11 @@ internal sealed class Http2Connection
     {
         _stream = stream;
         _services = services;
-        _dispatcher = dispatcher;
-        _features = features;
         _listen = listen;
         _serverOptions = serverOptions;
         _log = log;
         _remote = remote;
-        _filters = services.GetServices<IElsieRequestFilter>().ToArray();
-        _attachers = services.GetServices<IElsiePrincipalAttacher>().ToArray();
+        _dispatch = new HostDispatch(services, dispatcher, features);
     }
 
     public async Task RunAsync(CancellationToken cancellationToken)
@@ -365,20 +359,25 @@ internal sealed class Http2Connection
             headerRo["Host"] = new[] { authority };
         }
 
-        var response = await DispatchAsync(
-                method,
-                pathOnly,
-                queryString,
-                queryValues,
-                headerRo,
-                scheme,
-                authority,
-                bodyStream,
-                contentLength,
-                contentType,
-                cancellationToken)
-            .ConfigureAwait(false);
+        await using var scope = _services.CreateAsyncScope();
+        var request = ElsieRequestFactory.Create(
+            method: method,
+            path: pathOnly,
+            queryString: queryString,
+            queryValues: queryValues,
+            headerValues: headerRo,
+            body: bodyStream,
+            contentLength: contentLength,
+            contentType: contentType,
+            requestServices: scope.ServiceProvider,
+            requestAborted: cancellationToken,
+            scheme: scheme,
+            host: authority,
+            protocol: "HTTP/2",
+            remoteIp: ElsieRequestFactory.RemoteIpFromEndPoint(_remote),
+            useForwardedHeaders: _serverOptions.UseForwardedHeaders);
 
+        var response = await _dispatch.ProcessAsync(request, cancellationToken).ConfigureAwait(false);
         await WriteResponseAsync(state.StreamId, response, method, cancellationToken).ConfigureAwait(false);
         _log?.Invoke($"H2 {method} {pathOnly} → {response.StatusCode}");
     }
@@ -454,87 +453,6 @@ internal sealed class Http2Connection
                 offset += take;
             }
         }
-    }
-
-    private async Task<ElsieHttpResponse> DispatchAsync(
-        string method,
-        string path,
-        string queryString,
-        IReadOnlyDictionary<string, IReadOnlyList<string>> queryValues,
-        IReadOnlyDictionary<string, IReadOnlyList<string>> headers,
-        string scheme,
-        string? host,
-        Stream body,
-        long? contentLength,
-        string? contentType,
-        CancellationToken cancellationToken)
-    {
-        if (_features.OpenApi is not null &&
-            (method.Equals("GET", StringComparison.OrdinalIgnoreCase) ||
-             method.Equals("HEAD", StringComparison.OrdinalIgnoreCase)))
-        {
-            var docPath = Normalize(_features.OpenApi.DocumentPath);
-            if (string.Equals(path, docPath, StringComparison.OrdinalIgnoreCase) && _features.OpenApiJson is not null)
-            {
-                return FromResult(ElsieResult.Bytes(_features.OpenApiJson, "application/json; charset=utf-8"));
-            }
-
-            if (!string.IsNullOrWhiteSpace(_features.OpenApi.UiPath) &&
-                string.Equals(path, Normalize(_features.OpenApi.UiPath!), StringComparison.OrdinalIgnoreCase) &&
-                _features.OpenApiUiHtml is not null)
-            {
-                return FromResult(ElsieResult.Bytes(_features.OpenApiUiHtml, "text/html; charset=utf-8"));
-            }
-        }
-
-        if (_features.StaticFiles is not null)
-        {
-            var staticResponse = StaticFileHandler.TryServe(method, path, _features.StaticFiles, _features.ContentRoot);
-            if (staticResponse is not null)
-            {
-                return staticResponse;
-            }
-        }
-
-        await using var scope = _services.CreateAsyncScope();
-        var remoteIp = _remote switch
-        {
-            IPEndPoint ip => ip.Address.ToString(),
-            _ => null
-        };
-
-        var request = new ElsieRequest(
-            method: method,
-            path: path,
-            body: body,
-            contentLength: contentLength,
-            contentType: contentType,
-            requestServices: scope.ServiceProvider,
-            requestAborted: cancellationToken,
-            queryValues: queryValues,
-            headerValues: headers,
-            scheme: scheme,
-            host: host,
-            protocol: "HTTP/2",
-            remoteIp: remoteIp,
-            queryString: queryString);
-
-        foreach (var a in _attachers)
-        {
-            a.Attach(request);
-        }
-
-        foreach (var f in _filters)
-        {
-            var handled = await f.TryHandleAsync(request, cancellationToken).ConfigureAwait(false);
-            if (handled is not null)
-            {
-                return handled;
-            }
-        }
-
-        var outcome = await _dispatcher.DispatchAsync(request, cancellationToken).ConfigureAwait(false);
-        return ElsieHttpResponse.FromDispatch(outcome) ?? FromResult(ElsieResult.NotFound());
     }
 
     private byte[] StripPadAndPriority(Http2Frame frame)
@@ -638,11 +556,6 @@ internal sealed class Http2Connection
 
         list.Add(value);
     }
-
-    private static ElsieHttpResponse FromResult(ElsieResult result) =>
-        ElsieHttpResponse.FromDispatch(ElsieDispatchResult.Handled(result, new ElsieResponse()))!;
-
-    private static string Normalize(string path) => path.StartsWith('/') ? path : "/" + path;
 
     private async Task<bool> ReadExactAsync(byte[] buffer, CancellationToken cancellationToken)
     {

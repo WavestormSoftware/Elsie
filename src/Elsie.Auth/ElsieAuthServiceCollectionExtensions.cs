@@ -6,8 +6,12 @@ namespace Elsie.Auth;
 
 public static class ElsieAuthServiceCollectionExtensions
 {
+    internal const string DevelopmentTicketSecret = "elsie-dev-insecure-key-change-me";
+
     /// <summary>
     /// Registers Elsie cookie and/or JWT authentication.
+    /// Cookie auth requires an explicit <see cref="ElsieCookieAuthOptions.TicketKey"/>
+    /// unless <see cref="ElsieCookieAuthOptions.AllowInsecureDevelopmentKey"/> is true.
     /// </summary>
     public static IServiceCollection AddElsieAuth(
         this IServiceCollection services,
@@ -20,13 +24,21 @@ public static class ElsieAuthServiceCollectionExtensions
 
         if (options.Cookie is null && options.JwtBearer is null)
         {
-            options.Cookie = new ElsieCookieAuthOptions();
-            options.Cookie.TicketKeyFromString("elsie-dev-insecure-key-change-me");
+            options.Cookie = new ElsieCookieAuthOptions { AllowInsecureDevelopmentKey = true };
         }
 
         if (options.Cookie is not null && options.Cookie.TicketKey is null)
         {
-            options.Cookie.TicketKeyFromString("elsie-dev-insecure-key-change-me");
+            if (options.Cookie.AllowInsecureDevelopmentKey)
+            {
+                options.Cookie.TicketKeyFromString(DevelopmentTicketSecret);
+            }
+            else
+            {
+                throw new InvalidOperationException(
+                    "Elsie cookie auth requires TicketKey. Call Cookie.TicketKeyFromString(...) " +
+                    "or set Cookie.AllowInsecureDevelopmentKey = true for local development only.");
+            }
         }
 
         services.AddSingleton(options);
@@ -55,7 +67,6 @@ internal sealed class ElsieAuthPrincipalAttacher : IElsiePrincipalAttacher
 
     public void Attach(ElsieRequest request)
     {
-        // Prefer JWT when Authorization bearer present; else cookie.
         if (_options.JwtBearer is not null)
         {
             var auth = request.GetHeader("Authorization");

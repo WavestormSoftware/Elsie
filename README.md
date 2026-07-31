@@ -2,8 +2,10 @@
 
 HTTP module framework for **.NET 8** and **.NET 10**. Define routes in small modules, return results, run on Elsie’s own lightweight host.
 
+**Why Elsie?** Tiny Sinatra-style modules, one fluent host (`ElsieApp`), no ASP.NET tax. Hold the whole request path in your head — modules → results → server — without `WebApplication` ceremony or a shared-framework dependency.
+
 ```bash
-dotnet add package Elsie          # 0.3.0-alpha.1 — pulls Elsie.Web + Elsie.Core
+dotnet add package Elsie          # 0.3.0-beta.1 — pulls Elsie.Web + Elsie.Core
 ```
 
 ```csharp
@@ -314,7 +316,7 @@ In tests, set `ScanEntryAssembly = false` and register modules explicitly.
 | [Elsie.Testing](https://www.nuget.org/packages/Elsie.Testing) | In-memory + loopback hosts |
 | [Elsie.Templates](https://www.nuget.org/packages/Elsie.Templates) | `dotnet new elsie` / `elsie-api` |
 
-Current version: **`0.3.0-alpha.1`** (prerelease; APIs may still change).
+Current version: **`0.3.0-beta.1`** (prerelease; APIs may still change).
 
 Namespaces stay `Elsie` / `Elsie.Web` regardless of package id. Library authors who want the host-agnostic surface only should reference **`Elsie.Core`**.
 
@@ -354,7 +356,8 @@ Unmatched routes return 404 problem+json from the host.
 | [Views](docs/views.md) | Fluid/Liquid |
 | [Static files](docs/static-files.md) | Built-in host static files |
 | [Testing](docs/testing.md) | In-memory + loopback |
-| [Hosting & AOT](docs/hosting-and-aot.md) | TLS, HTTP/2, WebSockets, limits |
+| [Hosting & AOT](docs/hosting-and-aot.md) | TLS, HTTP/2, WebSockets, limits, reverse proxy |
+| [Security](docs/security.md) | Tickets, limits, forwarded headers |
 
 Changelog: [CHANGELOG.md](CHANGELOG.md)
 

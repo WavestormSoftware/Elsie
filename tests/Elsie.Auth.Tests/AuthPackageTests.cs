@@ -86,7 +86,7 @@ public class AuthPackageTests
                     HttpOnly = true,
                     SlidingExpiration = false
                 };
-                o.Cookie.TicketKeyFromString("test-ticket-key");
+                o.Cookie.TicketKeyFromString("test-ticket-key!!");
             });
             services.AddElsieModule<PublicModule>();
             services.AddElsieModule<SecureModule>();

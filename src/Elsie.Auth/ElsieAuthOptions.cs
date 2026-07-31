@@ -28,15 +28,31 @@ public sealed class ElsieCookieAuthOptions
     public bool SlidingExpiration { get; set; } = true;
 
     /// <summary>
-    /// 32+ byte secret used to encrypt/sign tickets. Required for cookie auth.
+    /// 32-byte secret used to encrypt/sign tickets. Required for cookie auth.
     /// Prefer a stable app secret (config/env).
     /// </summary>
     public byte[]? TicketKey { get; set; }
 
-    /// <summary>Set ticket key from a UTF-8 string (hashed to 32 bytes via SHA-256).</summary>
+    /// <summary>
+    /// When true and <see cref="TicketKey"/> is unset, a well-known development key is used.
+    /// Never enable this in production.
+    /// </summary>
+    public bool AllowInsecureDevelopmentKey { get; set; }
+
+    /// <summary>
+    /// Set ticket key from a UTF-8 secret (hashed to 32 bytes via SHA-256).
+    /// Secret must be at least 16 characters.
+    /// </summary>
     public void TicketKeyFromString(string secret)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(secret);
+        if (secret.Length < 16)
+        {
+            throw new ArgumentException(
+                "Ticket secret must be at least 16 characters. Use a long random string or env-based secret.",
+                nameof(secret));
+        }
+
         TicketKey = System.Security.Cryptography.SHA256.HashData(Encoding.UTF8.GetBytes(secret));
     }
 }

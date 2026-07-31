@@ -4,6 +4,7 @@
 [Dd]ebug/
 [Rr]elease/
 artifacts/
+nupkg/
 *.nupkg
 *.snupkg
 project.lock.json
@@ -21,14 +22,21 @@ Thumbs.db
 
 ## Test
 TestResults/
+coverage/
 *.trx
 *.coverage
 *.coveragexml
 
-## Agent / local
+## Benchmarks
+BenchmarkDotNet.Artifacts/
+BenchmarkDotNet.Artifacts/**
+
+## Agent / local tooling
 .pi-subagents/
 .pi/
 .local/
+.commandcode/
+.grok/
 *.log
 
 ## Agent planning docs (local only — do not commit)
@@ -37,8 +45,8 @@ docs/ARCHITECTURE.md
 docs/**/PLAN.md
 docs/**/ARCHITECTURE.md
 
-## Dotnet
+## Dotnet / editor junk
 .dotnet/
 *.swp
 *~
-BenchmarkDotNet.Artifacts/
+*.DotSettings.user

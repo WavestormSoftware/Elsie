@@ -51,6 +51,27 @@ Override with `.Listen(...)` or `--urls http://…`.
 })
 ```
 
+Bodies over the limit return **413** problem+json and close the connection.
+
+## Reverse proxy / forwarded headers
+
+Deploy TLS at nginx/Caddy and speak cleartext HTTP/1.1 to Elsie, **or** terminate TLS on Elsie.
+
+When behind a trusted proxy, enable:
+
+```csharp
+.Server(o => o.UseForwardedHeaders = true)
+```
+
+This honors `X-Forwarded-For` (client IP), `X-Forwarded-Proto`, and `X-Forwarded-Host`.  
+**Do not enable** on the public internet without a trusted proxy stripping client-supplied forwarded headers.
+
+### Production profile (recommended)
+
+```text
+Client → TLS (proxy) → http://127.0.0.1:5000 (Elsie, UseForwardedHeaders)
+```
+
 ## WebSockets
 
 ```csharp

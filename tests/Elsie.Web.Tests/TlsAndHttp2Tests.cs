@@ -157,10 +157,7 @@ public class TlsAndHttp2Tests
         var content = new StringContent(new string('x', 200));
         content.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue("application/json");
         using var res = await client.PostAsync("/echo", content);
-        // connection may close with 400
-        Assert.True(
-            res.StatusCode is HttpStatusCode.BadRequest or HttpStatusCode.RequestEntityTooLarge
-            || (int)res.StatusCode >= 400);
+        Assert.Equal(HttpStatusCode.RequestEntityTooLarge, res.StatusCode);
     }
 
     private static X509Certificate2 CreateSelfSigned()

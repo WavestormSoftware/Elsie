@@ -5,39 +5,35 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-Elsie is **unreleased** software; alphas may include breaking API changes.
+Elsie is **unreleased** software; prereleases may include breaking API changes.
 
-## [0.3.0-alpha.1] — unreleased
+## [0.3.0-beta.1] — 2026-07-31
 
 ### Added
-- **`ElsieApp`** fluent host — TCP HTTP/1.1 server, listen URLs, OpenAPI routes, static files
-- HTTPS listen options (PEM/PFX via `SslStream`); opt-in HTTP/2 over ALPN (HEADERS/CONTINUATION/DATA, concurrent streams, HPACK)
-- `.Server(...)` limits: max body/headers/frame size, concurrent H2 streams
-- WebSocket upgrade via `ElsieResult.WebSocket(...)` (RFC 6455 framing, text/binary/ping/close)
-- TLS + HTTP/2 integration tests with self-signed certificates
-- Multipart `multipart/form-data` field binding in core (`BindFormAsync`)
-- `ElsiePrincipal` + native cookie tickets (AES-GCM) and JWT validation (`System.IdentityModel.Tokens.Jwt`)
-- CORS preflight as `IElsieRequestFilter` (no middleware pipeline)
-- Loopback `ElsieTestHost` over the real host
-- Sample **`Elsie.Sample.Dashboard`** — multi-page Fluid views with cookie auth + form posts
+- **`ElsieApp`** fluent host — TCP HTTP/1.1, TLS, opt-in HTTP/2, WebSockets, static files, OpenAPI
+- `.Server(...)` limits + **`UseForwardedHeaders`** (`X-Forwarded-For` / `Proto` / `Host`)
+- **413 Payload Too Large** when request body exceeds `MaxRequestBodyBytes`
+- Multipart form field binding; native cookie AES-GCM tickets + JWT validation
+- CORS preflight filter; loopback `ElsieTestHost`; security test suite
+- Sample **Dashboard** multi-page Fluid + cookie auth
 
 ### Changed
-- **Elsie.Web** is a self-contained host (MS.DI only); no shared-framework host dependency
-- Host entrypoint: prefer `ElsieApp` / `ElsieWeb.Run` (thin wrapper)
-- Auth/CORS packages wire through DI + host filters/principal attachers
-- Package layout: HealthChecks + RateLimiting in **Elsie.Core**; meta **Elsie** → **Elsie.Web** → **Elsie.Core**
-- Default `ExceptionHandler` returns 500 problem+json without exception detail (set `null` to rethrow)
-- Cookie defaults: `HttpOnly = true`, `SameSite = Lax` (`Secure` still false for local HTTP)
-- Health checks hide exception details by default; optional `DefaultTimeout`
-- Routing: precompiled constraint predicates + first-segment candidate index
-- OpenAPI JSON baked when the host starts
-- `BindJsonAsync` returns **415** for non-JSON Content-Type (empty type still accepted)
-- Query/form binding supports repeated keys → `string[]` / `List<T>`
-- `ctx.Problem(...)` adds `instance` + optional `traceId`
+- **Elsie.Web** is self-contained (MS.DI only) — no ASP.NET shared framework
+- Host entrypoint: `ElsieApp` / `ElsieWeb.Run`
+- Cookie auth requires explicit `TicketKey` (or `AllowInsecureDevelopmentKey` for local only)
+- Ticket secrets must be ≥ 16 characters when using `TicketKeyFromString`
+- Package layout: HealthChecks + RateLimiting in **Elsie.Core**
+- Default `ExceptionHandler` omits exception detail
 
 ### Security
-- Constant-time compare for `ElsieAuth.RequireHeader` / `RequireApiKey`
-- Cookie session tickets encrypted with AES-GCM
+- Constant-time compare for API-key / header gates
+- Cookie tickets AES-GCM; reject missing production ticket keys
+- Path-traversal checks on static files; body size caps (H1 + H2)
+- Forwarded headers off by default (enable only behind trusted proxies)
+
+### Removed
+- ASP.NET host APIs (`WebApplication`, `MapElsie`, `HttpContext` escape hatch, TestServer)
+- Historical package IDs: Elsie.AspNetCore, Elsie.HealthChecks, Elsie.RateLimiting, Elsie.FluentValidation
 
 ### Removed
 - `WebApplication` / `MapElsie` / `UseElsie` / `MapElsieOpenApi` / `TryGetHttpContext` host APIs

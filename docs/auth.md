@@ -71,7 +71,10 @@ await ctx.SignOutAsync();
 var user = ctx.GetUser(); // ClaimsPrincipal via ElsiePrincipal
 ```
 
-Cookie tickets are AES-GCM sealed (name/role claims + expiry). Set a stable `TicketKey` in production.
+Cookie tickets are AES-GCM sealed (name/role claims + expiry).
+
+**Production:** set a long random secret via `TicketKeyFromString` (≥ 16 chars) or a raw 32-byte `TicketKey`.  
+**Local only:** `AllowInsecureDevelopmentKey = true` installs a well-known key (never ship that).
 
 ## See also
 

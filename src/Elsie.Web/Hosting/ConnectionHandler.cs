@@ -3,7 +3,6 @@ using System.Net;
 using System.Net.Security;
 using System.Net.Sockets;
 using System.Security.Authentication;
-using System.Security.Cryptography.X509Certificates;
 using Elsie.Web.Http;
 using Elsie.Web.Http2;
 using Microsoft.Extensions.DependencyInjection;
@@ -18,8 +17,7 @@ internal sealed class ConnectionHandler
     private readonly ElsieListenOptions _listen;
     private readonly ElsieServerOptions _serverOptions;
     private readonly Action<string>? _log;
-    private readonly IElsieRequestFilter[] _filters;
-    private readonly IElsiePrincipalAttacher[] _principalAttachers;
+    private readonly HostDispatch _dispatch;
 
     public ConnectionHandler(
         ServiceProvider services,
@@ -35,8 +33,7 @@ internal sealed class ConnectionHandler
         _listen = listen;
         _serverOptions = serverOptions ?? new ElsieServerOptions();
         _log = log;
-        _filters = services.GetServices<IElsieRequestFilter>().ToArray();
-        _principalAttachers = services.GetServices<IElsiePrincipalAttacher>().ToArray();
+        _dispatch = new HostDispatch(services, dispatcher, features);
     }
 
     public async Task RunAsync(Socket socket, CancellationToken cancellationToken)
@@ -83,11 +80,9 @@ internal sealed class ConnectionHandler
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
-            // shutting down
         }
         catch (IOException)
         {
-            // client disconnected
         }
         catch (Exception ex)
         {
@@ -140,7 +135,9 @@ internal sealed class ConnectionHandler
                 }
                 catch (InvalidOperationException ex)
                 {
-                    await WriteSimpleErrorAsync(stream, 400, ex.Message, keepAlive: false, cancellationToken)
+                    var status = ex.Message.Contains("too large", StringComparison.OrdinalIgnoreCase) ? 413 : 400;
+                    var title = status == 413 ? "Payload Too Large" : "Bad Request";
+                    await WriteErrorAsync(stream, status, title, ex.Message, keepAlive: false, cancellationToken)
                         .ConfigureAwait(false);
                     return;
                 }
@@ -151,15 +148,45 @@ internal sealed class ConnectionHandler
                 }
 
                 var start = Stopwatch.GetTimestamp();
-                var response = await ProcessAsync(parsed, remote, cancellationToken).ConfigureAwait(false);
+                ElsieHttpResponse response;
+                await using (var scope = _services.CreateAsyncScope())
+                {
+                    var headerRo = new Dictionary<string, IReadOnlyList<string>>(
+                        parsed.Headers.Count,
+                        StringComparer.OrdinalIgnoreCase);
+                    foreach (var (k, v) in parsed.Headers)
+                    {
+                        headerRo[k] = v;
+                    }
+
+                    var request = ElsieRequestFactory.Create(
+                        method: parsed.Method,
+                        path: parsed.Path,
+                        queryString: parsed.QueryString,
+                        queryValues: parsed.QueryValues,
+                        headerValues: headerRo,
+                        body: parsed.Body,
+                        contentLength: parsed.ContentLength,
+                        contentType: parsed.ContentType,
+                        requestServices: scope.ServiceProvider,
+                        requestAborted: cancellationToken,
+                        scheme: _listen.UseHttps ? "https" : "http",
+                        host: FirstHeader(parsed.Headers, "Host"),
+                        protocol: parsed.Protocol,
+                        remoteIp: ElsieRequestFactory.RemoteIpFromEndPoint(remote),
+                        useForwardedHeaders: _serverOptions.UseForwardedHeaders);
+
+                    response = await _dispatch.ProcessAsync(request, cancellationToken).ConfigureAwait(false);
+                }
 
                 if (response.WebSocketHandler is not null)
                 {
                     if (!WebSocketUpgrade.IsUpgradeRequest(parsed))
                     {
-                        await WriteSimpleErrorAsync(
+                        await WriteErrorAsync(
                                 stream,
                                 400,
+                                "Bad Request",
                                 "WebSocket upgrade headers required.",
                                 keepAlive: false,
                                 cancellationToken)
@@ -167,20 +194,17 @@ internal sealed class ConnectionHandler
                         return;
                     }
 
-                    var key = parsed.Headers.TryGetValue("Sec-WebSocket-Key", out var keys) && keys.Count > 0
-                        ? keys[0]
-                        : null;
+                    var key = FirstHeader(parsed.Headers, "Sec-WebSocket-Key");
                     if (string.IsNullOrEmpty(key))
                     {
-                        await WriteSimpleErrorAsync(stream, 400, "Missing Sec-WebSocket-Key.", false, cancellationToken)
+                        await WriteErrorAsync(stream, 400, "Bad Request", "Missing Sec-WebSocket-Key.", false, cancellationToken)
                             .ConfigureAwait(false);
                         return;
                     }
 
                     await WebSocketUpgrade.WriteHandshakeAsync(stream, parsed.Protocol, key!, cancellationToken)
                         .ConfigureAwait(false);
-                    var msWs = Stopwatch.GetElapsedTime(start).TotalMilliseconds;
-                    _log?.Invoke($"{parsed.Method} {parsed.Path} → 101 {msWs:0}ms");
+                    _log?.Invoke($"{parsed.Method} {parsed.Path} → 101 {Stopwatch.GetElapsedTime(start).TotalMilliseconds:0}ms");
                     await parsed.Body.DisposeAsync().ConfigureAwait(false);
 
                     await using var ws = new ElsieWebSocket(stream, leaveOpen: true);
@@ -193,7 +217,7 @@ internal sealed class ConnectionHandler
                         _log?.Invoke($"WebSocket error: {ex.Message}");
                     }
 
-                    return; // connection consumed by WebSocket
+                    return;
                 }
 
                 var keepAlive = parsed.KeepAlive;
@@ -224,8 +248,8 @@ internal sealed class ConnectionHandler
                         .ConfigureAwait(false);
                 }
 
-                var ms = Stopwatch.GetElapsedTime(start).TotalMilliseconds;
-                _log?.Invoke($"{parsed.Method} {parsed.Path} → {response.StatusCode} {ms:0}ms");
+                _log?.Invoke(
+                    $"{parsed.Method} {parsed.Path} → {response.StatusCode} {Stopwatch.GetElapsedTime(start).TotalMilliseconds:0}ms");
 
                 await parsed.Body.DisposeAsync().ConfigureAwait(false);
 
@@ -241,117 +265,18 @@ internal sealed class ConnectionHandler
         }
     }
 
-    private async Task<ElsieHttpResponse> ProcessAsync(
-        ParsedHttpRequest parsed,
-        EndPoint? remote,
-        CancellationToken cancellationToken)
-    {
-        // OpenAPI system routes
-        if (_features.OpenApi is not null && HttpMethods.IsGetOrHead(parsed.Method))
-        {
-            var docPath = NormalizePath(_features.OpenApi.DocumentPath);
-            if (string.Equals(parsed.Path, docPath, StringComparison.OrdinalIgnoreCase) &&
-                _features.OpenApiJson is not null)
-            {
-                return FromResult(ElsieResult.Bytes(_features.OpenApiJson, "application/json; charset=utf-8"));
-            }
-
-            if (!string.IsNullOrWhiteSpace(_features.OpenApi.UiPath) &&
-                string.Equals(parsed.Path, NormalizePath(_features.OpenApi.UiPath!), StringComparison.OrdinalIgnoreCase) &&
-                _features.OpenApiUiHtml is not null)
-            {
-                return FromResult(ElsieResult.Bytes(_features.OpenApiUiHtml, "text/html; charset=utf-8"));
-            }
-        }
-
-        // Static files
-        if (_features.StaticFiles is not null)
-        {
-            var staticResponse = StaticFileHandler.TryServe(
-                parsed.Method,
-                parsed.Path,
-                _features.StaticFiles,
-                _features.ContentRoot);
-            if (staticResponse is not null)
-            {
-                return staticResponse;
-            }
-        }
-
-        await using var scope = _services.CreateAsyncScope();
-        var headerRo = new Dictionary<string, IReadOnlyList<string>>(parsed.Headers.Count, StringComparer.OrdinalIgnoreCase);
-        foreach (var (k, v) in parsed.Headers)
-        {
-            headerRo[k] = v;
-        }
-
-        var remoteIp = remote switch
-        {
-            IPEndPoint ip => ip.Address.ToString(),
-            _ => null
-        };
-
-        var host = FirstHeader(parsed.Headers, "Host");
-        var scheme = _listen.UseHttps ? "https" : "http";
-
-        var request = new ElsieRequest(
-            method: parsed.Method,
-            path: parsed.Path,
-            body: parsed.Body,
-            contentLength: parsed.ContentLength,
-            contentType: parsed.ContentType,
-            requestServices: scope.ServiceProvider,
-            requestAborted: cancellationToken,
-            queryValues: parsed.QueryValues,
-            headerValues: headerRo,
-            scheme: scheme,
-            host: host,
-            pathBase: null,
-            protocol: parsed.Protocol,
-            remoteIp: remoteIp,
-            queryString: parsed.QueryString);
-
-        foreach (var attacher in _principalAttachers)
-        {
-            attacher.Attach(request);
-        }
-
-        foreach (var filter in _filters)
-        {
-            var handled = await filter.TryHandleAsync(request, cancellationToken).ConfigureAwait(false);
-            if (handled is not null)
-            {
-                return handled;
-            }
-        }
-
-        var outcome = await _dispatcher.DispatchAsync(request, cancellationToken).ConfigureAwait(false);
-        var response = ElsieHttpResponse.FromDispatch(outcome);
-        if (response is null)
-        {
-            return FromResult(ElsieResult.NotFound());
-        }
-
-        return response;
-    }
-
-    private static ElsieHttpResponse FromResult(ElsieResult result) =>
-        ElsieHttpResponse.FromDispatch(ElsieDispatchResult.Handled(result, new ElsieResponse()))!;
-
     private static string? FirstHeader(Dictionary<string, List<string>> headers, string name) =>
         headers.TryGetValue(name, out var values) && values.Count > 0 ? values[0] : null;
 
-    private static string NormalizePath(string path) =>
-        path.StartsWith('/') ? path : "/" + path;
-
-    private static async Task WriteSimpleErrorAsync(
+    private static async Task WriteErrorAsync(
         Stream stream,
         int status,
+        string title,
         string message,
         bool keepAlive,
         CancellationToken cancellationToken)
     {
-        var response = FromResult(ElsieResult.Problem(status, HttpReasonPhrases.Get(status), message));
+        var response = HostDispatch.FromResult(ElsieResult.Problem(status, title, message));
         await Http1ResponseWriter.WriteAsync(stream, response, "HTTP/1.1", keepAlive, headRequest: false, cancellationToken)
             .ConfigureAwait(false);
     }

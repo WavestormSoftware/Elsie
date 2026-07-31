@@ -20,4 +20,10 @@ public sealed class ElsieServerOptions
 
     /// <summary>Max HTTP/2 frame payload size we accept.</summary>
     public int MaxFrameSize { get; set; } = 16384;
+
+    /// <summary>
+    /// When true, honor <c>X-Forwarded-For</c>, <c>X-Forwarded-Proto</c>, and <c>X-Forwarded-Host</c>
+    /// (use only behind a trusted reverse proxy).
+    /// </summary>
+    public bool UseForwardedHeaders { get; set; }
 }
