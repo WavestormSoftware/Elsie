@@ -55,6 +55,44 @@ public static class ElsieRateLimit
     }
 
     /// <summary>
+    /// Token bucket: burst up to <paramref name="capacity"/>, refill at <paramref name="tokensPerSecond"/>.
+    /// </summary>
+    public static Func<ElsieContext, ElsieResult?> TokenBucket(
+        int capacity,
+        double tokensPerSecond,
+        Func<ElsieContext, string>? partitionKey = null,
+        TimeProvider? timeProvider = null,
+        int maxPartitions = 10_000,
+        IRateLimitStore? store = null)
+    {
+        if (capacity < 1)
+        {
+            throw new ArgumentOutOfRangeException(nameof(capacity), "Capacity must be at least 1.");
+        }
+
+        if (tokensPerSecond <= 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(tokensPerSecond), "Tokens per second must be positive.");
+        }
+
+        if (maxPartitions < 1)
+        {
+            throw new ArgumentOutOfRangeException(nameof(maxPartitions), "Max partitions must be at least 1.");
+        }
+
+        var backend = store
+            ?? new TokenBucketStore(capacity, tokensPerSecond, timeProvider ?? TimeProvider.System, maxPartitions);
+        var keySelector = partitionKey ?? DefaultPartitionKey;
+        return ctx =>
+        {
+            var key = keySelector(ctx) ?? "unknown";
+            return backend.TryAcquire(key, out var retryAfter)
+                ? null
+                : TooManyRequests(retryAfter);
+        };
+    }
+
+    /// <summary>
     /// Default partition: <see cref="ElsieRequest.RemoteIp"/> only.
     /// Does <b>not</b> read <c>X-Forwarded-For</c> (spoofable). Use
     /// <see cref="ForwardedPartitionKey"/> only behind a trusted proxy with forwarded headers enabled.

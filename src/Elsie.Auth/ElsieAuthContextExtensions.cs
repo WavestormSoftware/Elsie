@@ -36,12 +36,7 @@ public static class ElsieAuthContextExtensions
             Path = cookie.CookiePath,
             Domain = cookie.CookieDomain,
             MaxAge = lifetime,
-            SameSite = cookie.SameSite switch
-            {
-                SameSiteMode.None => ElsieSameSite.None,
-                SameSiteMode.Strict => ElsieSameSite.Strict,
-                _ => ElsieSameSite.Lax
-            }
+            SameSite = cookie.SameSite
         };
 
         context.Response.SetCookie(cookie.CookieName, token, cookieOptions);
@@ -86,7 +81,7 @@ public static class ElsieAuthContextExtensions
                 Path = cookie.CookiePath,
                 Domain = cookie.CookieDomain,
                 MaxAge = TimeSpan.Zero,
-                SameSite = ElsieSameSite.Lax
+                SameSite = cookie.SameSite
             });
         }
 

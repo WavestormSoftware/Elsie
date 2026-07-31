@@ -4,17 +4,13 @@ Built into **Elsie.Core** (`Elsie.RateLimiting`) as **before-hooks**.
 
 ```csharp
 Before(ElsieRateLimit.FixedWindow(permitLimit: 30, window: TimeSpan.FromMinutes(1)));
-// or sliding window helpers
+Before(ElsieRateLimit.SlidingWindow(permitLimit: 30, window: TimeSpan.FromMinutes(1)));
+Before(ElsieRateLimit.TokenBucket(capacity: 20, tokensPerSecond: 5));
 ```
 
 Partitioning defaults to remote IP when available (`ElsieRequest.RemoteIp`).
 
 Returns **429** problem+json when exceeded.
-
-## See also
-
-- [pipelines-and-errors.md](pipelines-and-errors.md)
-
 
 ## Partition keys
 
@@ -23,4 +19,8 @@ Returns **429** problem+json when exceeded.
 
 ## Custom store
 
-Implement `IRateLimitStore` and pass `store:` into `FixedWindow` / `SlidingWindow`.
+Implement `IRateLimitStore` and pass `store:` into `FixedWindow` / `SlidingWindow` / `TokenBucket`.
+
+## See also
+
+- [pipelines-and-errors.md](pipelines-and-errors.md)
