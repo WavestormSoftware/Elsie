@@ -9,7 +9,7 @@
   </PropertyGroup>
   <ItemGroup>
     <PackageReference Include="BenchmarkDotNet" />
-    <ProjectReference Include="..\..\src\Elsie\Elsie.csproj" />
+    <ProjectReference Include="..\..\src\Elsie.Core\Elsie.Core.csproj" />
     <ProjectReference Include="..\..\src\Elsie.Views\Elsie.Views.csproj" />
   </ItemGroup>
 </Project>

@@ -4,7 +4,7 @@ Instructions for coding agents working on this repository.
 
 ## What this is
 
-**Elsie** is a greenfield, MIT-licensed, lightweight HTTP module framework for .NET (net8/net10). Core is **host-agnostic**; `Elsie.Web` is the custom HTTP host (`ElsieApp`). Inspired by Sinatra-style DX — **not** a NancyFx fork.
+**Elsie** is a greenfield, MIT-licensed, lightweight HTTP module framework for .NET (net8/net10). Core is **host-agnostic**; package **`Elsie`** is the custom HTTP host (`ElsieApp`, assembly/namespaces `Elsie.Web`). Inspired by Sinatra-style DX — **not** a NancyFx fork.
 
 ## Clean-room (mandatory)
 
@@ -15,9 +15,8 @@ Instructions for coding agents working on this repository.
 
 | Path | Role |
 |------|------|
-| `src/Elsie` | Host-agnostic core (package **`Elsie.Core`**): modules, routing, dispatcher, context, results, pipelines, OpenAPI builder, `ElsieAuth`, HealthChecks, RateLimiting |
-| `src/Elsie.Web` | Host package: `ElsieApp` / `ElsieWeb.Run`, HTTP/1.1 server, static files, OpenAPI routes |
-| `src/Elsie.Meta` | **Keep.** NuGet package id **`Elsie`** (metapackage) → depends on `Elsie.Web` → `Elsie.Core`. Enables `dotnet add package Elsie`. |
+| `src/Elsie.Core` | Host-agnostic core (package **`Elsie.Core`**, assembly `Elsie`): modules, routing, dispatcher, context, results, pipelines, OpenAPI builder, `ElsieAuth`, HealthChecks, RateLimiting |
+| `src/Elsie` | Host package id **`Elsie`** (assembly `Elsie.Web`): `ElsieApp` / `ElsieWeb.Run`, HTTP/1.1 server, static files, OpenAPI routes → depends on `Elsie.Core` |
 | `src/Elsie.Views` | Fluid (Liquid) views + layouts/partials (`ViewAsync`, `IElsieViewEngine`) |
 | `src/Elsie.Auth` | Cookie/JWT wiring + RequireAuthenticated/Role/Claim/Policy gates |
 | `src/Elsie.Cors` | Elsie-native CORS (preflight middleware + after-hook ACAO) |

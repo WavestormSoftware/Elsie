@@ -5,7 +5,7 @@ Elsie is a Sinatra-style HTTP module framework for **.NET 8** and **.NET 10**. D
 ## Install
 
 ```bash
-dotnet add package Elsie          # metapackage → Elsie.Web → Elsie.Core (app host)
+dotnet add package Elsie          # host + Elsie.Core
 # optional:
 dotnet add package Elsie.Auth
 dotnet add package Elsie.Cors
@@ -13,7 +13,7 @@ dotnet add package Elsie.Views
 dotnet add package Elsie.Testing  # for *your* app's unit tests (hosts + asserts)
 ```
 
-`Elsie` is a **metapackage** (`src/Elsie.Meta`): it has no app code of its own; NuGet depends on `Elsie.Web` for net8/net10 so one install is enough.
+`Elsie` is the **HTTP host package** (`src/Elsie`, assembly `Elsie.Web.dll`): `ElsieApp`, server, static files, OpenAPI. It depends on **`Elsie.Core`** so one install is enough.
 
 Templates:
 

@@ -12,7 +12,7 @@
 # Set repo variable NUGET_USER to that username.
 #
 # Package IDs:
-#   Elsie (meta → Elsie.Web → Elsie.Core), Elsie.Core, Elsie.Web,
+#   Elsie (host → Elsie.Core), Elsie.Core,
 #   Elsie.Auth, Elsie.Cors, Elsie.Testing, Elsie.Views, Elsie.Templates
 #
 # Docs: https://learn.microsoft.com/nuget/nuget-org/trusted-publishing
@@ -89,9 +89,8 @@ jobs:
           mkdir -p artifacts/nuget
 
           projects=(
+            src/Elsie.Core/Elsie.Core.csproj
             src/Elsie/Elsie.csproj
-            src/Elsie.Web/Elsie.Web.csproj
-            src/Elsie.Meta/Elsie.Meta.csproj
             src/Elsie.Auth/Elsie.Auth.csproj
             src/Elsie.Cors/Elsie.Cors.csproj
             src/Elsie.Testing/Elsie.Testing.csproj
@@ -116,7 +115,6 @@ jobs:
           required=(
             "Elsie.$version.nupkg"
             "Elsie.Core.$version.nupkg"
-            "Elsie.Web.$version.nupkg"
             "Elsie.Auth.$version.nupkg"
             "Elsie.Cors.$version.nupkg"
             "Elsie.Testing.$version.nupkg"
@@ -133,12 +131,13 @@ jobs:
             fi
           done
 
-          meta="artifacts/nuget/Elsie.$version.nupkg"
+          host="artifacts/nuget/Elsie.$version.nupkg"
           tmp=$(mktemp -d)
-          unzip -q -o "$meta" -d "$tmp"
+          unzip -q -o "$host" -d "$tmp"
           nuspec=$(find "$tmp" -name '*.nuspec' | head -1)
           cat "$nuspec"
-          grep -q 'id="Elsie.Web"' "$nuspec" || { echo "meta missing Elsie.Web dep"; missing=1; }
+          grep -q 'id="Elsie.Core"' "$nuspec" || { echo "Elsie host missing Elsie.Core dep"; missing=1; }
+          find "$tmp" -name 'Elsie.Web.dll' | grep -q . || { echo "Elsie host missing Elsie.Web.dll"; missing=1; }
           rm -rf "$tmp"
           exit "$missing"
 

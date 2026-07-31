@@ -6,8 +6,8 @@
     <PackageId>Elsie.Testing</PackageId>
   </PropertyGroup>
   <ItemGroup>
+    <ProjectReference Include="..\Elsie.Core\Elsie.Core.csproj" />
     <ProjectReference Include="..\Elsie\Elsie.csproj" />
-    <ProjectReference Include="..\Elsie.Web\Elsie.Web.csproj" />
   </ItemGroup>
   <ItemGroup Condition="'$(TargetFramework)' == 'net8.0'">
     <PackageReference Include="Microsoft.Extensions.DependencyInjection" VersionOverride="8.0.1" />

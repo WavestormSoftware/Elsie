@@ -1,6 +1,6 @@
 # Static files
 
-Elsie.Web serves static files from the host via **`.StaticFiles(...)`**.
+Elsie host (`Elsie` package / `Elsie.Web` namespaces) serves static files via **`.StaticFiles(...)`**.
 
 ## Mount under a request path
 

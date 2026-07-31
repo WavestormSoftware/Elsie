@@ -6,7 +6,7 @@
     <PackageId>Elsie.Views</PackageId>
   </PropertyGroup>
   <ItemGroup>
-    <ProjectReference Include="..\Elsie\Elsie.csproj" />
+    <ProjectReference Include="..\Elsie.Core\Elsie.Core.csproj" />
     <PackageReference Include="Fluid.ViewEngine" />
   </ItemGroup>
   <ItemGroup Condition="'$(TargetFramework)' == 'net8.0'">
