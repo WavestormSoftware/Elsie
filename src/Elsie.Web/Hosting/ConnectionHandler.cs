@@ -5,6 +5,7 @@ using System.Net.Sockets;
 using System.Security.Authentication;
 using System.Security.Cryptography.X509Certificates;
 using Elsie.Web.Http;
+using Elsie.Web.Http2;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace Elsie.Web.Hosting;
@@ -59,11 +60,17 @@ internal sealed class ConnectionHandler
                 await ssl.AuthenticateAsServerAsync(sslOptions, cancellationToken).ConfigureAwait(false);
                 stream = ssl;
 
-                // HTTP/2 via ALPN will be handled in a later phase; for now only h1.
                 if (ssl.NegotiatedApplicationProtocol.Equals(SslApplicationProtocol.Http2))
                 {
-                    // Placeholder: reject with GOAWAY-less close until H2 lands.
-                    _log?.Invoke("HTTP/2 negotiated but not yet implemented; closing connection.");
+                    var h2 = new Http2Connection(
+                        stream,
+                        _services,
+                        _dispatcher,
+                        _features,
+                        _listen,
+                        _log,
+                        socket.RemoteEndPoint);
+                    await h2.RunAsync(cancellationToken).ConfigureAwait(false);
                     return;
                 }
             }
