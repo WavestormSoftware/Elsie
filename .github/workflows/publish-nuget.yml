@@ -1,24 +1,19 @@
 # Publish packable projects to nuget.org via Trusted Publishing (OIDC).
 #
-# nuget.org Trusted Publishing policy must match:
-#   Repository owner : WavestormSoftware
-#   Repository       : Elsie
-#   Workflow         : publish-nuget.yml
-#   Environment      : nuget
+# Setup (one-time on nuget.org):
+#   Account → Trusted Publishing → add policy:
+#     Repository owner : WavestormSoftware
+#     Repository       : Elsie
+#     Workflow file    : publish-nuget.yml
+#     Environment      : nuget
 #
 # NuGet/login `user` = nuget.org username of the **person who created the
-# policy** (Account settings → Username). NOT the org Package Owner
-# (WavestormSoftware). Set repo variable NUGET_USER to that username, or pass
-# workflow_dispatch input nuget_user.
+# policy** (Account settings → Username), NOT the org Package Owner.
+# Set repo variable NUGET_USER to that username.
 #
-# Package IDs published (0.3.0-alpha.1+):
+# Package IDs:
 #   Elsie (meta → Elsie.Web → Elsie.Core), Elsie.Core, Elsie.Web,
 #   Elsie.Auth, Elsie.Cors, Elsie.Testing, Elsie.Views, Elsie.Templates
-# Retired IDs (do not pack): Elsie.AspNetCore, Elsie.HealthChecks,
-#   Elsie.RateLimiting, Elsie.FluentValidation
-# First push of Elsie.Web requires Trusted Publishing allowance for new package ID.
-# Existing package policies cover version bumps; new IDs may need a policy/owner
-# confirm on nuget.org.
 #
 # Docs: https://learn.microsoft.com/nuget/nuget-org/trusted-publishing
 
@@ -30,9 +25,9 @@ on:
   workflow_dispatch:
     inputs:
       dry_run:
-        description: "Pack only; skip nuget push"
+        description: "Pack + validate only; skip nuget login/push"
         type: boolean
-        default: false
+        default: true
       nuget_user:
         description: "nuget.org username of the Trusted Publishing policy creator (overrides NUGET_USER var)"
         type: string
@@ -47,7 +42,7 @@ jobs:
     environment: nuget
     permissions:
       contents: read
-      id-token: write   # OIDC for NuGet Trusted Publishing
+      id-token: write   # required for GitHub OIDC → NuGet Trusted Publishing
 
     steps:
       - uses: actions/checkout@v4
@@ -59,8 +54,17 @@ jobs:
             8.0.x
             10.0.x
 
+      - name: Read package version
+        id: ver
+        shell: bash
+        run: |
+          version=$(grep -oP '(?<=<Version>)[^<]+' src/Directory.Build.props | head -1)
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "Publishing version $version"
+
       - name: Resolve NuGet policy-creator username
         id: who
+        if: ${{ github.event_name == 'release' || inputs.dry_run == false }}
         env:
           INPUT_USER: ${{ inputs.nuget_user }}
           VAR_USER: ${{ vars.NUGET_USER }}
@@ -104,9 +108,11 @@ jobs:
           ls -la artifacts/nuget
 
       - name: Validate expected packages
+        env:
+          VERSION: ${{ steps.ver.outputs.version }}
         run: |
           set -euo pipefail
-          version="0.3.0-alpha.1"
+          version="$VERSION"
           required=(
             "Elsie.$version.nupkg"
             "Elsie.Core.$version.nupkg"
@@ -126,14 +132,28 @@ jobs:
               echo "ok $f"
             fi
           done
+
+          meta="artifacts/nuget/Elsie.$version.nupkg"
+          tmp=$(mktemp -d)
+          unzip -q -o "$meta" -d "$tmp"
+          nuspec=$(find "$tmp" -name '*.nuspec' | head -1)
+          cat "$nuspec"
+          grep -q 'id="Elsie.Web"' "$nuspec" || { echo "meta missing Elsie.Web dep"; missing=1; }
+          rm -rf "$tmp"
           exit "$missing"
+
+      - name: Upload pack artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: nuget-packages
+          path: artifacts/nuget/*
+          if-no-files-found: error
 
       - name: NuGet login (Trusted Publishing OIDC)
         if: ${{ github.event_name == 'release' || inputs.dry_run == false }}
         uses: NuGet/login@v1
         id: nuget
         with:
-          # Must be policy CREATOR username, not Package Owner org.
           user: ${{ steps.who.outputs.user }}
 
       - name: Push to nuget.org
@@ -148,13 +168,16 @@ jobs:
             exit 1
           fi
           for pkg in "${pkgs[@]}"; do
+            # Skip symbol packages in the *.nupkg glob if any — only real packages
+            case "$pkg" in
+              *.snupkg) continue ;;
+            esac
             echo "Pushing $pkg"
             dotnet nuget push "$pkg" \
               --api-key "${{ steps.nuget.outputs.NUGET_API_KEY }}" \
               --source https://api.nuget.org/v3/index.json \
               --skip-duplicate
           done
-          # Symbols (when produced alongside nupkgs)
           for pkg in "${symbols[@]}"; do
             echo "Pushing $pkg"
             dotnet nuget push "$pkg" \

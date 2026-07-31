@@ -307,13 +307,13 @@ In tests, set `ScanEntryAssembly = false` and register modules explicitly.
 
 | Package | Contents |
 |---------|----------|
-| **[Elsie](https://www.nuget.org/packages/Elsie)** | Meta-package for apps → `Elsie.Web` → `Elsie.Core` |
-| [Elsie.Web](https://www.nuget.org/packages/Elsie.Web) | `ElsieApp` / `ElsieWeb`, HTTP server, static files, OpenAPI |
-| [Elsie.Core](https://www.nuget.org/packages/Elsie.Core) | Host-agnostic modules, routing, dispatcher, results, pipelines, health, rate limit |
+| **[Elsie](https://www.nuget.org/packages/Elsie)** | **App metapackage** — depends on `Elsie.Web` (+ `Elsie.Core`). Use this: `dotnet add package Elsie` |
+| [Elsie.Web](https://www.nuget.org/packages/Elsie.Web) | Host (`ElsieApp`), HTTP server, static files, OpenAPI |
+| [Elsie.Core](https://www.nuget.org/packages/Elsie.Core) | Modules, routing, dispatcher, results, pipelines, health, rate limit |
 | [Elsie.Auth](https://www.nuget.org/packages/Elsie.Auth) | Cookie tickets + JWT + auth gates |
 | [Elsie.Cors](https://www.nuget.org/packages/Elsie.Cors) | Elsie-native CORS |
 | [Elsie.Views](https://www.nuget.org/packages/Elsie.Views) | Fluid/Liquid views |
-| [Elsie.Testing](https://www.nuget.org/packages/Elsie.Testing) | In-memory + loopback hosts |
+| [Elsie.Testing](https://www.nuget.org/packages/Elsie.Testing) | Helpers for **your** tests (not the same as repo `tests/`) |
 | [Elsie.Templates](https://www.nuget.org/packages/Elsie.Templates) | `dotnet new elsie` / `elsie-api` |
 
 Current version: **`0.3.0-beta.1`** (prerelease; APIs may still change).

@@ -17,11 +17,11 @@ Instructions for coding agents working on this repository.
 |------|------|
 | `src/Elsie` | Host-agnostic core (package **`Elsie.Core`**): modules, routing, dispatcher, context, results, pipelines, OpenAPI builder, `ElsieAuth`, HealthChecks, RateLimiting |
 | `src/Elsie.Web` | Host package: `ElsieApp` / `ElsieWeb.Run`, HTTP/1.1 server, static files, OpenAPI routes |
-| `src/Elsie.Meta` | App meta-package **`Elsie`** → pulls `Elsie.Web` (+ transitive `Elsie.Core`) |
+| `src/Elsie.Meta` | **Keep.** NuGet package id **`Elsie`** (metapackage) → depends on `Elsie.Web` → `Elsie.Core`. Enables `dotnet add package Elsie`. |
 | `src/Elsie.Views` | Fluid (Liquid) views + layouts/partials (`ViewAsync`, `IElsieViewEngine`) |
 | `src/Elsie.Auth` | Cookie/JWT wiring + RequireAuthenticated/Role/Claim/Policy gates |
 | `src/Elsie.Cors` | Elsie-native CORS (preflight middleware + after-hook ACAO) |
-| `src/Elsie.Testing` | `ElsieInMemoryHost` + ASP.NET `ElsieTestHost` + asserts |
+| `src/Elsie.Testing` | **Keep.** Consumer test helpers (`ElsieInMemoryHost`, loopback `ElsieTestHost`, asserts). Distinct from `tests/` (our own unit tests of the framework). |
 | `templates/` | `dotnet new` templates (`elsie`, `elsie-api`) → `Elsie.Templates` |
 | `benchmarks/Elsie.Benchmarks` | BenchmarkDotNet (route/dispatch/views); not CI-gated |
 | `tests/*` | Unit / integration tests |

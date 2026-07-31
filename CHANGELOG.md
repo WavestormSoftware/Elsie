@@ -14,8 +14,10 @@ Elsie is **unreleased** software; prereleases may include breaking API changes.
 - `.Server(...)` limits + **`UseForwardedHeaders`** (`X-Forwarded-For` / `Proto` / `Host`)
 - **413 Payload Too Large** when request body exceeds `MaxRequestBodyBytes`
 - Multipart form field binding; native cookie AES-GCM tickets + JWT validation
-- CORS preflight filter; loopback `ElsieTestHost`; security test suite
+- CORS preflight filter; loopback `ElsieTestHost`
+- Expanded security suite (tickets, traversal, limits, forwarded headers, H1 parser)
 - Sample **Dashboard** multi-page Fluid + cookie auth
+- CI/publish: version from `Directory.Build.props`; metapackage dependency validation
 
 ### Changed
 - **Elsie.Web** is self-contained (MS.DI only) — no ASP.NET shared framework

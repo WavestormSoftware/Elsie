@@ -285,9 +285,15 @@ internal sealed class Http1RequestReader
             var idx = IndexOfDoubleCrlf(available);
             if (idx >= 0)
             {
-                ms.Write(available[..(idx + 4)]);
-                _offset += idx + 4;
-                _count -= idx + 4;
+                var blockLen = idx + 4;
+                if (ms.Length + blockLen > _maxHeaderBytes)
+                {
+                    throw new InvalidOperationException("Request headers too large.");
+                }
+
+                ms.Write(available[..blockLen]);
+                _offset += blockLen;
+                _count -= blockLen;
                 if (_count == 0)
                 {
                     _offset = 0;
@@ -296,7 +302,7 @@ internal sealed class Http1RequestReader
                 return ms.ToArray();
             }
 
-            // Need more data — keep last 3 bytes for boundary
+            // Need more data
             if (ms.Length + _count > _maxHeaderBytes)
             {
                 throw new InvalidOperationException("Request headers too large.");

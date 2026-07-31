@@ -37,13 +37,16 @@ Recommended: terminate TLS on the proxy; Elsie listens on loopback HTTP/1.1.
 
 ## What we test
 
-Automated tests cover:
+Automated tests cover (Web + Auth suites):
 
-- Body over limit → **413**
-- Static path traversal does not leak files
-- Forwarded headers on/off behavior
-- Tampered cookie tickets → unauthenticated
-- Short ticket secrets rejected
+- Body over limit → **413**; oversized headers → client error
+- Static path traversal / encoded `..` does not leak files
+- Forwarded headers on/off + CRLF host rejection
+- Cookie ticket tamper / wrong key / expired / garbage
+- Short ticket secrets rejected; missing key without dev flag fails DI setup
+- API-key gate rejects wrong keys
+- HTTP/1.1 parser body/header limits
+- 405 / 404 problem bodies do not leak handler data
 
 ## Out of scope (for now)
 

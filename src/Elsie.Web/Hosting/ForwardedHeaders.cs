@@ -4,7 +4,8 @@ namespace Elsie.Web.Hosting;
 /// Applies <c>X-Forwarded-For</c>, <c>X-Forwarded-Proto</c>, and <c>X-Forwarded-Host</c>
 /// when the host is behind a trusted reverse proxy.
 /// </summary>
-internal static class ForwardedHeaders
+/// <summary>Visible to tests for injection-safety unit coverage.</summary>
+public static class ForwardedHeaders
 {
     public static (string? Scheme, string? Host, string? RemoteIp) Apply(
         bool enabled,

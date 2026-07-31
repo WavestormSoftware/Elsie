@@ -1,6 +1,15 @@
 # Testing
 
-Package **`Elsie.Testing`**.
+## `tests/` vs `Elsie.Testing`
+
+| Path | Audience | Role |
+|------|----------|------|
+| **`tests/`** | Framework maintainers | Unit/integration tests **of Elsie itself** (CI) |
+| **`Elsie.Testing` NuGet** | App developers | Helpers to test **your** Elsie app (`ElsieInMemoryHost`, loopback `ElsieTestHost`, asserts) |
+
+Keep **`Elsie.Testing`** — it is a product package, not a substitute for our repo’s `tests/` folder.
+
+Package **`Elsie.Testing`**:
 
 ## In-memory host (dispatcher only)
 

@@ -17,4 +17,8 @@
     <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" />
     <PackageReference Include="System.IdentityModel.Tokens.Jwt" />
   </ItemGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="Elsie.Auth.Tests" />
+  </ItemGroup>
 </Project>
+
