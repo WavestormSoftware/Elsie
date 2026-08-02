@@ -20,5 +20,6 @@
   </ItemGroup>
   <ItemGroup>
     <InternalsVisibleTo Include="Elsie.Web.Tests" />
+    <InternalsVisibleTo Include="Elsie.Fuzz" />
   </ItemGroup>
 </Project>

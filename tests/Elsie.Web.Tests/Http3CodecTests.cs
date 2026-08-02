@@ -328,6 +328,26 @@ public class Http3CodecTests
     }
 
     [Fact]
+    public void Decoder_rejects_overflowing_qpack_integers_without_throwing()
+    {
+        // Regression (fuzz-found): a QPACK integer with a long continuation run used to
+        // overflow the int accumulator, yielding a negative string length that blew up
+        // List.GetRange with ArgumentOutOfRangeException. It must be a QpackException.
+        var decoder = NewDecoder(capacity: 4096);
+
+        // Insert With Literal Name (0x40) + H flag + 5-bit length prefix max (0x1F), then
+        // five continuation bytes (the last without the continuation bit): the 5th hits the
+        // 28-bit shift guard.
+        Assert.Throws<QpackException>(() =>
+            decoder.ProcessEncoderStream(new byte[] { 0x7F, 0xFF, 0xFF, 0xFF, 0xFF, 0x7F }));
+
+        // Same guard on the field-section path: Required Insert Count (8-bit prefix max 0xFF)
+        // with an overflowing continuation run.
+        Assert.Throws<QpackException>(() =>
+            decoder.DecodeHeaderBlock(new byte[] { 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x7F }));
+    }
+
+    [Fact]
     public void Decoder_rejects_dynamic_insert_when_capacity_zero()
     {
         var decoder = NewDecoder(capacity: 0);

@@ -8,11 +8,14 @@ using System.Security.Cryptography.X509Certificates;
 using System.Text;
 using Elsie;
 using Elsie.Web;
+using Elsie.Web.Http3;
 
 namespace Elsie.Fuzz;
 
 /// <summary>
-/// Black-box random-input fuzzer + soak for the Elsie HTTP server.
+/// Black-box random-input fuzzer + soak for the Elsie HTTP server, plus a white-box QPACK
+/// codec fuzz target (random encoder-instruction / field-section bytes through
+/// <see cref="QpackDecoder"/> — must only ever raise <see cref="QpackException"/>).
 /// Not part of the normal test suite — run nightly (see .github/workflows/nightly.yml).
 /// </summary>
 public static class Program
@@ -158,6 +161,7 @@ public static class Program
                 {
                     if (h1) await FuzzHttp1Async(h1Ep.Port, fuzzDeadline);
                     if (h2) await FuzzHttp2Async(h2Ep.Port, cert, fuzzDeadline);
+                    FuzzQpack();
 
                     var n = Interlocked.Increment(ref fuzzCount);
                     // Canary every 50 fuzz connections across all workers
@@ -385,6 +389,68 @@ public static class Program
         }
 
         return ms.ToArray();
+    }
+
+    // ================================================================
+    //  QPACK fuzz (RFC 9204)
+    // ================================================================
+
+    /// <summary>
+    /// White-box QPACK fuzz: random encoder-stream instruction bytes and random field-section
+    /// bytes through <see cref="QpackDecoder"/>. Only <see cref="QpackException"/> (a protocol
+    /// violation, handled by the real connection path via H3_QPACK_* close codes) is tolerated;
+    /// anything else is an error. A fresh decoder per iteration keeps partial-instruction state
+    /// bounded, and every parse consumes input, so the target cannot hang or grow memory.
+    /// </summary>
+    private static void FuzzQpack()
+    {
+        const int batches = 32;
+        const int perBatch = 16;
+        for (var batch = 0; batch < batches; batch++)
+        {
+            var decoder = new QpackDecoder(maxCapacity: 4096, decoderStream: null);
+            for (var i = 0; i < perBatch; i++)
+            {
+                var instruction = new byte[_rng.Next(1, 64)];
+                _rng.NextBytes(instruction);
+                try
+                {
+                    decoder.ProcessEncoderStream(instruction);
+                }
+                catch (QpackException)
+                {
+                    // protocol violation — expected; connection path closes with 0x201
+                }
+                catch (Exception ex)
+                {
+                    Interlocked.Increment(ref _fuzzErrors);
+                    _errorDetails.Add($"QPACK encoder-stream fuzz: {ex.GetType().Name}: {ex.Message}");
+                    return;
+                }
+            }
+
+            for (var i = 0; i < perBatch; i++)
+            {
+                var block = new byte[_rng.Next(1, 128)];
+                _rng.NextBytes(block);
+                try
+                {
+                    _ = decoder.DecodeHeaderBlock(block);
+                }
+                catch (QpackException)
+                {
+                    // protocol violation — expected; connection path closes with 0x200
+                }
+                catch (Exception ex)
+                {
+                    Interlocked.Increment(ref _fuzzErrors);
+                    _errorDetails.Add($"QPACK field-section fuzz: {ex.GetType().Name}: {ex.Message}");
+                    return;
+                }
+            }
+        }
+
+        Interlocked.Add(ref _totalFuzzIterations, batches * perBatch * 2);
     }
 
     // ================================================================

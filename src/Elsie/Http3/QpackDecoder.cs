@@ -478,6 +478,12 @@ internal sealed class QpackDecoder
         while (pos < data.Length)
         {
             var cont = data[pos++];
+            if (shift >= 28)
+            {
+                // Continuation run would overflow the int accumulator: malformed QPACK integer.
+                throw new QpackException("QPACK integer exceeds the supported range.");
+            }
+
             value += (cont & 0x7F) << shift;
             shift += 7;
             if ((cont & 0x80) == 0)
@@ -510,6 +516,12 @@ internal sealed class QpackDecoder
         {
             var cont = data[pos++];
             consumed++;
+            if (shift >= 28)
+            {
+                // Continuation run would overflow the int accumulator: malformed QPACK integer.
+                throw new QpackException("QPACK integer exceeds the supported range.");
+            }
+
             value += (cont & 0x7F) << shift;
             shift += 7;
             if ((cont & 0x80) == 0)
