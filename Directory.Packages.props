@@ -1,7 +1,6 @@
 <Project>
   <PropertyGroup>
     <ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>
-    <!-- Keep false: TFM-aligned packages use VersionOverride per TFM. -->
     <CentralPackageTransitivePinningEnabled>false</CentralPackageTransitivePinningEnabled>
   </PropertyGroup>
   <ItemGroup>
@@ -19,7 +18,6 @@
     <!-- Auth JWT -->
     <PackageVersion Include="System.IdentityModel.Tokens.Jwt" Version="8.22.0" />
 
-    <!-- Defaults for net10; net8 projects VersionOverride to 8.x -->
     <PackageVersion Include="Microsoft.Extensions.DependencyInjection" Version="10.0.0" />
     <PackageVersion Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="10.0.0" />
     <PackageVersion Include="Microsoft.Extensions.Logging.Abstractions" Version="10.0.0" />

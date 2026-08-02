@@ -178,10 +178,6 @@ public class TlsAndHttp2Tests
         req.CertificateExtensions.Add(san.Build());
 
         var cert = req.CreateSelfSigned(DateTimeOffset.UtcNow.AddDays(-1), DateTimeOffset.UtcNow.AddYears(1));
-#if NET9_0_OR_GREATER
         return X509CertificateLoader.LoadPkcs12(cert.Export(X509ContentType.Pfx), password: null);
-#else
-        return new X509Certificate2(cert.Export(X509ContentType.Pfx));
-#endif
     }
 }

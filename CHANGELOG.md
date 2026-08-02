@@ -9,8 +9,12 @@ Elsie is **unreleased** software; prereleases may include breaking API changes.
 
 ## [Unreleased]
 
+### Breaking
+- Target framework is **net10.0 only** (net8.0 support dropped).
+
 ### Changed
 - OIDC: `PrincipalFromIdToken` no longer accepts unvalidated id_tokens by default (`allowUnvalidated` opt-in); optional `expectedNonce` check; state/nonce are Base64Url.
+- `ElsieMetrics` meter version string bumped to `0.4.0`.
 
 ### Added
 - OIDC PKCE helpers (`CreateCodeVerifier` / `CreateCodeChallenge`) + `code_challenge` / `code_verifier` on authorize/token exchange.

@@ -4,7 +4,7 @@ Instructions for coding agents working on this repository.
 
 ## What this is
 
-**Elsie** is a greenfield, MIT-licensed, lightweight HTTP module framework for .NET (net8/net10). Core is **host-agnostic**; package **`Elsie`** is the custom HTTP host (`ElsieApp`, assembly/namespaces `Elsie.Web`). Inspired by Sinatra-style DX — **not** a NancyFx fork.
+**Elsie** is a greenfield, MIT-licensed, lightweight HTTP module framework for .NET (**net10.0**). Core is **host-agnostic**; package **`Elsie`** is the custom HTTP host (`ElsieApp`, assembly/namespaces `Elsie.Web`). Inspired by Sinatra-style DX — **not** a NancyFx fork.
 
 ## Clean-room (mandatory)
 

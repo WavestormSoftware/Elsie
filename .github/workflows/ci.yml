@@ -20,7 +20,6 @@ jobs:
         uses: actions/setup-dotnet@v6
         with:
           dotnet-version: |
-            8.0.x
             10.0.x
 
       - name: Restore
@@ -120,12 +119,12 @@ jobs:
             echo "Elsie host package missing Elsie.Web.dll"
             missing=1
           fi
-          if ! find "$tmp/lib" -type d -name 'net8.0' | grep -q .; then
-            echo "Elsie host package missing lib/net8.0"
-            missing=1
-          fi
           if ! find "$tmp/lib" -type d -name 'net10.0' | grep -q .; then
             echo "Elsie host package missing lib/net10.0"
+            missing=1
+          fi
+          if find "$tmp/lib" -type d -name 'net8.0' | grep -q .; then
+            echo "Elsie host package unexpectedly contains lib/net8.0"
             missing=1
           fi
           rm -rf "$tmp"

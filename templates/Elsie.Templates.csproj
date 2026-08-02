@@ -10,7 +10,7 @@
     <PackageTags>Elsie;dotnet-new;templates</PackageTags>
     <Title>Elsie Templates</Title>
     <Description>dotnet new templates for Elsie (elsie, elsie-api).</Description>
-    <TargetFramework>net8.0</TargetFramework>
+    <TargetFramework>net10.0</TargetFramework>
     <IncludeContentInPack>true</IncludeContentInPack>
     <IncludeBuildOutput>false</IncludeBuildOutput>
     <ContentTargetFolders>content</ContentTargetFolders>

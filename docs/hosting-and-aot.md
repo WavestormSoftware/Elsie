@@ -141,9 +141,9 @@ Elsie does **not** currently ship a full native-AOT guarantee. Prefer:
 2. `ctx.Json` + `JsonSerializerContext`  
 3. Avoid OpenAPI reflection in the trimmed published app if you hit linker warnings (serve a prebuilt document instead)
 
-## Multi-TFM
+## Target framework
 
-Libraries target **`net8.0;net10.0`**. Samples commonly use `net8.0` for simplicity.
+Libraries and samples target **`net10.0`** only.
 
 ## See also
 

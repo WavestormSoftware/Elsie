@@ -26,11 +26,7 @@ public sealed class ElsieListenOptions
     public ElsieListenOptions CertificateFromPfx(string path, string? password = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(path);
-#if NET9_0_OR_GREATER
         Certificate = X509CertificateLoader.LoadPkcs12FromFile(path, password);
-#else
-        Certificate = new X509Certificate2(path, password);
-#endif
         UseHttps = true;
         return this;
     }
