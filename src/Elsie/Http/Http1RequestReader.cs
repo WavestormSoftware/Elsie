@@ -101,15 +101,26 @@ internal sealed class Http1RequestReader
             list.Add(value);
         }
 
-        long? contentLength = null;
-        if (headers.TryGetValue("Content-Length", out var clValues) && clValues.Count > 0)
-        {
-            if (!long.TryParse(clValues[0], NumberStyles.None, CultureInfo.InvariantCulture, out var cl) || cl < 0)
-            {
-                throw new InvalidOperationException("Invalid Content-Length.");
-            }
+        var hasContentLength = headers.TryGetValue("Content-Length", out var clValues) && clValues.Count > 0;
+        var hasTransferEncoding = headers.TryGetValue("Transfer-Encoding", out var teValues) && teValues.Count > 0;
 
-            contentLength = cl;
+        // Request smuggling: never accept both framing headers.
+        if (hasContentLength && hasTransferEncoding)
+        {
+            throw new InvalidOperationException(
+                "Request smuggling attempt: both Content-Length and Transfer-Encoding.");
+        }
+
+        long? contentLength = null;
+        if (hasContentLength)
+        {
+            contentLength = ParseContentLength(clValues!);
+        }
+
+        var chunked = false;
+        if (hasTransferEncoding)
+        {
+            chunked = IsChunkedOnly(teValues!);
         }
 
         var contentType = headers.TryGetValue("Content-Type", out var ct) && ct.Count > 0 ? ct[0] : null;
@@ -120,8 +131,7 @@ internal sealed class Http1RequestReader
         {
             body = await ReadBodyAsync(contentLength.Value, cancellationToken).ConfigureAwait(false);
         }
-        else if (headers.TryGetValue("Transfer-Encoding", out var te) &&
-                 te.Any(v => v.Contains("chunked", StringComparison.OrdinalIgnoreCase)))
+        else if (chunked)
         {
             body = await ReadChunkedBodyAsync(cancellationToken).ConfigureAwait(false);
             contentLength = body.Length;
@@ -152,6 +162,73 @@ internal sealed class Http1RequestReader
             ContentType = contentType,
             KeepAlive = keepAlive
         };
+    }
+
+    private static long ParseContentLength(List<string> values)
+    {
+        long? parsed = null;
+        foreach (var raw in values)
+        {
+            // A single header value may be comma-separated (proxy join).
+            foreach (var part in raw.Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries))
+            {
+                if (!long.TryParse(part, NumberStyles.None, CultureInfo.InvariantCulture, out var cl) || cl < 0)
+                {
+                    throw new InvalidOperationException("Invalid Content-Length.");
+                }
+
+                if (parsed is null)
+                {
+                    parsed = cl;
+                }
+                else if (parsed.Value != cl)
+                {
+                    throw new InvalidOperationException("Invalid Content-Length.");
+                }
+            }
+        }
+
+        if (parsed is null)
+        {
+            throw new InvalidOperationException("Invalid Content-Length.");
+        }
+
+        return parsed.Value;
+    }
+
+    /// <summary>
+    /// TE must be exactly <c>chunked</c> (optionally repeated). Any other coding → 400.
+    /// </summary>
+    private static bool IsChunkedOnly(List<string> values)
+    {
+        var sawChunked = false;
+        foreach (var raw in values)
+        {
+            foreach (var part in raw.Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries))
+            {
+                // Strip transfer-extension parameters (e.g. chunked;foo=bar).
+                var semi = part.IndexOf(';');
+                var coding = (semi >= 0 ? part[..semi] : part).Trim();
+                if (coding.Length == 0)
+                {
+                    continue;
+                }
+
+                if (!coding.Equals("chunked", StringComparison.OrdinalIgnoreCase))
+                {
+                    throw new InvalidOperationException("Unsupported Transfer-Encoding.");
+                }
+
+                sawChunked = true;
+            }
+        }
+
+        if (!sawChunked)
+        {
+            throw new InvalidOperationException("Unsupported Transfer-Encoding.");
+        }
+
+        return true;
     }
 
     private static bool IsKeepAlive(string protocol, Dictionary<string, List<string>> headers)
@@ -489,6 +566,11 @@ internal sealed class Http1RequestReader
                     end--;
                 }
 
+                if (ms.Length + end > _maxRequestLineLength)
+                {
+                    throw new InvalidOperationException("Line too long.");
+                }
+
                 ms.Write(span[..end]);
                 var consumed = crlf + 1;
                 _offset += consumed;
@@ -499,6 +581,11 @@ internal sealed class Http1RequestReader
                 }
 
                 return Encoding.ASCII.GetString(ms.ToArray());
+            }
+
+            if (ms.Length + span.Length > _maxRequestLineLength)
+            {
+                throw new InvalidOperationException("Line too long.");
             }
 
             ms.Write(span);

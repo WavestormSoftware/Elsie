@@ -43,7 +43,7 @@ public class ParserAdversarialTests
 
     // --- S1: smuggling defenses ---
 
-    [Fact(Skip = "S1: reject Content-Length + Transfer-Encoding")]
+    [Fact]
     public async Task Rejects_content_length_and_transfer_encoding()
     {
         var body = "5\r\nhello\r\n0\r\n\r\n";
@@ -62,7 +62,7 @@ public class ParserAdversarialTests
         reader.DisposeBuffer();
     }
 
-    [Fact(Skip = "S1: reject differing duplicate Content-Length")]
+    [Fact]
     public async Task Rejects_differing_duplicate_content_length()
     {
         var raw =
@@ -79,7 +79,7 @@ public class ParserAdversarialTests
         reader.DisposeBuffer();
     }
 
-    [Fact(Skip = "S1: accept equal duplicate Content-Length")]
+    [Fact]
     public async Task Accepts_equal_duplicate_content_length()
     {
         var body = "hello";
@@ -101,7 +101,7 @@ public class ParserAdversarialTests
         reader.DisposeBuffer();
     }
 
-    [Fact(Skip = "S1: reject non-chunked Transfer-Encoding")]
+    [Fact]
     public async Task Rejects_non_chunked_transfer_encoding()
     {
         var raw =
@@ -117,7 +117,7 @@ public class ParserAdversarialTests
         reader.DisposeBuffer();
     }
 
-    [Fact(Skip = "S1: reject giant chunk-size line")]
+    [Fact]
     public async Task Rejects_giant_chunk_size_line()
     {
         var giant = new string('A', 9 * 1024);

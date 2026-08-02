@@ -20,6 +20,7 @@ Elsie is **unreleased** software; prereleases may include breaking API changes.
 - OIDC PKCE helpers (`CreateCodeVerifier` / `CreateCodeChallenge`) + `code_challenge` / `code_verifier` on authorize/token exchange.
 
 ### Fixed
+- HTTP/1.1 smuggling defenses: reject CL+TE, differing duplicate Content-Length, non-`chunked` Transfer-Encoding; cap chunk-size/line length
 - Static files: path containment uses directory boundary (blocks sibling root-prefix escapes)
 - Reject CR/LF/NUL in response header names/values, cookie Path/Domain, and file download names
 - Ignore unsafe client `X-Request-Id` / `X-Correlation-Id` when echoing `X-Request-Id`
