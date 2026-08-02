@@ -179,6 +179,73 @@ public class Http3CodecTests
     }
 
     [Fact]
+    public async Task Encoder_instruction_stream_has_no_spurious_capacity_zero_prefix()
+    {
+        var encoder = new QpackEncoder(encoderStream: null);
+        var decoder = NewDecoder(capacity: 4096);
+        encoder.SetPeerMaxTableCapacity(4096);
+
+        var block = encoder.EncodeResponse(200, [("x-session", "abc-123")], streamId: 1);
+        var instructions = await encoder.FlushEncoderInstructionsAsync(CancellationToken.None);
+
+        // The instruction stream must open with Set Dynamic Table Capacity = 4096 — first
+        // byte 0x20|31 = 0x3F. A spurious leading 0x20 (Set Capacity = 0) used to precede it.
+        Assert.NotEmpty(instructions);
+        Assert.Equal(0x3F, instructions[0]);
+
+        decoder.ProcessEncoderStream(instructions);
+        Assert.Equal(
+            [(":status", "200"), ("x-session", "abc-123")],
+            decoder.DecodeHeaderBlock(block).Fields);
+    }
+
+    [Fact]
+    public async Task Capacity_shrink_evicts_referenced_entries_like_the_peer_decoder()
+    {
+        var encoder = new QpackEncoder(encoderStream: null);
+        var decoder = NewDecoder(capacity: 4096);
+        encoder.SetPeerMaxTableCapacity(4096);
+
+        // Three ~1035-byte entries, all referenced by the first response (RefCount > 0 on
+        // every insert until the peer sends a Section Acknowledgment).
+        var a = new string('a', 1000);
+        var b = new string('b', 1000);
+        var c = new string('c', 1000);
+        var block1 = encoder.EncodeResponse(200, [("x-a", a), ("x-b", b), ("x-c", c)], streamId: 1);
+        var instructions1 = await encoder.FlushEncoderInstructionsAsync(CancellationToken.None);
+        decoder.ProcessEncoderStream(instructions1);
+        Assert.Equal(
+            [(":status", "200"), ("x-a", a), ("x-b", b), ("x-c", c)],
+            decoder.DecodeHeaderBlock(block1).Fields);
+
+        // The peer reduces SETTINGS_QPACK_MAX_TABLE_CAPACITY mid-connection to 2048.
+        encoder.SetPeerMaxTableCapacity(2048);
+
+        // The next encode inserts a new entry, forcing the shrink. The encoder must evict
+        // referenced entries unconditionally (the peer decoder evicts the same way after a
+        // Set-Capacity instruction), keeping both tables in sync at 2048.
+        var block2 = encoder.EncodeResponse(200, [("x-new", "v")], streamId: 2);
+        var instructions2 = await encoder.FlushEncoderInstructionsAsync(CancellationToken.None);
+        Assert.NotEmpty(instructions2);
+        Assert.Equal(0x3F, instructions2[0]); // Set Dynamic Table Capacity = 2048
+        Assert.Equal(0xE1, instructions2[1]);
+        Assert.Equal(0x0F, instructions2[2]);
+        decoder.ProcessEncoderStream(instructions2);
+        Assert.Equal(
+            [(":status", "200"), ("x-new", "v")],
+            decoder.DecodeHeaderBlock(block2).Fields);
+
+        // x-a was evicted on both sides: re-encoding it must not emit a stale dynamic
+        // reference — the decoder rejects references to evicted entries.
+        var block3 = encoder.EncodeResponse(200, [("x-a", a)], streamId: 3);
+        var instructions3 = await encoder.FlushEncoderInstructionsAsync(CancellationToken.None);
+        decoder.ProcessEncoderStream(instructions3);
+        Assert.Equal(
+            [(":status", "200"), ("x-a", a)],
+            decoder.DecodeHeaderBlock(block3).Fields);
+    }
+
+    [Fact]
     public async Task Small_capacity_dynamic_table_roundtrips()
     {
         // Small table (64 bytes = 2 entries max) forces eviction; wireRIC modulo arithmetic

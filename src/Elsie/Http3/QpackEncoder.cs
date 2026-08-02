@@ -357,17 +357,20 @@ internal sealed class QpackEncoder
         }
 
         _capacity = target;
-        _pendingInstructions.Add(0x20);
+        // Set Dynamic Table Capacity instruction (RFC 9204 §4.3.1): the 0x20 prefix byte
+        // is part of WriteInteger's 5-bit prefix — emitting it again here would prepend a
+        // spurious capacity-0 instruction to the stream.
         WriteInteger(_pendingInstructions, target, 5, 0x20);
 
+        // Capacity reduction evicts entries unconditionally (even referenced ones): the peer
+        // decoder applies the same unconditional eviction after a Set-Capacity instruction, so
+        // keeping referenced-but-surplus entries here would desynchronize the two tables and
+        // leave stale dynamic references in subsequent field sections. Evicted entries stay in
+        // _streamRefs until the stream is acknowledged, but FindDynamic/FindDynamicName only
+        // search _table, so they are never referenced again.
         while (_tableSize > _capacity && _table.Count > 0)
         {
             var oldest = _table[0];
-            if (oldest.RefCount > 0)
-            {
-                break; // cannot evict referenced entries — leave the surplus
-            }
-
             _table.RemoveAt(0);
             _tableSize -= oldest.Size;
         }
