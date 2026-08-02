@@ -72,6 +72,8 @@ Development environment enables `ElsieOptions.ShowExceptionDetails` (HTML 500 wi
 - Default protocol: **HTTP/1.1**
 - **HTTP/2**: opt-in via `ElsieHttpProtocols.Http2` / `Http1AndHttp2` (TLS + ALPN)
 - HTTP/2 supports SETTINGS/HEADERS/CONTINUATION/DATA/PING/WINDOW_UPDATE/RST/GOAWAY, concurrent streams, HPACK static + literal (+ Huffman decode)
+- HTTP/2 protocol checks: PING len=8 echo, SETTINGS ACK + duplicate-id reject, WINDOW_UPDATE bounds, pseudo-header rules, connection receive window updates, GOAWAY last-stream-id
+- h2spec CI (Linux): `.github/workflows/h2spec.yml` + `tools/Elsie.H2SpecHost`. Soft-gated while remaining gaps close — known incomplete: full HPACK dynamic table apply, server push (rejected), PRIORITY trees, some CONTINUATION edge cases
 - Putting TLS termination on a reverse proxy and serving cleartext HTTP/1.1 is fully supported
 
 ## Server limits

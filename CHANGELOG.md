@@ -24,6 +24,7 @@ Elsie is **unreleased** software; prereleases may include breaking API changes.
 - Streaming HTTP/1.1 request bodies (`Content-Length` + `Transfer-Encoding: chunked`) with keep-alive drain; unknown-length response `BodyWriter` uses chunked TE; static files stream with `Content-Length` (no double-buffer)
 - `ElsieRequestException` (protocol 4xx mapped by dispatcher — body idle timeout → 408)
 - Multipart file spill: `ElsieOptions.MultipartMemoryThresholdBytes` (default 1 MiB); large `ElsieFormFile` parts use temp files + `IAsyncDisposable`
+- HTTP/2 protocol hardening (PING/SETTINGS/WINDOW_UPDATE/pseudo-headers/flow control) + Linux `h2spec` workflow (`tools/Elsie.H2SpecHost`)
 
 ### Fixed
 - Response writer no longer buffers `BodyWriter` when `Content-Length` is already set (static files / known-length streams)

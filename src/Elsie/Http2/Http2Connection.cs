@@ -18,7 +18,18 @@ internal sealed class Http2Connection
     private readonly ConcurrentDictionary<int, StreamState> _streams = new();
     private int _activeStreams;
     private int _serverWindow = 65535;
+    private int _initialStreamWindow = 65535;
+    private int _lastStreamId;
+    private readonly HashSet<int> _seenSettingsIds = new();
     private readonly SemaphoreSlim _writeLock = new(1, 1);
+
+    // RFC 9113 error codes
+    private const int ErrProtocol = 0x1;
+    private const int ErrFlowControl = 0x3;
+    private const int ErrStreamClosed = 0x5;
+    private const int ErrFrameSize = 0x6;
+    private const int ErrRefusedStream = 0x7;
+    private const int ErrEnhanceYourCalm = 0xb;
 
     public Http2Connection(
         Stream stream,
@@ -70,48 +81,34 @@ internal sealed class Http2Connection
             }
 
             var frame = frameNullable.Value;
-            if (frame.Payload.Length > _serverOptions.MaxFrameSize && frame.Type != Http2FrameType.Settings)
+            if (frame.Payload.Length > _serverOptions.MaxFrameSize)
             {
-                await GoAwayAsync(errorCode: 0x6 /* FRAME_SIZE_ERROR */, cancellationToken).ConfigureAwait(false);
+                await GoAwayAsync(ErrFrameSize, cancellationToken).ConfigureAwait(false);
                 return;
             }
 
             switch (frame.Type)
             {
                 case Http2FrameType.Settings:
-                    if ((frame.Flags & Http2FrameFlags.Ack) == 0)
+                    if (!await OnSettingsAsync(frame, cancellationToken).ConfigureAwait(false))
                     {
-                        await WriteFrameAsync(
-                                Http2FrameType.Settings,
-                                Http2FrameFlags.Ack,
-                                0,
-                                ReadOnlyMemory<byte>.Empty,
-                                cancellationToken)
-                            .ConfigureAwait(false);
+                        return;
                     }
 
                     break;
 
                 case Http2FrameType.Ping:
-                    if ((frame.Flags & Http2FrameFlags.Ack) == 0 && frame.Payload.Length == 8)
+                    if (!await OnPingAsync(frame, cancellationToken).ConfigureAwait(false))
                     {
-                        await WriteFrameAsync(
-                                Http2FrameType.Ping,
-                                Http2FrameFlags.Ack,
-                                0,
-                                frame.Payload,
-                                cancellationToken)
-                            .ConfigureAwait(false);
+                        return;
                     }
 
                     break;
 
                 case Http2FrameType.WindowUpdate:
-                    if (frame.Payload.Length >= 4 && frame.StreamId == 0)
+                    if (!await OnWindowUpdateAsync(frame, cancellationToken).ConfigureAwait(false))
                     {
-                        var inc = ((frame.Payload[0] & 0x7F) << 24) | (frame.Payload[1] << 16) |
-                                  (frame.Payload[2] << 8) | frame.Payload[3];
-                        _serverWindow += inc;
+                        return;
                     }
 
                     break;
@@ -129,43 +126,245 @@ internal sealed class Http2Connection
                     break;
 
                 case Http2FrameType.RstStream:
-                    _streams.TryRemove(frame.StreamId, out _);
-                    Interlocked.Decrement(ref _activeStreams);
+                    if (frame.StreamId != 0 && frame.Payload.Length == 4)
+                    {
+                        if (_streams.TryRemove(frame.StreamId, out _))
+                        {
+                            Interlocked.Decrement(ref _activeStreams);
+                        }
+                    }
+                    else if (frame.Payload.Length != 4)
+                    {
+                        await GoAwayAsync(ErrFrameSize, cancellationToken).ConfigureAwait(false);
+                        return;
+                    }
+
                     break;
 
                 case Http2FrameType.GoAway:
                     return;
 
                 case Http2FrameType.Priority:
+                    // RFC 9113: PRIORITY is ignored; length must be 5 when present on stream.
+                    if (frame.StreamId == 0 || frame.Payload.Length != 5)
+                    {
+                        await GoAwayAsync(frame.StreamId == 0 ? ErrProtocol : ErrFrameSize, cancellationToken)
+                            .ConfigureAwait(false);
+                        return;
+                    }
+
+                    break;
+
                 case Http2FrameType.PushPromise:
+                    // Server does not accept push from client.
+                    await GoAwayAsync(ErrProtocol, cancellationToken).ConfigureAwait(false);
+                    return;
+
+                default:
+                    // Unknown frame types must be ignored (extensions).
                     break;
             }
         }
+    }
+
+    private async Task<bool> OnSettingsAsync(Http2Frame frame, CancellationToken cancellationToken)
+    {
+        if (frame.StreamId != 0)
+        {
+            await GoAwayAsync(ErrProtocol, cancellationToken).ConfigureAwait(false);
+            return false;
+        }
+
+        var isAck = (frame.Flags & Http2FrameFlags.Ack) != 0;
+        if (isAck)
+        {
+            if (frame.Payload.Length != 0)
+            {
+                await GoAwayAsync(ErrFrameSize, cancellationToken).ConfigureAwait(false);
+                return false;
+            }
+
+            return true;
+        }
+
+        if (frame.Payload.Length % 6 != 0)
+        {
+            await GoAwayAsync(ErrFrameSize, cancellationToken).ConfigureAwait(false);
+            return false;
+        }
+
+        _seenSettingsIds.Clear();
+        for (var i = 0; i < frame.Payload.Length; i += 6)
+        {
+            var id = (frame.Payload[i] << 8) | frame.Payload[i + 1];
+            var value = (frame.Payload[i + 2] << 24) | (frame.Payload[i + 3] << 16) |
+                        (frame.Payload[i + 4] << 8) | frame.Payload[i + 5];
+
+            if (!_seenSettingsIds.Add(id))
+            {
+                await GoAwayAsync(ErrProtocol, cancellationToken).ConfigureAwait(false);
+                return false;
+            }
+
+            switch (id)
+            {
+                case 0x1: // HEADER_TABLE_SIZE — accept, HPACK dynamic table not fully applied yet
+                    break;
+                case 0x2: // ENABLE_PUSH
+                    if (value is not (0 or 1))
+                    {
+                        await GoAwayAsync(ErrProtocol, cancellationToken).ConfigureAwait(false);
+                        return false;
+                    }
+
+                    break;
+                case 0x3: // MAX_CONCURRENT_STREAMS — client limit; ignore for server send path
+                    break;
+                case 0x4: // INITIAL_WINDOW_SIZE
+                    if (value > 0x7FFFFFFF)
+                    {
+                        await GoAwayAsync(ErrFlowControl, cancellationToken).ConfigureAwait(false);
+                        return false;
+                    }
+
+                    _initialStreamWindow = value;
+                    break;
+                case 0x5: // MAX_FRAME_SIZE
+                    if (value < 16384 || value > 0xFFFFFF)
+                    {
+                        await GoAwayAsync(ErrProtocol, cancellationToken).ConfigureAwait(false);
+                        return false;
+                    }
+
+                    // Peer advertised max we may send; keep our receive cap from options.
+                    break;
+                case 0x6: // MAX_HEADER_LIST_SIZE
+                    break;
+                default:
+                    // Unknown settings ignored.
+                    break;
+            }
+        }
+
+        await WriteFrameAsync(
+                Http2FrameType.Settings,
+                Http2FrameFlags.Ack,
+                0,
+                ReadOnlyMemory<byte>.Empty,
+                cancellationToken)
+            .ConfigureAwait(false);
+        return true;
+    }
+
+    private async Task<bool> OnPingAsync(Http2Frame frame, CancellationToken cancellationToken)
+    {
+        if (frame.StreamId != 0)
+        {
+            await GoAwayAsync(ErrProtocol, cancellationToken).ConfigureAwait(false);
+            return false;
+        }
+
+        if (frame.Payload.Length != 8)
+        {
+            await GoAwayAsync(ErrFrameSize, cancellationToken).ConfigureAwait(false);
+            return false;
+        }
+
+        if ((frame.Flags & Http2FrameFlags.Ack) != 0)
+        {
+            return true; // ignore ACK
+        }
+
+        // Echo payload exactly.
+        await WriteFrameAsync(
+                Http2FrameType.Ping,
+                Http2FrameFlags.Ack,
+                0,
+                frame.Payload,
+                cancellationToken)
+            .ConfigureAwait(false);
+        return true;
+    }
+
+    private async Task<bool> OnWindowUpdateAsync(Http2Frame frame, CancellationToken cancellationToken)
+    {
+        if (frame.Payload.Length != 4)
+        {
+            await GoAwayAsync(ErrFrameSize, cancellationToken).ConfigureAwait(false);
+            return false;
+        }
+
+        var inc = ((frame.Payload[0] & 0x7F) << 24) | (frame.Payload[1] << 16) |
+                  (frame.Payload[2] << 8) | frame.Payload[3];
+        if (inc == 0)
+        {
+            if (frame.StreamId == 0)
+            {
+                await GoAwayAsync(ErrProtocol, cancellationToken).ConfigureAwait(false);
+            }
+            else
+            {
+                await RstAsync(frame.StreamId, ErrProtocol, cancellationToken).ConfigureAwait(false);
+            }
+
+            return frame.StreamId != 0;
+        }
+
+        if (frame.StreamId == 0)
+        {
+            _serverWindow += inc;
+            if (_serverWindow < 0)
+            {
+                await GoAwayAsync(ErrFlowControl, cancellationToken).ConfigureAwait(false);
+                return false;
+            }
+        }
+        else if (_streams.TryGetValue(frame.StreamId, out var state))
+        {
+            state.SendWindow += inc;
+        }
+
+        return true;
     }
 
     private async Task OnHeadersAsync(Http2Frame frame, CancellationToken cancellationToken)
     {
         if (frame.StreamId == 0 || (frame.StreamId & 1) == 0)
         {
-            await GoAwayAsync(0x1, cancellationToken).ConfigureAwait(false);
+            await GoAwayAsync(ErrProtocol, cancellationToken).ConfigureAwait(false);
             return;
         }
 
+        if (frame.StreamId <= _lastStreamId)
+        {
+            await GoAwayAsync(ErrProtocol, cancellationToken).ConfigureAwait(false);
+            return;
+        }
+
+        _lastStreamId = frame.StreamId;
+
         if (_streams.ContainsKey(frame.StreamId))
         {
-            await RstAsync(frame.StreamId, 0x1, cancellationToken).ConfigureAwait(false);
+            await RstAsync(frame.StreamId, ErrProtocol, cancellationToken).ConfigureAwait(false);
             return;
         }
 
         if (Interlocked.Increment(ref _activeStreams) > _serverOptions.MaxConcurrentStreams)
         {
             Interlocked.Decrement(ref _activeStreams);
-            await RstAsync(frame.StreamId, 0x7 /* REFUSED_STREAM */, cancellationToken).ConfigureAwait(false);
+            await RstAsync(frame.StreamId, ErrRefusedStream, cancellationToken).ConfigureAwait(false);
             return;
         }
 
         var payload = StripPadAndPriority(frame);
-        var state = new StreamState(frame.StreamId);
+        if (payload.Length > _serverOptions.MaxHeaderBytes)
+        {
+            await RstAsync(frame.StreamId, ErrEnhanceYourCalm, cancellationToken).ConfigureAwait(false);
+            Interlocked.Decrement(ref _activeStreams);
+            return;
+        }
+
+        var state = new StreamState(frame.StreamId, _initialStreamWindow);
         state.HeaderBuffer.Write(payload);
         state.EndStreamOnHeaders = (frame.Flags & Http2FrameFlags.EndStream) != 0;
         state.HeadersComplete = (frame.Flags & Http2FrameFlags.EndHeaders) != 0;
@@ -187,7 +386,7 @@ internal sealed class Http2Connection
 
         if (state.HeaderBuffer.Length + frame.Payload.Length > _serverOptions.MaxHeaderBytes)
         {
-            await RstAsync(frame.StreamId, 0x6, cancellationToken).ConfigureAwait(false);
+            await RstAsync(frame.StreamId, ErrEnhanceYourCalm, cancellationToken).ConfigureAwait(false);
             _streams.TryRemove(frame.StreamId, out _);
             Interlocked.Decrement(ref _activeStreams);
             return;
@@ -205,9 +404,20 @@ internal sealed class Http2Connection
     {
         if (!_streams.TryGetValue(frame.StreamId, out var state) || !state.HeadersComplete)
         {
-            await RstAsync(frame.StreamId, 0x5 /* STREAM_CLOSED */, cancellationToken).ConfigureAwait(false);
+            await RstAsync(frame.StreamId, ErrStreamClosed, cancellationToken).ConfigureAwait(false);
             return;
         }
+
+        // Connection + stream receive window (simple: decrement by full frame payload incl pad).
+        var frameLen = frame.Payload.Length;
+        if (frameLen > state.RecvWindow || frameLen > _serverWindow)
+        {
+            await GoAwayAsync(ErrFlowControl, cancellationToken).ConfigureAwait(false);
+            return;
+        }
+
+        state.RecvWindow -= frameLen;
+        _serverWindow -= frameLen;
 
         var payload = frame.Payload.AsSpan();
         if ((frame.Flags & Http2FrameFlags.Padded) != 0)
@@ -221,7 +431,7 @@ internal sealed class Http2Connection
             payload = payload[1..];
             if (pad > payload.Length)
             {
-                await RstAsync(frame.StreamId, 0x1, cancellationToken).ConfigureAwait(false);
+                await RstAsync(frame.StreamId, ErrProtocol, cancellationToken).ConfigureAwait(false);
                 return;
             }
 
@@ -230,13 +440,23 @@ internal sealed class Http2Connection
 
         if (state.Body.Length + payload.Length > _serverOptions.MaxRequestBodyBytes)
         {
-            await RstAsync(frame.StreamId, 0x7, cancellationToken).ConfigureAwait(false);
+            await RstAsync(frame.StreamId, ErrRefusedStream, cancellationToken).ConfigureAwait(false);
             _streams.TryRemove(frame.StreamId, out _);
             Interlocked.Decrement(ref _activeStreams);
             return;
         }
 
         state.Body.Write(payload);
+
+        // Replenish windows after consuming data.
+        if (frameLen > 0)
+        {
+            await WriteWindowUpdateAsync(0, frameLen, cancellationToken).ConfigureAwait(false);
+            await WriteWindowUpdateAsync(frame.StreamId, frameLen, cancellationToken).ConfigureAwait(false);
+            state.RecvWindow += frameLen;
+            _serverWindow += frameLen;
+        }
+
         if ((frame.Flags & Http2FrameFlags.EndStream) != 0)
         {
             state.EndStream = true;
@@ -291,22 +511,88 @@ internal sealed class Http2Connection
             return;
         }
 
-        string method = "GET";
-        string path = "/";
-        string scheme = _listen.UseHttps ? "https" : "http";
+        string? method = null;
+        string? path = null;
+        string? scheme = null;
         string? authority = null;
         string? contentType = null;
         long? contentLength = null;
         var headerDict = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
+        var sawRegular = false;
 
         foreach (var (name, value) in decoded)
         {
+            if (name.Length == 0)
+            {
+                await RstAsync(state.StreamId, ErrProtocol, cancellationToken).ConfigureAwait(false);
+                return;
+            }
+
+            if (name[0] == ':')
+            {
+                if (sawRegular)
+                {
+                    await RstAsync(state.StreamId, ErrProtocol, cancellationToken).ConfigureAwait(false);
+                    return;
+                }
+
+                switch (name)
+                {
+                    case ":method":
+                        if (method is not null || value.Length == 0)
+                        {
+                            await RstAsync(state.StreamId, ErrProtocol, cancellationToken).ConfigureAwait(false);
+                            return;
+                        }
+
+                        method = value;
+                        break;
+                    case ":path":
+                        if (path is not null || value.Length == 0 ||
+                            (value[0] != '/' && value != "*"))
+                        {
+                            await RstAsync(state.StreamId, ErrProtocol, cancellationToken).ConfigureAwait(false);
+                            return;
+                        }
+
+                        path = value;
+                        break;
+                    case ":scheme":
+                        if (scheme is not null || value.Length == 0)
+                        {
+                            await RstAsync(state.StreamId, ErrProtocol, cancellationToken).ConfigureAwait(false);
+                            return;
+                        }
+
+                        scheme = value;
+                        break;
+                    case ":authority":
+                        if (authority is not null)
+                        {
+                            await RstAsync(state.StreamId, ErrProtocol, cancellationToken).ConfigureAwait(false);
+                            return;
+                        }
+
+                        authority = value;
+                        break;
+                    default:
+                        // Unknown/forbidden request pseudo-header.
+                        await RstAsync(state.StreamId, ErrProtocol, cancellationToken).ConfigureAwait(false);
+                        return;
+                }
+
+                continue;
+            }
+
+            sawRegular = true;
+            if (name is "connection" or "transfer-encoding" or "keep-alive" or "proxy-connection" or "upgrade")
+            {
+                await RstAsync(state.StreamId, ErrProtocol, cancellationToken).ConfigureAwait(false);
+                return;
+            }
+
             switch (name)
             {
-                case ":method": method = value; break;
-                case ":path": path = value; break;
-                case ":scheme": scheme = value; break;
-                case ":authority": authority = value; break;
                 case "content-type":
                     contentType = value;
                     AddHeader(headerDict, name, value);
@@ -320,13 +606,15 @@ internal sealed class Http2Connection
                     AddHeader(headerDict, name, value);
                     break;
                 default:
-                    if (!name.StartsWith(":", StringComparison.Ordinal))
-                    {
-                        AddHeader(headerDict, name, value);
-                    }
-
+                    AddHeader(headerDict, name, value);
                     break;
             }
+        }
+
+        if (method is null || path is null || scheme is null)
+        {
+            await RstAsync(state.StreamId, ErrProtocol, cancellationToken).ConfigureAwait(false);
+            return;
         }
 
         var pathOnly = path;
@@ -518,12 +806,32 @@ internal sealed class Http2Connection
     private async Task GoAwayAsync(int errorCode, CancellationToken cancellationToken)
     {
         var payload = new byte[8];
-        // last-stream-id 0
+        var last = _lastStreamId;
+        payload[0] = (byte)((last >> 24) & 0x7F);
+        payload[1] = (byte)((last >> 16) & 0xFF);
+        payload[2] = (byte)((last >> 8) & 0xFF);
+        payload[3] = (byte)(last & 0xFF);
         payload[4] = (byte)((errorCode >> 24) & 0xFF);
         payload[5] = (byte)((errorCode >> 16) & 0xFF);
         payload[6] = (byte)((errorCode >> 8) & 0xFF);
         payload[7] = (byte)(errorCode & 0xFF);
         await WriteFrameAsync(Http2FrameType.GoAway, Http2FrameFlags.None, 0, payload, cancellationToken)
+            .ConfigureAwait(false);
+    }
+
+    private async Task WriteWindowUpdateAsync(int streamId, int increment, CancellationToken cancellationToken)
+    {
+        if (increment <= 0)
+        {
+            return;
+        }
+
+        var payload = new byte[4];
+        payload[0] = (byte)((increment >> 24) & 0x7F);
+        payload[1] = (byte)((increment >> 16) & 0xFF);
+        payload[2] = (byte)((increment >> 8) & 0xFF);
+        payload[3] = (byte)(increment & 0xFF);
+        await WriteFrameAsync(Http2FrameType.WindowUpdate, Http2FrameFlags.None, streamId, payload, cancellationToken)
             .ConfigureAwait(false);
     }
 
@@ -577,7 +885,13 @@ internal sealed class Http2Connection
 
     private sealed class StreamState : IDisposable
     {
-        public StreamState(int streamId) => StreamId = streamId;
+        public StreamState(int streamId, int initialWindow)
+        {
+            StreamId = streamId;
+            RecvWindow = initialWindow;
+            SendWindow = initialWindow;
+        }
+
         public int StreamId { get; }
         public MemoryStream HeaderBuffer { get; } = new();
         public MemoryStream Body { get; } = new();
@@ -585,6 +899,8 @@ internal sealed class Http2Connection
         public bool EndStreamOnHeaders { get; set; }
         public bool EndStream { get; set; }
         public bool Dispatched { get; set; }
+        public int RecvWindow { get; set; }
+        public int SendWindow { get; set; }
 
         public void Dispose()
         {

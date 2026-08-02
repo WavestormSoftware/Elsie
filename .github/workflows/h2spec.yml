@@ -1,0 +1,74 @@
+name: h2spec
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  h2spec:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: |
+            10.0.x
+
+      - name: Build H2 host
+        run: dotnet build tools/Elsie.H2SpecHost/Elsie.H2SpecHost.csproj -c Release
+
+      - name: Install h2spec
+        run: |
+          set -euo pipefail
+          ver=2.6.0
+          curl -fsSL -o /tmp/h2spec.tgz \
+            "https://github.com/summerwind/h2spec/releases/download/v${ver}/h2spec_linux_amd64.tar.gz"
+          tar -xzf /tmp/h2spec.tgz -C /tmp
+          chmod +x /tmp/h2spec
+          /tmp/h2spec --version
+
+      - name: Generate TLS cert + run h2spec
+        run: |
+          set -euo pipefail
+          openssl req -x509 -newkey rsa:2048 -sha256 -days 1 -nodes \
+            -keyout /tmp/elsie-h2.key -out /tmp/elsie-h2.crt \
+            -subj "/CN=localhost" \
+            -addext "subjectAltName=DNS:localhost,IP:127.0.0.1"
+          openssl pkcs12 -export -out /tmp/elsie-h2.pfx \
+            -inkey /tmp/elsie-h2.key -in /tmp/elsie-h2.crt -passout pass:
+
+          export ELSIE_H2_PFX=/tmp/elsie-h2.pfx
+          export ELSIE_H2_PORT=9443
+          dotnet run --project tools/Elsie.H2SpecHost -c Release --no-build > /tmp/h2host.log 2>&1 &
+          host_pid=$!
+          trap 'kill $host_pid 2>/dev/null || true' EXIT
+
+          for i in $(seq 1 40); do
+            if bash -c 'echo > /dev/tcp/127.0.0.1/9443' 2>/dev/null; then
+              break
+            fi
+            sleep 0.25
+          done
+
+          # Soft gate while conformance ratchets:
+          # - host must stay alive
+          # - h2spec must produce a summary
+          # Documented incomplete areas: full HPACK dynamic table, push, priority trees,
+          # strict CONTINUATION state machine edge cases — see docs/hosting-and-aot.md
+          set +e
+          /tmp/h2spec -tk -h 127.0.0.1 -p 9443 \
+            generic/1 generic/2 generic/3 \
+            http2/3 http2/4 http2/5 http2/6 http2/7 http2/8 \
+            | tee /tmp/h2spec.out
+          set -e
+
+          if ! kill -0 $host_pid 2>/dev/null; then
+            echo "H2 host died"; cat /tmp/h2host.log || true; exit 1
+          fi
+          if ! grep -qE '[0-9]+ tests' /tmp/h2spec.out; then
+            echo "h2spec produced no summary"; cat /tmp/h2host.log || true; exit 1
+          fi
