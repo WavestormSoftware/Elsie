@@ -208,7 +208,7 @@ internal sealed class HostDispatch
 
         foreach (var attacher in _attachers)
         {
-            attacher.Attach(request);
+            await attacher.AttachAsync(request, cancellationToken).ConfigureAwait(false);
         }
 
         foreach (var filter in _filters)

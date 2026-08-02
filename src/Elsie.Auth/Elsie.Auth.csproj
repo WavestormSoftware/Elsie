@@ -9,7 +9,9 @@
     <ProjectReference Include="..\Elsie.Core\Elsie.Core.csproj" />
     <ProjectReference Include="..\Elsie\Elsie.csproj" />
     <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" />
+    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" />
     <PackageReference Include="System.IdentityModel.Tokens.Jwt" />
+    <PackageReference Include="Microsoft.IdentityModel.Protocols.OpenIdConnect" />
   </ItemGroup>
   <ItemGroup>
     <InternalsVisibleTo Include="Elsie.Auth.Tests" />

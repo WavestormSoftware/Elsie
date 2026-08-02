@@ -17,6 +17,7 @@
 
     <!-- Auth JWT -->
     <PackageVersion Include="System.IdentityModel.Tokens.Jwt" Version="8.22.0" />
+    <PackageVersion Include="Microsoft.IdentityModel.Protocols.OpenIdConnect" Version="8.22.0" />
 
     <!-- Redis / distributed rate limiting -->
     <PackageVersion Include="StackExchange.Redis" Version="3.1.0" />

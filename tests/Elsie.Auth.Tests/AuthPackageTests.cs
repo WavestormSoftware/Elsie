@@ -84,7 +84,8 @@ public class AuthPackageTests
                 {
                     CookieName = "elsie-auth",
                     HttpOnly = true,
-                    SlidingExpiration = false
+                    SlidingExpiration = false,
+                    Secure = false // plain-HTTP loopback test host
                 };
                 o.Cookie.TicketKeyFromString("test-ticket-key!!");
             });

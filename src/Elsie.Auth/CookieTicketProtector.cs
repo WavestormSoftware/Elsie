@@ -12,6 +12,12 @@ internal static class CookieTicketProtector
         PropertyNamingPolicy = JsonNamingPolicy.CamelCase
     };
 
+    /// <summary>v1 ticket prefix (client-side encrypted principal).</summary>
+    public const string V1Prefix = "v1.";
+
+    /// <summary>v2 ticket prefix (opaque server-side session id).</summary>
+    public const string V2Prefix = "v2.";
+
     public static string Protect(ClaimsPrincipal principal, DateTimeOffset expiresUtc, byte[] key)
     {
         var payload = new TicketPayload
@@ -33,14 +39,14 @@ internal static class CookieTicketProtector
         Buffer.BlockCopy(nonce, 0, packed, 0, nonce.Length);
         Buffer.BlockCopy(tag, 0, packed, nonce.Length, tag.Length);
         Buffer.BlockCopy(cipher, 0, packed, nonce.Length + tag.Length, cipher.Length);
-        return "v1." + Base64UrlEncode(packed);
+        return V1Prefix + Base64UrlEncode(packed);
     }
 
     public static bool TryUnprotect(string token, byte[] key, out ClaimsPrincipal? principal, out DateTimeOffset expiresUtc)
     {
         principal = null;
         expiresUtc = default;
-        if (string.IsNullOrEmpty(token) || !token.StartsWith("v1.", StringComparison.Ordinal))
+        if (string.IsNullOrEmpty(token) || !token.StartsWith(V1Prefix, StringComparison.Ordinal))
         {
             return false;
         }
@@ -48,7 +54,7 @@ internal static class CookieTicketProtector
         byte[] packed;
         try
         {
-            packed = Base64UrlDecode(token[3..]);
+            packed = Base64UrlDecode(token[V1Prefix.Length..]);
         }
         catch
         {
@@ -95,10 +101,83 @@ internal static class CookieTicketProtector
             return false;
         }
 
+        principal = ToPrincipal(payload);
+        return true;
+    }
+
+    /// <summary>Builds an opaque v2 session id cookie value from a ≥16-byte session id.</summary>
+    public static string ProtectServerSideSession(byte[] sessionId)
+    {
+        if (sessionId.Length < 16)
+        {
+            throw new ArgumentException("Server-side session ids must be at least 16 bytes (128-bit).", nameof(sessionId));
+        }
+
+        return V2Prefix + Base64UrlEncode(sessionId);
+    }
+
+    /// <summary>True when the cookie value is a v2 opaque session id.</summary>
+    public static bool IsVersion2(string token) =>
+        !string.IsNullOrEmpty(token) && token.StartsWith(V2Prefix, StringComparison.Ordinal);
+
+    /// <summary>Extracts the opaque session id from a v2 cookie value.</summary>
+    public static bool TryGetSessionId(string token, out byte[] sessionId)
+    {
+        sessionId = [];
+        if (!IsVersion2(token))
+        {
+            return false;
+        }
+
+        try
+        {
+            sessionId = Base64UrlDecode(token[V2Prefix.Length..]);
+        }
+        catch
+        {
+            return false;
+        }
+
+        return sessionId.Length >= 16;
+    }
+
+    /// <summary>Serializes a principal for storage in a session store.</summary>
+    public static byte[] SerializePrincipal(ClaimsPrincipal principal)
+    {
+        var payload = new TicketPayload
+        {
+            Exp = DateTimeOffset.MaxValue.ToUnixTimeSeconds(),
+            Claims = principal.Claims.Select(c => new TicketClaim(c.Type, c.Value)).ToArray(),
+            AuthType = principal.Identity?.AuthenticationType ?? "Cookies"
+        };
+        return JsonSerializer.SerializeToUtf8Bytes(payload, JsonOptions);
+    }
+
+    /// <summary>Deserializes a principal from <see cref="SerializePrincipal"/>; null when invalid.</summary>
+    public static ClaimsPrincipal? TryDeserializePrincipal(byte[] data)
+    {
+        try
+        {
+            var payload = JsonSerializer.Deserialize<TicketPayload>(data, JsonOptions);
+            return payload is null ? null : ToPrincipal(payload);
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    /// <summary>Generates a new opaque session id (128-bit random).</summary>
+    public static byte[] NewSessionId() => RandomNumberGenerator.GetBytes(16);
+
+    /// <summary>Encodes a raw session id for use as a store key (URL-safe).</summary>
+    public static string ToSessionIdString(byte[] sessionId) => Base64UrlEncode(sessionId);
+
+    private static ClaimsPrincipal ToPrincipal(TicketPayload payload)
+    {
         var claims = payload.Claims?.Select(c => new Claim(c.Type, c.Value)) ?? Array.Empty<Claim>();
         var identity = new ClaimsIdentity(claims, payload.AuthType ?? "Cookies");
-        principal = new ClaimsPrincipal(identity);
-        return true;
+        return new ClaimsPrincipal(identity);
     }
 
     private static byte[] NormalizeKey(byte[] key)

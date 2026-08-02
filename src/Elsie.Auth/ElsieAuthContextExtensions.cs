@@ -11,7 +11,12 @@ public static class ElsieAuthContextExtensions
         return ElsiePrincipal.GetUser(context);
     }
 
-    public static Task SignInAsync(this ElsieContext context, ClaimsPrincipal principal, TimeSpan? expires = null)
+    /// <summary>
+    /// Signs the principal in. With an <see cref="ElsieAuthOptions.SessionStore"/> configured the
+    /// cookie carries an opaque v2 session id (≥128-bit) and the principal lives server-side;
+    /// otherwise the default client-side encrypted v1 ticket is used.
+    /// </summary>
+    public static async Task SignInAsync(this ElsieContext context, ClaimsPrincipal principal, TimeSpan? expires = null)
     {
         ArgumentNullException.ThrowIfNull(context);
         ArgumentNullException.ThrowIfNull(principal);
@@ -26,8 +31,22 @@ public static class ElsieAuthContextExtensions
         }
 
         var lifetime = expires ?? cookie.ExpireTimeSpan;
-        var exp = DateTimeOffset.UtcNow.Add(lifetime);
-        var token = CookieTicketProtector.Protect(principal, exp, cookie.TicketKey);
+        string token;
+        if (options.SessionStore is { } store)
+        {
+            var sessionId = CookieTicketProtector.NewSessionId();
+            await store.SetAsync(
+                CookieTicketProtector.ToSessionIdString(sessionId),
+                CookieTicketProtector.SerializePrincipal(principal),
+                lifetime,
+                context.Request.RequestAborted).ConfigureAwait(false);
+            token = CookieTicketProtector.ProtectServerSideSession(sessionId);
+        }
+        else
+        {
+            var exp = DateTimeOffset.UtcNow.Add(lifetime);
+            token = CookieTicketProtector.Protect(principal, exp, cookie.TicketKey);
+        }
 
         var cookieOptions = new ElsieCookieOptions
         {
@@ -41,7 +60,6 @@ public static class ElsieAuthContextExtensions
 
         context.Response.SetCookie(cookie.CookieName, token, cookieOptions);
         ElsiePrincipal.SetUser(context.Request, principal);
-        return Task.CompletedTask;
     }
 
     public static Task SignInCookieAsync(
@@ -67,13 +85,27 @@ public static class ElsieAuthContextExtensions
         return context.SignInAsync(new ClaimsPrincipal(identity), expires);
     }
 
-    public static Task SignOutAsync(this ElsieContext context)
+    /// <summary>
+    /// Signs out: removes the server-side session (when a v2 cookie and a session store are
+    /// configured) and clears the cookie.
+    /// </summary>
+    public static async Task SignOutAsync(this ElsieContext context)
     {
         ArgumentNullException.ThrowIfNull(context);
         var options = context.GetService<ElsieAuthOptions>();
         var cookie = options?.Cookie;
         if (cookie is not null)
         {
+            var raw = context.Request.GetCookie(cookie.CookieName);
+            if (options!.SessionStore is { } store &&
+                !string.IsNullOrEmpty(raw) &&
+                CookieTicketProtector.TryGetSessionId(raw, out var sessionId))
+            {
+                await store.RemoveAsync(
+                    CookieTicketProtector.ToSessionIdString(sessionId),
+                    context.Request.RequestAborted).ConfigureAwait(false);
+            }
+
             context.Response.SetCookie(cookie.CookieName, string.Empty, new ElsieCookieOptions
             {
                 HttpOnly = cookie.HttpOnly,
@@ -86,6 +118,5 @@ public static class ElsieAuthContextExtensions
         }
 
         ElsiePrincipal.SetUser(context.Request, new ClaimsPrincipal(new ClaimsIdentity()));
-        return Task.CompletedTask;
     }
 }

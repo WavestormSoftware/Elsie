@@ -211,6 +211,7 @@ public class SecurityTests
                 o.Cookie = new ElsieCookieAuthOptions
                 {
                     CookieName = "t",
+                    Secure = false, // plain-HTTP loopback test host
                     AllowInsecureDevelopmentKey = false
                 };
                 o.Cookie.TicketKeyFromString("unit-test-ticket-key!");
