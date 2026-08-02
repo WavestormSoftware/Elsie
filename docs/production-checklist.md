@@ -18,4 +18,4 @@
 - [ ] Review security headers: `ElsieSecurityHeaders.DefaultAfter()`
 - [ ] DataAnnotations (optional): `AddElsieDataAnnotationsValidation` + `ValidateWithDataAnnotations`
 - [ ] Load test accept limits and body sizes under real traffic
-- [ ] Pin package versions (`0.3.0-beta.2` prerelease) and watch Dependabot PRs
+- [ ] Pin package versions (`0.4.0-beta` prerelease) and watch Dependabot PRs

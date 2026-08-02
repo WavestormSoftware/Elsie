@@ -5,7 +5,7 @@ Elsie is a Sinatra-style HTTP module framework for **.NET 8** and **.NET 10**. D
 ## Install
 
 ```bash
-dotnet add package Elsie              # host + Elsie.Core (0.3.0-beta.2)
+dotnet add package Elsie              # host + Elsie.Core (0.4.0-beta)
 # optional:
 dotnet add package Elsie.Auth
 dotnet add package Elsie.Cors

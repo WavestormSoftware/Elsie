@@ -5,7 +5,7 @@ HTTP module framework for **.NET 8** and **.NET 10**. Define routes in small mod
 **Why Elsie?** Tiny Sinatra-style modules, one fluent host (`ElsieApp`), no ASP.NET tax. Hold the whole request path in your head — modules → results → server — without `WebApplication` ceremony or a shared-framework dependency.
 
 ```bash
-dotnet add package Elsie          # 0.3.0-beta.2 — host + Elsie.Core
+dotnet add package Elsie          # 0.4.0-beta — host + Elsie.Core
 ```
 
 ```csharp
@@ -343,8 +343,10 @@ In tests, set `ScanEntryAssembly = false` and register modules explicitly.
 | [Elsie.Validation](https://www.nuget.org/packages/Elsie.Validation) | DataAnnotations validation adapter |
 | [Elsie.Testing](https://www.nuget.org/packages/Elsie.Testing) | Helpers for **your** tests (not the same as repo `tests/`) |
 | [Elsie.Templates](https://www.nuget.org/packages/Elsie.Templates) | `dotnet new elsie` / `elsie-api` |
+| [Elsie.Extensions.RateLimiting.Redis](https://www.nuget.org/packages/Elsie.Extensions.RateLimiting.Redis) | Distributed rate limiting over Redis (Lua, fail-open) |
+| [Elsie.Extensions.Auth.Redis](https://www.nuget.org/packages/Elsie.Extensions.Auth.Redis) | Server-side cookie sessions over Redis (`RedisSessionStore`) |
 
-Current version: **`0.3.0-beta.2`** (prerelease; APIs may still change).
+Current version: **`0.4.0-beta`** (prerelease; APIs may still change).
 
 Namespaces stay `Elsie` / `Elsie.Web` (host assembly is still `Elsie.Web.dll`). Library authors who want the host-agnostic surface only should reference **`Elsie.Core`**. Former package id **`Elsie.Web`** is retired — use **`Elsie`**.
 
