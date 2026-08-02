@@ -224,6 +224,12 @@ Elsie does **not** currently ship a full native-AOT guarantee. Prefer:
 2. `ctx.Json` + `JsonSerializerContext`  
 3. Avoid OpenAPI reflection in the trimmed published app if you hit linker warnings (serve a prebuilt document instead)
 
+## AOT smoke + nightly quality gates
+
+- `tools/Elsie.AotSmoke` is a standalone trimmed/AOT smoke app (not in `Elsie.sln`): `dotnet publish tools/Elsie.AotSmoke/Elsie.AotSmoke.csproj -c Release -r linux-x64 /p:PublishAot=true`, then run the binary — it boots the real host and asserts `GET /` works. Reflection-based `ElsieResult.Json` is a documented AOT limitation; the gate reports it without failing.
+- `tests/Elsie.Fuzz` is a standalone black-box fuzzer/soak harness (not in `Elsie.sln`, nightly-only): raw-socket HTTP/1.1 byte soup, HTTP/2 frames + HPACK blocks, then a soak phase. It asserts no crashes (canary), no 5xx-internal responses, and bounded process working set. Run it with `--fuzz-only --seconds N`, `--soak-only --seconds N`, or `--seconds N` (50/50 split).
+- `.github/workflows/nightly.yml` runs the fuzzer (10 min), the soak (30 min), and the AOT smoke on a nightly schedule + manual dispatch.
+
 ## Target framework
 
 Libraries and samples target **`net10.0`** only.

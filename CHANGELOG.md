@@ -40,6 +40,7 @@ Elsie is **unreleased** software; prereleases may include breaking API changes.
 - HTTP/2 protocol hardening (PING/SETTINGS/WINDOW_UPDATE/pseudo-headers/flow control) + Linux `h2spec` workflow (`tools/Elsie.H2SpecHost`)
 - TCP keepalive on accept (`TcpKeepAlive` / `TcpKeepAliveTime` / `TcpKeepAliveInterval`) + `ConnectionIdleTimeout` for keep-alive gaps
 - Unix domain sockets: `http+unix:///path`, `http://unix:/path`, `ElsieListenOptions.FromUnixSocketPath` (HTTP/1.1)
+- **C4 quality gates**: `.editorconfig` + `dotnet format Elsie.sln --verify-no-changes` CI step; **nightly workflow** (`.github/workflows/nightly.yml`, cron + manual dispatch) with a 10-min black-box parser fuzz (`tests/Elsie.Fuzz`, standalone — raw-socket HTTP/1.1 + HTTP/2 frames/HPACK, no crashes/hangs/5xx-internal, bounded working set) and a 30-min soak/load smoke (route + dispatch + static streaming over h1/h2); native-AOT smoke tool `tools/Elsie.AotSmoke` (publish `PublishAot=true` + run trimmed binary) with `DynamicallyAccessedMembers` annotations in `ElsieServiceCollectionExtensions`
 
 ### Fixed
 - Response writer no longer buffers `BodyWriter` when `Content-Length` is already set (static files / known-length streams)
