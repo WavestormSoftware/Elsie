@@ -12,7 +12,21 @@ Elsie is a small HTTP stack. Treat production like any other custom host.
 | `UseForwardedHeaders` | **false** | Enable only behind a trusted proxy |
 | Rate-limit partition | **RemoteIp only** | Use `ForwardedPartitionKey` only with trusted XFF |
 | `MaxRequestBodyBytes` | 10 MiB | Lower for APIs that don’t need big posts |
+| `RequestBodyIdleTimeout` | 30s | Slow-loris guard on body reads |
+| `DisableContinue` | false | Leave false so `Expect: 100-continue` works |
+| `AbortRequestsOnClientDisconnect` | true | Cancels `RequestAborted` on peer close |
+| `ShutdownAbortConnections` | true | Force-close sockets after drain timeout |
 | Static files | path-safe | Keep roots outside secrets |
+
+## HTTP/1.1 framing
+
+- Rejects **Content-Length + Transfer-Encoding** together (smuggling).
+- Rejects **differing duplicate Content-Length** values; equal duplicates accepted.
+- `Transfer-Encoding` must be **chunked only** (no coding lists).
+- Chunk-size / request lines capped (`MaxRequestLineLength`, default 8 KiB).
+- Request paths canonicalized at the host boundary (`//`, `.`/`..`); root-escaping `..`, `\\`, and NUL → **400**.
+- Responses include RFC 7231 `Date` unless the app set one.
+- Compression honors `Accept-Encoding` q-values and sets `Vary: Accept-Encoding`.
 
 ## Cookie sessions
 
@@ -35,6 +49,7 @@ Elsie is a small HTTP stack. Treat production like any other custom host.
     o.MaxRequestBodyBytes = 1_000_000;
     o.MaxConcurrentConnections = 10_000;
     o.RequestHeadersTimeout = TimeSpan.FromSeconds(30);
+    o.RequestBodyIdleTimeout = TimeSpan.FromSeconds(30);
 })
 ```
 
@@ -54,7 +69,8 @@ Automated tests cover (Web + Auth suites):
 - Cookie ticket tamper / wrong key / expired / garbage
 - Short ticket secrets rejected; missing key without dev flag fails DI setup
 - API-key gate rejects wrong keys
-- HTTP/1.1 parser body/header limits
+- HTTP/1.1 parser body/header limits + adversarial framing (CL+TE, dup CL, TE list, giant chunk line)
+- `Expect: 100-continue`, path canonicalization, body idle → 408, shutdown abort
 - 405 / 404 problem bodies do not leak handler data
 - Antiforgery header + form field paths
 - Static path directory-boundary (sibling root-prefix)

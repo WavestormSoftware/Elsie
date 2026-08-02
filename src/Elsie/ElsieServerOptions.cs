@@ -18,6 +18,24 @@ public sealed class ElsieServerOptions
     /// <summary>Idle timeout while reading a request body (default 30s).</summary>
     public TimeSpan RequestBodyIdleTimeout { get; set; } = TimeSpan.FromSeconds(30);
 
+    /// <summary>
+    /// When true (default), send <c>100 Continue</c> for requests with <c>Expect: 100-continue</c>
+    /// before reading the body. Set false to disable.
+    /// </summary>
+    public bool DisableContinue { get; set; }
+
+    /// <summary>
+    /// When true (default), cancel <see cref="ElsieRequest.RequestAborted"/> when the client
+    /// disconnects mid-handler (HTTP/1.1).
+    /// </summary>
+    public bool AbortRequestsOnClientDisconnect { get; set; } = true;
+
+    /// <summary>
+    /// When true (default), force-close remaining sockets after <see cref="ConnectionDrainTimeout"/>
+    /// on shutdown.
+    /// </summary>
+    public bool ShutdownAbortConnections { get; set; } = true;
+
     /// <summary>Max concurrent accepted connections (default 10_000).</summary>
     public int MaxConcurrentConnections { get; set; } = 10_000;
 

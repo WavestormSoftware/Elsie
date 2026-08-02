@@ -21,6 +21,12 @@ Elsie is **unreleased** software; prereleases may include breaking API changes.
 
 ### Fixed
 - HTTP/1.1 smuggling defenses: reject CL+TE, differing duplicate Content-Length, non-`chunked` Transfer-Encoding; cap chunk-size/line length
+- `Expect: 100-continue` interim response (disable via `ElsieServerOptions.DisableContinue`)
+- Canonicalize request paths at host boundary (`//`, `.`/`..`; reject root escape / `\\` / NUL)
+- Client disconnect cancels `RequestAborted` (toggle `AbortRequestsOnClientDisconnect`)
+- Emit RFC 7231 `Date` response header; empty body for 204/304; compression respects `q=` and always sets `Vary: Accept-Encoding`
+- Enforce `RequestBodyIdleTimeout` on body reads (408)
+- Shutdown force-closes drained connections (`ShutdownAbortConnections`)
 - Static files: path containment uses directory boundary (blocks sibling root-prefix escapes)
 - Reject CR/LF/NUL in response header names/values, cookie Path/Domain, and file download names
 - Ignore unsafe client `X-Request-Id` / `X-Correlation-Id` when echoing `X-Request-Id`

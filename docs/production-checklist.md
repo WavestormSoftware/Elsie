@@ -7,7 +7,8 @@
 - [ ] TLS at reverse proxy **or** Elsie HTTPS; prefer proxy → loopback HTTP/1.1
 - [ ] `UseForwardedHeaders = true` **only** behind a trusted proxy that strips client XFF
 - [ ] Rate limits: default partition = `RemoteIp` only; use `ForwardedPartitionKey` only with trusted XFF
-- [ ] `.Server(o => { o.MaxRequestBodyBytes = …; o.MaxConcurrentConnections = …; })`
+- [ ] `.Server(o => { o.MaxRequestBodyBytes = …; o.MaxConcurrentConnections = …; o.RequestBodyIdleTimeout = …; })`
+- [ ] Target **net10.0** (net8 dropped in 0.4.0 series)
 - [ ] Enable `.Compression()` if serving large JSON/HTML from Elsie
 - [ ] `.Logging(loggerFactory)` + ship logs/metrics (`Meter("Elsie")`, `ActivitySource("Elsie")`)
 - [ ] Health checks on `/healthz` (live/ready) for orchestrators

@@ -19,7 +19,7 @@ internal sealed class ElsieServer : IAsyncDisposable
     private readonly List<TcpListener> _listeners = new();
     private readonly CancellationTokenSource _cts = new();
     private readonly List<Task> _acceptLoops = new();
-    private readonly ConcurrentDictionary<Task, byte> _connections = new();
+    private readonly ConcurrentDictionary<Guid, ConnectionEntry> _connections = new();
     private readonly SemaphoreSlim _connectionSlots;
     private int _started;
 
@@ -123,7 +123,7 @@ internal sealed class ElsieServer : IAsyncDisposable
         }
 
         // Drain in-flight connections
-        var pending = _connections.Keys.ToArray();
+        var pending = _connections.Values.Select(c => c.Task).ToArray();
         if (pending.Length > 0)
         {
             var drain = Task.WhenAll(pending);
@@ -131,7 +131,28 @@ internal sealed class ElsieServer : IAsyncDisposable
                 .ConfigureAwait(false);
             if (completed != drain)
             {
-                _logger.LogWarning("Connection drain timed out with {Count} still active.", pending.Length);
+                var remaining = _connections.Values.ToArray();
+                _logger.LogWarning("Connection drain timed out with {Count} still active.", remaining.Length);
+
+                if (_serverOptions.ShutdownAbortConnections)
+                {
+                    foreach (var entry in remaining)
+                    {
+                        try { entry.ConnectionCts.Cancel(); } catch { /* ignore */ }
+                        try { entry.Socket.Dispose(); } catch { /* ignore */ }
+                    }
+
+                    // Brief wait so aborted handlers unwind.
+                    try
+                    {
+                        await Task.WhenAny(Task.WhenAll(remaining.Select(e => e.Task)), Task.Delay(TimeSpan.FromSeconds(1)))
+                            .ConfigureAwait(false);
+                    }
+                    catch
+                    {
+                        // ignore
+                    }
+                }
             }
         }
     }
@@ -198,11 +219,20 @@ internal sealed class ElsieServer : IAsyncDisposable
                 _log,
                 _logger);
 
+            var id = Guid.NewGuid();
+            var connectionCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            var entry = new ConnectionEntry(socket, connectionCts, Task.CompletedTask);
+            // Task assigned below after construction so the entry can be removed by id.
+
             var task = Task.Run(async () =>
             {
                 try
                 {
-                    await handler.RunAsync(socket, ct).ConfigureAwait(false);
+                    await handler.RunAsync(socket, connectionCts.Token).ConfigureAwait(false);
+                }
+                catch (OperationCanceledException)
+                {
+                    // shutdown / disconnect
                 }
                 catch
                 {
@@ -212,15 +242,15 @@ internal sealed class ElsieServer : IAsyncDisposable
                 {
                     ElsieMetrics.ActiveConnections.Add(-1);
                     _connectionSlots.Release();
+                    if (_connections.TryRemove(id, out var removed))
+                    {
+                        try { removed.ConnectionCts.Dispose(); } catch { /* ignore */ }
+                    }
                 }
             }, CancellationToken.None);
 
-            _connections[task] = 0;
-            _ = task.ContinueWith(
-                t => _connections.TryRemove(t, out _),
-                CancellationToken.None,
-                TaskContinuationOptions.ExecuteSynchronously,
-                TaskScheduler.Default);
+            entry = new ConnectionEntry(socket, connectionCts, task);
+            _connections[id] = entry;
         }
     }
 
@@ -237,5 +267,19 @@ internal sealed class ElsieServer : IAsyncDisposable
         }
 
         return $"{ep.Address}:{ep.Port}";
+    }
+
+    private sealed class ConnectionEntry
+    {
+        public ConnectionEntry(Socket socket, CancellationTokenSource connectionCts, Task task)
+        {
+            Socket = socket;
+            ConnectionCts = connectionCts;
+            Task = task;
+        }
+
+        public Socket Socket { get; }
+        public CancellationTokenSource ConnectionCts { get; }
+        public Task Task { get; }
     }
 }

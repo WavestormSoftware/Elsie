@@ -11,6 +11,8 @@ internal sealed class Http1RequestReader
     private readonly int _maxRequestLineLength;
     private readonly int _maxHeaderBytes;
     private long _maxBodyBytes = 10 * 1024 * 1024;
+    private readonly bool _send100Continue;
+    private readonly TimeSpan _bodyIdleTimeout;
     private byte[] _buffer;
     private int _offset;
     private int _count;
@@ -19,12 +21,18 @@ internal sealed class Http1RequestReader
         Stream stream,
         int maxRequestLineLength = 8 * 1024,
         int maxHeaderBytes = 32 * 1024,
-        long maxBodyBytes = 10 * 1024 * 1024)
+        long maxBodyBytes = 10 * 1024 * 1024,
+        bool send100Continue = true,
+        TimeSpan? requestBodyIdleTimeout = null)
     {
         _stream = stream ?? throw new ArgumentNullException(nameof(stream));
         _maxRequestLineLength = maxRequestLineLength;
         _maxHeaderBytes = maxHeaderBytes;
         _maxBodyBytes = maxBodyBytes > 0 ? maxBodyBytes : 10 * 1024 * 1024;
+        _send100Continue = send100Continue;
+        _bodyIdleTimeout = requestBodyIdleTimeout is { } t && t > TimeSpan.Zero
+            ? t
+            : Timeout.InfiniteTimeSpan;
         _buffer = ArrayPool<byte>.Shared.Rent(16 * 1024);
     }
 
@@ -125,6 +133,14 @@ internal sealed class Http1RequestReader
 
         var contentType = headers.TryGetValue("Content-Type", out var ct) && ct.Count > 0 ? ct[0] : null;
         var keepAlive = IsKeepAlive(protocol, headers);
+
+        var expectsBody = contentLength is > 0 || chunked;
+        if (_send100Continue && expectsBody && HasExpect100Continue(headers))
+        {
+            await _stream.WriteAsync("HTTP/1.1 100 Continue\r\n\r\n"u8.ToArray(), cancellationToken)
+                .ConfigureAwait(false);
+            await _stream.FlushAsync(cancellationToken).ConfigureAwait(false);
+        }
 
         Stream body;
         if (contentLength is > 0)
@@ -229,6 +245,27 @@ internal sealed class Http1RequestReader
         }
 
         return true;
+    }
+
+    private static bool HasExpect100Continue(Dictionary<string, List<string>> headers)
+    {
+        if (!headers.TryGetValue("Expect", out var values) || values.Count == 0)
+        {
+            return false;
+        }
+
+        foreach (var raw in values)
+        {
+            foreach (var part in raw.Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries))
+            {
+                if (part.Equals("100-continue", StringComparison.OrdinalIgnoreCase))
+                {
+                    return true;
+                }
+            }
+        }
+
+        return false;
     }
 
     private static bool IsKeepAlive(string protocol, Dictionary<string, List<string>> headers)
@@ -445,7 +482,7 @@ internal sealed class Http1RequestReader
 
         while (filled < length)
         {
-            var n = await _stream.ReadAsync(body.AsMemory(filled, length - filled), cancellationToken)
+            var n = await ReadSocketAsync(body.AsMemory(filled, length - filled), cancellationToken)
                 .ConfigureAwait(false);
             if (n == 0)
             {
@@ -515,7 +552,7 @@ internal sealed class Http1RequestReader
                     continue;
                 }
 
-                var n = await _stream.ReadAsync(chunk.AsMemory(filled, size - filled), cancellationToken)
+                var n = await ReadSocketAsync(chunk.AsMemory(filled, size - filled), cancellationToken)
                     .ConfigureAwait(false);
                 if (n == 0)
                 {
@@ -538,6 +575,25 @@ internal sealed class Http1RequestReader
         return new MemoryStream(ms.ToArray(), writable: false);
     }
 
+    private async Task<int> ReadSocketAsync(Memory<byte> destination, CancellationToken cancellationToken)
+    {
+        if (_bodyIdleTimeout == Timeout.InfiniteTimeSpan)
+        {
+            return await _stream.ReadAsync(destination, cancellationToken).ConfigureAwait(false);
+        }
+
+        using var idleCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        idleCts.CancelAfter(_bodyIdleTimeout);
+        try
+        {
+            return await _stream.ReadAsync(destination, idleCts.Token).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+        {
+            throw new InvalidOperationException("Request body read timed out.");
+        }
+    }
+
     private async Task<string?> ReadLineAsync(CancellationToken cancellationToken)
     {
         using var ms = new MemoryStream();
@@ -545,7 +601,7 @@ internal sealed class Http1RequestReader
         {
             if (_count == 0)
             {
-                var n = await _stream.ReadAsync(_buffer.AsMemory(0, _buffer.Length), cancellationToken)
+                var n = await ReadSocketAsync(_buffer.AsMemory(0, _buffer.Length), cancellationToken)
                     .ConfigureAwait(false);
                 if (n == 0)
                 {

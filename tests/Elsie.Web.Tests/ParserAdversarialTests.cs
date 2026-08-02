@@ -137,7 +137,7 @@ public class ParserAdversarialTests
 
     // --- S2: Expect 100-continue ---
 
-    [Fact(Skip = "S2: send 100 Continue before body")]
+    [Fact]
     public async Task Sends_100_continue_when_expect_header_present()
     {
         await using var server = await ElsieApp.Create()
@@ -173,7 +173,7 @@ public class ParserAdversarialTests
 
     // --- S3: path canonicalization ---
 
-    [Theory(Skip = "S3: canonicalize path forms to same handler")]
+    [Theory]
     [InlineData("//admin")]
     [InlineData("/a/../admin")]
     [InlineData("/./admin")]
@@ -190,7 +190,7 @@ public class ParserAdversarialTests
         Assert.Equal(200, status);
     }
 
-    [Fact(Skip = "S3: reject root-escaping ..")]
+    [Fact]
     public async Task Rejects_path_escaping_root()
     {
         await using var server = await ElsieApp.Create()
@@ -204,7 +204,7 @@ public class ParserAdversarialTests
         Assert.Equal(400, status);
     }
 
-    [Fact(Skip = "S3: leave %2F opaque")]
+    [Fact]
     public async Task Percent_2f_stays_opaque()
     {
         await using var server = await ElsieApp.Create()
@@ -221,7 +221,7 @@ public class ParserAdversarialTests
 
     // --- S4: client disconnect abort ---
 
-    [Fact(Skip = "S4: client disconnect cancels RequestAborted")]
+    [Fact]
     public async Task Client_disconnect_cancels_request_aborted()
     {
         await using var server = await ElsieApp.Create()
@@ -252,7 +252,7 @@ public class ParserAdversarialTests
 
     // --- S5: Date header ---
 
-    [Fact(Skip = "S5: response includes Date header")]
+    [Fact]
     public async Task Response_includes_date_header()
     {
         await using var server = await ElsieApp.Create()
@@ -274,7 +274,7 @@ public class ParserAdversarialTests
 
     // --- S6: body idle timeout (placeholder; needs trickle client) ---
 
-    [Fact(Skip = "S6: body idle timeout returns 408")]
+    [Fact]
     public async Task Body_idle_timeout_returns_408()
     {
         await using var server = await ElsieApp.Create()
@@ -303,7 +303,7 @@ public class ParserAdversarialTests
 
     // --- S7: shutdown aborts open sockets ---
 
-    [Fact(Skip = "S7: DisposeAsync aborts lingering connections")]
+    [Fact]
     public async Task Shutdown_aborts_open_connections()
     {
         var server = await ElsieApp.Create()
@@ -339,21 +339,14 @@ public class ParserAdversarialTests
 
     private static async Task<string> ReadUntilAsync(NetworkStream ns, string marker, TimeSpan timeout)
     {
-        var deadline = DateTime.UtcNow + timeout;
+        using var cts = new CancellationTokenSource(timeout);
         var ms = new MemoryStream();
         var buf = new byte[1024];
-        while (DateTime.UtcNow < deadline)
+        try
         {
-            if (ns.DataAvailable || ms.Length == 0)
+            while (!cts.IsCancellationRequested)
             {
-                var readTask = ns.ReadAsync(buf.AsMemory(0, buf.Length));
-                var completed = await Task.WhenAny(readTask.AsTask(), Task.Delay(deadline - DateTime.UtcNow));
-                if (completed != readTask.AsTask())
-                {
-                    break;
-                }
-
-                var n = await readTask;
+                var n = await ns.ReadAsync(buf.AsMemory(0, buf.Length), cts.Token);
                 if (n == 0)
                 {
                     break;
@@ -366,10 +359,10 @@ public class ParserAdversarialTests
                     return text;
                 }
             }
-            else
-            {
-                await Task.Delay(10);
-            }
+        }
+        catch (OperationCanceledException)
+        {
+            // timeout
         }
 
         return Encoding.ASCII.GetString(ms.ToArray());
@@ -377,29 +370,33 @@ public class ParserAdversarialTests
 
     private static async Task<string> ReadAvailableAsync(NetworkStream ns, TimeSpan timeout)
     {
-        var deadline = DateTime.UtcNow + timeout;
+        using var cts = new CancellationTokenSource(timeout);
         var ms = new MemoryStream();
         var buf = new byte[1024];
-        while (DateTime.UtcNow < deadline)
+        try
         {
-            if (!ns.DataAvailable)
+            // First byte may block until server responds (or timeout).
+            var n = await ns.ReadAsync(buf.AsMemory(0, buf.Length), cts.Token);
+            if (n == 0)
             {
-                await Task.Delay(20);
-                if (ms.Length > 0 && !ns.DataAvailable)
+                return string.Empty;
+            }
+
+            ms.Write(buf, 0, n);
+            while (ns.DataAvailable && !cts.IsCancellationRequested)
+            {
+                n = await ns.ReadAsync(buf.AsMemory(0, buf.Length), cts.Token);
+                if (n == 0)
                 {
                     break;
                 }
 
-                continue;
+                ms.Write(buf, 0, n);
             }
-
-            var n = await ns.ReadAsync(buf.AsMemory(0, buf.Length));
-            if (n == 0)
-            {
-                break;
-            }
-
-            ms.Write(buf, 0, n);
+        }
+        catch (OperationCanceledException)
+        {
+            // timeout
         }
 
         return Encoding.ASCII.GetString(ms.ToArray());

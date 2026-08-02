@@ -28,6 +28,7 @@ internal static class Http1ResponseWriter
         var hasContentLength = false;
         var hasContentType = false;
         var hasTransferEncoding = false;
+        var hasDate = false;
 
         foreach (var (name, values) in response.Headers)
         {
@@ -51,10 +52,21 @@ internal static class Http1ResponseWriter
                 hasConnection = true;
             }
 
+            if (name.Equals("Date", StringComparison.OrdinalIgnoreCase))
+            {
+                hasDate = true;
+            }
+
             foreach (var value in values)
             {
                 await WriteHeaderAsync(stream, name, value, cancellationToken).ConfigureAwait(false);
             }
+        }
+
+        if (!hasDate)
+        {
+            await WriteHeaderAsync(stream, "Date", FormatHttpDate(DateTimeOffset.UtcNow), cancellationToken)
+                .ConfigureAwait(false);
         }
 
         if (!string.IsNullOrEmpty(response.ContentType) && !hasContentType)
@@ -73,8 +85,14 @@ internal static class Http1ResponseWriter
                 .ConfigureAwait(false);
         }
 
+        var noBodyStatus = response.StatusCode is 204 or 304;
+
         byte[]? buffered = null;
-        if (response.Body is { } memory)
+        if (noBodyStatus)
+        {
+            buffered = Array.Empty<byte>();
+        }
+        else if (response.Body is { } memory)
         {
             buffered = memory.ToArray();
         }
@@ -108,7 +126,7 @@ internal static class Http1ResponseWriter
 
         await stream.WriteAsync(Crlf, cancellationToken).ConfigureAwait(false);
 
-        if (!headRequest && buffered is { Length: > 0 })
+        if (!headRequest && !noBodyStatus && buffered is { Length: > 0 })
         {
             await stream.WriteAsync(buffered, cancellationToken).ConfigureAwait(false);
         }
@@ -137,6 +155,7 @@ internal static class Http1ResponseWriter
             $"{protocol} {response.StatusCode} {HttpReasonPhrases.Get(response.StatusCode)}\r\n";
         await stream.WriteAsync(Encoding.ASCII.GetBytes(statusLine), cancellationToken).ConfigureAwait(false);
 
+        var hasDate = false;
         foreach (var (name, values) in response.Headers)
         {
             if (name.Equals("Content-Length", StringComparison.OrdinalIgnoreCase))
@@ -144,10 +163,21 @@ internal static class Http1ResponseWriter
                 continue;
             }
 
+            if (name.Equals("Date", StringComparison.OrdinalIgnoreCase))
+            {
+                hasDate = true;
+            }
+
             foreach (var value in values)
             {
                 await WriteHeaderAsync(stream, name, value, cancellationToken).ConfigureAwait(false);
             }
+        }
+
+        if (!hasDate)
+        {
+            await WriteHeaderAsync(stream, "Date", FormatHttpDate(DateTimeOffset.UtcNow), cancellationToken)
+                .ConfigureAwait(false);
         }
 
         if (!string.IsNullOrEmpty(response.ContentType))
@@ -170,6 +200,9 @@ internal static class Http1ResponseWriter
         await chunked.CompleteAsync(cancellationToken).ConfigureAwait(false);
         await stream.FlushAsync(cancellationToken).ConfigureAwait(false);
     }
+
+    private static string FormatHttpDate(DateTimeOffset dto) =>
+        dto.UtcDateTime.ToString("r", CultureInfo.InvariantCulture);
 
     private static async Task WriteHeaderAsync(
         Stream stream,
@@ -210,8 +243,19 @@ internal static class Http1ResponseWriter
         public override long Seek(long offset, SeekOrigin origin) => throw new NotSupportedException();
         public override void SetLength(long value) => throw new NotSupportedException();
 
-        public override void Write(byte[] buffer, int offset, int count) =>
-            WriteAsync(buffer.AsMemory(offset, count), CancellationToken.None).AsTask().GetAwaiter().GetResult();
+        public override void Write(byte[] buffer, int offset, int count)
+        {
+            if (count == 0 || _completed)
+            {
+                return;
+            }
+
+            // Sync path: no sync-over-async. Write chunk framing directly.
+            var sizeLine = Encoding.ASCII.GetBytes($"{count:X}\r\n");
+            _inner.Write(sizeLine, 0, sizeLine.Length);
+            _inner.Write(buffer, offset, count);
+            _inner.Write(Crlf, 0, Crlf.Length);
+        }
 
         public override async ValueTask WriteAsync(
             ReadOnlyMemory<byte> buffer,

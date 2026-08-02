@@ -33,6 +33,8 @@ internal static class ElsieRequestFactory
             remoteIp,
             GetHeader);
 
+        path = PathNormalizer.Canonicalize(path);
+
         return new ElsieRequest(
             method: method,
             path: path,

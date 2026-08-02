@@ -81,7 +81,7 @@ internal sealed class ConnectionHandler
                 }
             }
 
-            await RunHttp1Async(stream, socket.RemoteEndPoint, cancellationToken).ConfigureAwait(false);
+            await RunHttp1Async(stream, socket, cancellationToken).ConfigureAwait(false);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
@@ -122,13 +122,16 @@ internal sealed class ConnectionHandler
         return list.Count == 0 ? null : list;
     }
 
-    private async Task RunHttp1Async(Stream stream, EndPoint? remote, CancellationToken cancellationToken)
+    private async Task RunHttp1Async(Stream stream, Socket socket, CancellationToken cancellationToken)
     {
+        var remote = socket.RemoteEndPoint;
         var reader = new Http1RequestReader(
             stream,
             _serverOptions.MaxRequestLineLength,
             _serverOptions.MaxHeaderBytes,
-            _serverOptions.MaxRequestBodyBytes);
+            _serverOptions.MaxRequestBodyBytes,
+            send100Continue: !_serverOptions.DisableContinue,
+            requestBodyIdleTimeout: _serverOptions.RequestBodyIdleTimeout);
         try
         {
             while (!cancellationToken.IsCancellationRequested)
@@ -152,8 +155,15 @@ internal sealed class ConnectionHandler
                 }
                 catch (InvalidOperationException ex)
                 {
-                    var status = ex.Message.Contains("too large", StringComparison.OrdinalIgnoreCase) ? 413 : 400;
-                    var title = status == 413 ? "Payload Too Large" : "Bad Request";
+                    var timedOut = ex.Message.Contains("timed out", StringComparison.OrdinalIgnoreCase);
+                    var tooLarge = ex.Message.Contains("too large", StringComparison.OrdinalIgnoreCase);
+                    var status = timedOut ? 408 : tooLarge ? 413 : 400;
+                    var title = status switch
+                    {
+                        408 => "Request Timeout",
+                        413 => "Payload Too Large",
+                        _ => "Bad Request"
+                    };
                     await WriteErrorAsync(stream, status, title, ex.Message, keepAlive: false, cancellationToken)
                         .ConfigureAwait(false);
                     return;
@@ -176,24 +186,50 @@ internal sealed class ConnectionHandler
                         headerRo[k] = v;
                     }
 
-                    var request = ElsieRequestFactory.Create(
-                        method: parsed.Method,
-                        path: parsed.Path,
-                        queryString: parsed.QueryString,
-                        queryValues: parsed.QueryValues,
-                        headerValues: headerRo,
-                        body: parsed.Body,
-                        contentLength: parsed.ContentLength,
-                        contentType: parsed.ContentType,
-                        requestServices: scope.ServiceProvider,
-                        requestAborted: cancellationToken,
-                        scheme: _listen.UseHttps ? "https" : "http",
-                        host: FirstHeader(parsed.Headers, "Host"),
-                        protocol: parsed.Protocol,
-                        remoteIp: ElsieRequestFactory.RemoteIpFromEndPoint(remote),
-                        useForwardedHeaders: _serverOptions.UseForwardedHeaders);
+                    using var disconnectWatcher = _serverOptions.AbortRequestsOnClientDisconnect
+                        ? new DisconnectWatcher(socket, cancellationToken)
+                        : null;
+                    disconnectWatcher?.Start();
+                    using var requestCts = disconnectWatcher is null
+                        ? null
+                        : CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, disconnectWatcher.Token);
+                    var requestAborted = requestCts?.Token ?? cancellationToken;
 
-                    response = await _dispatch.ProcessAsync(request, cancellationToken).ConfigureAwait(false);
+                    ElsieRequest request;
+                    try
+                    {
+                        request = ElsieRequestFactory.Create(
+                            method: parsed.Method,
+                            path: parsed.Path,
+                            queryString: parsed.QueryString,
+                            queryValues: parsed.QueryValues,
+                            headerValues: headerRo,
+                            body: parsed.Body,
+                            contentLength: parsed.ContentLength,
+                            contentType: parsed.ContentType,
+                            requestServices: scope.ServiceProvider,
+                            requestAborted: requestAborted,
+                            scheme: _listen.UseHttps ? "https" : "http",
+                            host: FirstHeader(parsed.Headers, "Host"),
+                            protocol: parsed.Protocol,
+                            remoteIp: ElsieRequestFactory.RemoteIpFromEndPoint(remote),
+                            useForwardedHeaders: _serverOptions.UseForwardedHeaders);
+                    }
+                    catch (InvalidOperationException ex)
+                    {
+                        await WriteErrorAsync(stream, 400, "Bad Request", ex.Message, keepAlive: false, cancellationToken)
+                            .ConfigureAwait(false);
+                        return;
+                    }
+
+                    try
+                    {
+                        response = await _dispatch.ProcessAsync(request, requestAborted).ConfigureAwait(false);
+                    }
+                    finally
+                    {
+                        disconnectWatcher?.Stop();
+                    }
                 }
 
                 if (response.WebSocketHandler is not null)
