@@ -1,0 +1,60 @@
+name: nightly
+
+on:
+  schedule:
+    # 02:23 UTC every night — off-peak fuzz + soak so day-time PRs stay fast.
+    - cron: '23 2 * * *'
+  workflow_dispatch:
+
+jobs:
+  fuzz-soak:
+    name: Fuzz + soak
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: |
+            10.0.x
+
+      - name: Build fuzz harness
+        run: dotnet build tests/Elsie.Fuzz/Elsie.Fuzz.csproj -c Release
+
+      - name: Parser fuzz (HTTP/1.1 + HTTP/2, bounded 10 min)
+        run: >
+          dotnet run --project tests/Elsie.Fuzz/Elsie.Fuzz.csproj
+          -c Release --no-build -- --fuzz-only --seconds 600 --seed 42
+
+      - name: Soak / load smoke (route + dispatch + static streaming, 30 min)
+        run: >
+          dotnet run --project tests/Elsie.Fuzz/Elsie.Fuzz.csproj
+          -c Release --no-build -- --soak-only --seconds 1800 --seed 7
+
+  aot-smoke:
+    name: Native AOT smoke
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: |
+            10.0.x
+
+      - name: Install AOT prerequisites
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang zlib1g-dev
+
+      - name: Publish AOT smoke binary
+        run: >
+          dotnet publish tools/Elsie.AotSmoke/Elsie.AotSmoke.csproj
+          -c Release -r linux-x64 -o artifacts/aot-smoke /p:PublishAot=true
+
+      - name: Run trimmed binary
+        run: ./artifacts/aot-smoke/Elsie.AotSmoke

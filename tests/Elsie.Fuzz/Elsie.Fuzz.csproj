@@ -1,0 +1,19 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <IsPackable>false</IsPackable>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <AssemblyName>Elsie.Fuzz</AssemblyName>
+    <!-- Not part of Elsie.sln: nightly-only stress/fuzz harness (see .github/workflows/nightly.yml).
+         tests/Directory.Build.props pulls in Microsoft.NET.Test.Sdk; keep its auto-generated
+         entry point out so Program.Main below is the real entry point. -->
+    <GenerateProgramFile>false</GenerateProgramFile>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Elsie.Core\Elsie.Core.csproj" />
+    <ProjectReference Include="..\..\src\Elsie\Elsie.csproj" />
+  </ItemGroup>
+</Project>
