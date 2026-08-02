@@ -30,6 +30,14 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y libmsquic
 
+      - name: Run HTTP/3 + gRPC test suites (libmsquic installed)
+        run: |
+          # The runtime h3 tests (QPACK codec, h3 server, h3 scope/DI, WS-over-h3) and the
+          # gRPC suite only execute when libmsquic is present; locally they vacate via
+          # QuicListener.IsSupported checks. apt-install msquic above makes them run here.
+          dotnet test tests/Elsie.Web.Tests -c Release --filter "FullyQualifiedName~Http3"
+          dotnet test tests/Elsie.Grpc.Tests -c Release
+
       - name: Build h3 sample
         run: dotnet build samples/Elsie.Sample.Http3/Elsie.Sample.Http3.csproj -c Release
 

@@ -114,7 +114,12 @@ internal sealed class Http3Connection
         {
             // Body state is per-stream (never shared across concurrent request streams).
             var bodyStream = new QuicRequestBodyStream(stream, _serverOptions.MaxRequestBodyBytes);
-            var request = await ReadRequestAsync(stream, bodyStream, cancellationToken).ConfigureAwait(false);
+
+            // The request scope must span dispatch and response writing (the handler and
+            // DI middleware resolve from RequestServices), mirroring the HTTP/2 path.
+            await using var scope = _services.CreateAsyncScope();
+            var request = await ReadRequestAsync(stream, bodyStream, scope.ServiceProvider, cancellationToken)
+                .ConfigureAwait(false);
             if (request is null)
             {
                 return;
@@ -180,9 +185,11 @@ internal sealed class Http3Connection
     private async Task<ElsieRequest?> ReadRequestAsync(
         QuicStream stream,
         QuicRequestBodyStream bodyStream,
+        IServiceProvider requestServices,
         CancellationToken cancellationToken)
     {
-        var request = await ReadRequestCoreAsync(stream, bodyStream, cancellationToken).ConfigureAwait(false);
+        var request = await ReadRequestCoreAsync(stream, bodyStream, requestServices, cancellationToken)
+            .ConfigureAwait(false);
         if (request is not null)
         {
             bodyStream.StartReadingAsync(cancellationToken);
@@ -194,6 +201,7 @@ internal sealed class Http3Connection
     private async Task<ElsieRequest?> ReadRequestCoreAsync(
         QuicStream stream,
         QuicRequestBodyStream bodyStream,
+        IServiceProvider requestServices,
         CancellationToken cancellationToken)
     {
         // Request HEADERS frame (DATA body follows; served lazily).
@@ -337,7 +345,6 @@ internal sealed class Http3Connection
             headerRo[":protocol"] = new[] { protocol };
         }
 
-        await using var scope = _services.CreateAsyncScope();
         var request = Hosting.ElsieRequestFactory.Create(
             method: method,
             path: pathOnly,
@@ -347,7 +354,7 @@ internal sealed class Http3Connection
             body: bodyStream,
             contentLength: contentLength,
             contentType: contentType,
-            requestServices: scope.ServiceProvider,
+            requestServices: requestServices,
             requestAborted: cancellationToken,
             scheme: scheme,
             host: authority,
