@@ -50,7 +50,7 @@ public static class Program
     {
         var seed = 42;
         var totalSeconds = 0;
-        var iterations = 300;
+        var iterations = 5000;
         var protocols = "all"; // h1, h2, all
         var soakOnly = false;
         var fuzzOnly = false;
@@ -148,21 +148,28 @@ public static class Program
         // --- Fuzz phase ---
         if (!soakOnly)
         {
+            // Connection setup dominates per-iteration cost, so run several connection
+            // loops concurrently (the server handles 10k concurrent connections).
+            const int fuzzWorkers = 8;
             var fuzzCount = 0;
-            while (DateTime.UtcNow < fuzzDeadline && fuzzCount < iterations)
+            var workers = Enumerable.Range(0, fuzzWorkers).Select(_ => Task.Run(async () =>
             {
-                if (h1) await FuzzHttp1Async(h1Ep.Port, fuzzDeadline);
-                if (h2) await FuzzHttp2Async(h2Ep.Port, cert, fuzzDeadline);
-                fuzzCount++;
-
-                // Canary every 50 fuzz iterations
-                if (fuzzCount % 50 == 0)
+                while (DateTime.UtcNow < fuzzDeadline && Volatile.Read(ref fuzzCount) < iterations)
                 {
-                    await CanaryAsync(client);
-                    ReportMemory();
-                }
-            }
+                    if (h1) await FuzzHttp1Async(h1Ep.Port, fuzzDeadline);
+                    if (h2) await FuzzHttp2Async(h2Ep.Port, cert, fuzzDeadline);
 
+                    var n = Interlocked.Increment(ref fuzzCount);
+                    // Canary every 50 fuzz connections across all workers
+                    if (n % 50 == 0)
+                    {
+                        await CanaryAsync(client);
+                        ReportMemory();
+                    }
+                }
+            }, CancellationToken.None)).ToArray();
+
+            await Task.WhenAll(workers);
             await CanaryAsync(client);
             ReportMemory();
             Console.WriteLine($"Fuzz complete: {_totalFuzzIterations} iterations, {_fuzzErrors} errors, {_fuzzHangs} hangs");
@@ -214,29 +221,47 @@ public static class Program
     {
         if (DateTime.UtcNow >= deadline) return;
 
-        using var tcp = new TcpClient();
-        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
         try
         {
-            await tcp.ConnectAsync("127.0.0.1", port, cts.Token);
+            using var tcp = new TcpClient();
+            using var connectCts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+            await tcp.ConnectAsync("127.0.0.1", port, connectCts.Token);
             using var stream = tcp.GetStream();
 
-            // Generate random HTTP/1.1 request bytes
-            var raw = GenerateHttp1Request();
-            await stream.WriteAsync(raw, cts.Token);
-
-            // Try to read response
-            var response = await TryReadResponseAsync(stream, cts.Token);
-            if (response.HasValue)
+            // Batch many inputs over one keep-alive connection: connection setup dominates
+            // per-iteration cost, so reuse it and keep per-request read budgets short.
+            for (var i = 0; i < 16 && DateTime.UtcNow < deadline; i++)
             {
-                Interlocked.Increment(ref _totalFuzzIterations);
-                if (response.Value.statusCode >= 500)
+                var raw = GenerateHttp1Request();
+                try
                 {
-                    Interlocked.Increment(ref _fuzzErrors);
-                    _errorDetails.Add($"H1 5xx: {response.Value.statusCode} (request {DescribeFirstLine(raw)})");
+                    await stream.WriteAsync(raw, connectCts.Token);
+
+                    using var readCts = CancellationTokenSource.CreateLinkedTokenSource(connectCts.Token);
+                    readCts.CancelAfter(TimeSpan.FromMilliseconds(400));
+                    var response = await TryReadResponseAsync(stream, readCts.Token);
+                    if (!response.HasValue)
+                    {
+                        break; // connection closed / unparseable / timeout — reconnect next iteration
+                    }
+
+                    Interlocked.Increment(ref _totalFuzzIterations);
+                    if (response.Value.statusCode >= 500)
+                    {
+                        Interlocked.Increment(ref _fuzzErrors);
+                        _errorDetails.Add($"H1 5xx: {response.Value.statusCode} (request {DescribeFirstLine(raw)})");
+                    }
+                }
+                catch (OperationCanceledException)
+                {
+                    Interlocked.Increment(ref _fuzzHangs);
+                    break;
+                }
+                catch (Exception ex) when (ex is SocketException or IOException)
+                {
+                    break; // server closed the connection — reconnect next iteration
                 }
             }
-            // else hang/timeout — not necessarily a bug (partial request sent)
         }
         catch (OperationCanceledException)
         {
@@ -244,7 +269,7 @@ public static class Program
         }
         catch (Exception ex) when (ex is SocketException or IOException)
         {
-            // Connection reset/closed is normal for malformed input
+            // connection reset/refused is normal for malformed input
         }
     }
 
@@ -370,10 +395,10 @@ public static class Program
     {
         if (DateTime.UtcNow >= deadline) return;
 
-        using var tcp = new TcpClient();
-        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(8));
         try
         {
+            using var tcp = new TcpClient();
+            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(8));
             await tcp.ConnectAsync("127.0.0.1", port, cts.Token);
 
             using var ssl = new SslStream(tcp.GetStream(), leaveInnerStreamOpen: false);
@@ -392,17 +417,23 @@ public static class Program
             settingsFrame[3] = 0x04; // type SETTINGS (index 3; 0-2 are the 24-bit length)
             await ssl.WriteAsync(settingsFrame, cts.Token);
 
-            // Generate and send random frames
-            var frames = GenerateH2Frames();
-            await ssl.WriteAsync(frames, cts.Token);
-
-            // Try to read response frames (short budget: keep-alive connections stay open
-            // after a valid response, so never wait long for the next frame)
-            using var readCts = CancellationTokenSource.CreateLinkedTokenSource(cts.Token);
-            readCts.CancelAfter(TimeSpan.FromMilliseconds(1500));
-            var status = await TryReadH2ResponseAsync(ssl, readCts.Token);
-            if (status.HasValue)
+            // Batch several random-frame groups over one TLS connection (connection setup is
+            // the dominant cost; each valid response leaves the connection reusable).
+            for (var i = 0; i < 8 && DateTime.UtcNow < deadline; i++)
             {
+                var frames = GenerateH2Frames();
+                await ssl.WriteAsync(frames, cts.Token);
+
+                // Short budget: keep-alive connections stay open after a valid response, so
+                // never wait long for the next frame.
+                using var readCts = CancellationTokenSource.CreateLinkedTokenSource(cts.Token);
+                readCts.CancelAfter(TimeSpan.FromMilliseconds(150));
+                var status = await TryReadH2ResponseAsync(ssl, readCts.Token);
+                if (!status.HasValue)
+                {
+                    break; // connection closed / GOAWAY / timeout — reconnect next iteration
+                }
+
                 Interlocked.Increment(ref _totalFuzzIterations);
                 if (status.Value >= 500)
                 {
