@@ -92,6 +92,23 @@ internal sealed class QpackEncoder
         }
     }
 
+    /// <summary>Encodes an arbitrary field section verbatim (test-client helper; preserves
+    /// pseudo-headers and case).</summary>
+    internal byte[] EncodeFieldSection(IEnumerable<(string Name, string Value)> fields, long streamId)
+    {
+        lock (_gate)
+        {
+            using var ms = new MemoryStream();
+            return EncodeCore(ms, streamId, list =>
+            {
+                foreach (var (name, value) in fields)
+                {
+                    list.Add((name, value));
+                }
+            });
+        }
+    }
+
     /// <summary>
     /// Feeds bytes from the peer's QPACK decoder stream (Section Acknowledgment / Stream
     /// Cancellation / Insert Count Increment; RFC 9204 §4.4).

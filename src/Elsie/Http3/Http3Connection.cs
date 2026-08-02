@@ -134,6 +134,17 @@ internal sealed class Http3Connection
                 return;
             }
 
+            var isExtendedConnect = string.Equals(request.Method, "CONNECT", StringComparison.OrdinalIgnoreCase)
+                && request.GetHeader(":protocol") is not null;
+            if (isExtendedConnect && response.WebSocketHandler is null)
+            {
+                // RFC 9220 §3: unknown/unsupported :protocol on an extended CONNECT → 501.
+                response = HostDispatch.FromResult(ElsieResult.Problem(
+                    501,
+                    "Not Implemented",
+                    $"The extended CONNECT protocol '{request.GetHeader(":protocol")}' is not supported."));
+            }
+
             if (response.WebSocketHandler is not null)
             {
                 await HandleWebSocketUpgradeAsync(stream, request, response, cancellationToken).ConfigureAwait(false);
@@ -392,7 +403,7 @@ internal sealed class Http3Connection
         await stream.FlushAsync(cancellationToken).ConfigureAwait(false);
 
         ElsieMetrics.WebSocketConnections.Add(1);
-        await using var ws = new ElsieWebSocket(stream, leaveOpen: true);
+        await using var ws = new ElsieWebSocket(new Http3WebSocketStream(stream, cancellationToken), leaveOpen: true);
         await response.WebSocketHandler!(ws, cancellationToken).ConfigureAwait(false);
     }
 

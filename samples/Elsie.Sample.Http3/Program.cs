@@ -55,5 +55,24 @@ public sealed class AppModule : ElsieModule
     {
         Get("/ping", () => ElsieResult.Json(new { status = "ok", protocol = "h3" }));
         Get("/", () => ElsieResult.Text("Elsie HTTP/3 sample — try /ping with curl --http3"));
+
+        // WebSocket over HTTP/3 (RFC 9220): clients send an extended CONNECT request with
+        // :protocol: websocket. Try it with an RFC 9220-capable client (e.g. aioquic).
+        Map("CONNECT", "/ws", () => ElsieResult.WebSocket(async (ws, ct) =>
+        {
+            while (!ct.IsCancellationRequested)
+            {
+                var msg = await ws.ReceiveAsync(ct).ConfigureAwait(false);
+                if (msg is null)
+                {
+                    break;
+                }
+
+                if (msg.MessageType == System.Net.WebSockets.WebSocketMessageType.Text)
+                {
+                    await ws.SendTextAsync("echo:" + msg.GetText(), ct).ConfigureAwait(false);
+                }
+            }
+        }));
     }
 }

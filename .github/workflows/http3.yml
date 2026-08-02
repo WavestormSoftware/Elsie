@@ -53,12 +53,15 @@ jobs:
           body=$(curl --http3 -s -k --max-time 15 https://127.0.0.1:8443/ping)
           echo "body=$body"
           grep -q '"protocol":"h3"' <<< "$body"
-          # QPACK dynamic-table-exercising request (long header value list).
-          body2=$(curl --http3 -s -k --max-time 15 -H 'X-Long-Header: '"$(printf 'a%.0s' {1..200})" https://127.0.0.1:8443/ping)
+          # QPACK dynamic-table-exercising request: the repeated header fields let curl's
+          # QPACK encoder insert into the table advertised by the server (4096 by default).
+          body2=$(curl --http3 -s -k --max-time 15 \
+            -H 'X-Dyn-1: value-one' -H 'X-Dyn-1: value-two' \
+            -H 'X-Long-Header: '"$(printf 'a%.0s' {1..200})" https://127.0.0.1:8443/ping)
           echo "body2=$body2"
           grep -q '"status":"ok"' <<< "$body2"
 
-      - name: aioquic interop probe
+      - name: aioquic interop probe (QPACK dynamic table)
         run: |
           set -euo pipefail
           pip install --quiet aioquic
@@ -68,7 +71,7 @@ sys.path.insert(0, __import__('site').getsitepackages()[0])
 from aioquic.asyncio.client import connect
 from aioquic.quic.configuration import QuicConfiguration
 from aioquic.h3.connection import H3Connection
-from aioquic.h3.events import HeadersReceived, DataReceived
+from aioquic.h3.events import HeadersReceived
 import asyncio
 
 async def main():
@@ -76,20 +79,26 @@ async def main():
     config.verify_mode = False  # self-signed sample cert
     async with connect("127.0.0.1", 8443, configuration=config) as client:
         h3 = H3Connection(client)
-        headers = [(b":method", b"GET"), (b":scheme", b"https"),
-                   (b":authority", b"127.0.0.1:8443"), (b":path", b"/ping")]
-        stream_id = h3.send_headers(headers, stream_id=client.get_next_available_stream_id())
-        h3.send_data(b"", stream_id=stream_id)
-        status = None
-        while status is None:
-            event = await client.wait_for_event()
-            for e in h3.handle_event(event):
-                if isinstance(e, HeadersReceived):
-                    for k, v in e.headers:
-                        if k == b":status":
-                            status = int(v)
-        assert status == 200, f"h3 status {status}"
-        print(f"aioquic GET /ping -> {status}")
+        # Several requests sharing repeated header fields so the aioquic encoder inserts
+        # into the server's advertised QPACK dynamic table (capacity 4096) and the server
+        # decoder must process the encoder-stream instructions + blocked streams.
+        for i in range(3):
+            headers = [(b":method", b"GET"), (b":scheme", b"https"),
+                       (b":authority", b"127.0.0.1:8443"), (b":path", b"/ping"),
+                       (b"x-dyn", b"value-%d" % i),
+                       (b"x-dyn", b"shared-value")]
+            stream_id = h3.send_headers(headers, stream_id=client.get_next_available_stream_id())
+            h3.send_data(b"", stream_id=stream_id)
+            status = None
+            while status is None:
+                event = await client.wait_for_event()
+                for e in h3.handle_event(event):
+                    if isinstance(e, HeadersReceived):
+                        for k, v in e.headers:
+                            if k == b":status":
+                                status = int(v)
+            assert status == 200, f"h3 status {status}"
+        print(f"aioquic dynamic-table requests -> 200 x3")
 
 asyncio.run(main())
 PY
