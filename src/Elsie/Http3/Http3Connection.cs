@@ -29,6 +29,7 @@ internal sealed class Http3Connection
     private readonly ElsieServerOptions _serverOptions;
     private readonly Action<string>? _log;
     private readonly ILogger _logger;
+    private QuicConnection _connection = null!;
     private QpackDecoder _decoder = null!;
     private QpackEncoder _encoder = null!;
     private int _blockedStreams;
@@ -49,6 +50,7 @@ internal sealed class Http3Connection
 
     public async Task RunAsync(QuicConnection connection, CancellationToken cancellationToken)
     {
+        _connection = connection;
         _decoder = new QpackDecoder(
             _serverOptions.QpackMaxTableCapacity,
             new QpackDecoderStream(connection));
@@ -98,7 +100,7 @@ internal sealed class Http3Connection
             {
                 // Unidirectional stream (control / QPACK encoder+decoder).
                 _ = Task.Run(() => Http3ControlStreams.ReadClientUnidirectionalStreamAsync(
-                    s, _decoder, _encoder, cancellationToken));
+                    s, _decoder, _encoder, _connection, cancellationToken));
                 continue;
             }
 
@@ -217,31 +219,43 @@ internal sealed class Http3Connection
         }
 
         var block = first.Value.Payload;
-        var result = _decoder.DecodeHeaderBlock(block.Span);
-        if (result.IsBlocked)
+        QpackDecodeResult result;
+        try
         {
-            // Blocked stream: wait for the encoder instruction stream to catch up.
-            if (Interlocked.Increment(ref _blockedStreams) > Math.Max(0, _serverOptions.QpackBlockedStreams))
+            result = _decoder.DecodeHeaderBlock(block.Span);
+            if (result.IsBlocked)
             {
-                Interlocked.Decrement(ref _blockedStreams);
-                throw new QpackException(
-                    "Client exceeded SETTINGS_QPACK_BLOCKED_STREAMS (too many blocked HTTP/3 request streams).");
-            }
-
-            try
-            {
-                while (result.IsBlocked)
+                // Blocked stream: wait for the encoder instruction stream to catch up.
+                if (Interlocked.Increment(ref _blockedStreams) > Math.Max(0, _serverOptions.QpackBlockedStreams))
                 {
-                    await _decoder
-                        .WaitUntilUnblockedAsync(result.RequiredInsertCount, cancellationToken)
-                        .ConfigureAwait(false);
-                    result = _decoder.DecodeHeaderBlock(block.Span);
+                    Interlocked.Decrement(ref _blockedStreams);
+                    throw new QpackException(
+                        "Client exceeded SETTINGS_QPACK_BLOCKED_STREAMS (too many blocked HTTP/3 request streams).");
+                }
+
+                try
+                {
+                    while (result.IsBlocked)
+                    {
+                        await _decoder
+                            .WaitUntilUnblockedAsync(result.RequiredInsertCount, cancellationToken)
+                            .ConfigureAwait(false);
+                        result = _decoder.DecodeHeaderBlock(block.Span);
+                    }
+                }
+                finally
+                {
+                    Interlocked.Decrement(ref _blockedStreams);
                 }
             }
-            finally
-            {
-                Interlocked.Decrement(ref _blockedStreams);
-            }
+        }
+        catch (QpackException)
+        {
+            // RFC 9114 §8.1: an undecodable field section (or exceeding the advertised blocked
+            // stream budget) poisons the decoder state for every later stream — terminate the
+            // connection with H3_QPACK_DECOMPRESSION_FAILED instead of failing stream-by-stream.
+            await CloseWithErrorAsync(Http3QpackErrorCodes.DecompressionFailed, cancellationToken).ConfigureAwait(false);
+            throw;
         }
 
         if (result.Fields is null)
@@ -503,4 +517,16 @@ internal sealed class Http3Connection
 
     private Task DrainDecoderInstructionsAsync(CancellationToken cancellationToken) =>
         _decoder.DrainDecoderInstructionsAsync(cancellationToken);
+
+    private async Task CloseWithErrorAsync(long errorCode, CancellationToken cancellationToken)
+    {
+        try
+        {
+            await _connection.CloseAsync(errorCode, cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception ex) when (ex is QuicException or ObjectDisposedException or OperationCanceledException)
+        {
+            // Connection already closing or aborted — nothing to do.
+        }
+    }
 }

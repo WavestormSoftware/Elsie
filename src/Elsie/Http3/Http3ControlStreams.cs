@@ -1,3 +1,5 @@
+using System.Net.Quic;
+
 namespace Elsie.Web.Http3;
 
 /// <summary>Unidirectional stream types (RFC 9114 §6.2).</summary>
@@ -7,6 +9,16 @@ internal enum Http3UnidirectionalStreamType : long
     Push = 0x1,
     QpackEncoder = 0x2,
     QpackDecoder = 0x3
+}
+
+/// <summary>
+/// HTTP/3 connection-error codes for QPACK violations (RFC 9114 §8.1 / RFC 9204 §2.2).
+/// </summary>
+internal static class Http3QpackErrorCodes
+{
+    public const long DecompressionFailed = 0x200;
+    public const long EncoderStreamError = 0x201;
+    public const long DecoderStreamError = 0x202;
 }
 
 /// <summary>
@@ -49,15 +61,18 @@ internal static class Http3ControlStreams
     /// <summary>
     /// Reads the client's unidirectional streams (control + QPACK encoder/decoder) until
     /// end-of-stream. Frames from the control stream are consumed (SETTINGS forwarded to the
-    /// encoder); QPACK stream bytes are fed to the codecs. Exceptions are swallowed so one bad
-    /// stream cannot kill the connection loop.
+    /// encoder); QPACK stream bytes are fed to the codecs. QPACK instruction violations are
+    /// NOT swallowed — they poison the per-connection codec state, so the connection is
+    /// terminated with the matching RFC 9114 §8.1 error code.
     /// </summary>
     public static async Task ReadClientUnidirectionalStreamAsync(
         Stream stream,
         QpackDecoder decoder,
         QpackEncoder encoder,
+        QuicConnection connection,
         CancellationToken cancellationToken)
     {
+        var isEncoderStream = false;
         try
         {
             var typeBuffer = new byte[8];
@@ -75,6 +90,7 @@ internal static class Http3ControlStreams
                     return;
 
                 case Http3UnidirectionalStreamType.QpackEncoder:
+                    isEncoderStream = true;
                     await DrainAndFeedAsync(stream, decoder, cancellationToken).ConfigureAwait(false);
                     return;
 
@@ -91,6 +107,16 @@ internal static class Http3ControlStreams
         }
         catch (OperationCanceledException)
         {
+        }
+        catch (QpackException)
+        {
+            // RFC 9114 §8.1: the peer sent an instruction our codec cannot interpret. A
+            // poisoned encoder/decoder buffer would fail every subsequent stream on the
+            // connection, so terminate it with the matching error code instead.
+            await CloseWithErrorAsync(
+                connection,
+                isEncoderStream ? Http3QpackErrorCodes.EncoderStreamError : Http3QpackErrorCodes.DecoderStreamError,
+                cancellationToken).ConfigureAwait(false);
         }
         catch (Exception)
         {
@@ -207,5 +233,22 @@ internal static class Http3ControlStreams
         }
 
         return total;
+    }
+
+    private static async Task CloseWithErrorAsync(
+        QuicConnection connection,
+        long errorCode,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+#pragma warning disable CA1416 // QUIC is only reachable from the platform-guarded connection path
+            await connection.CloseAsync(errorCode, cancellationToken).ConfigureAwait(false);
+#pragma warning restore CA1416
+        }
+        catch (Exception ex) when (ex is QuicException or ObjectDisposedException or OperationCanceledException)
+        {
+            // Connection already closing or aborted — nothing to do.
+        }
     }
 }
