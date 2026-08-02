@@ -716,7 +716,8 @@ internal sealed class Http2Connection
         }
 
         var hpack = HpackCodec.EncodeResponse(response.StatusCode, respHeaders);
-        var headerFlags = body.Length == 0
+        var hasTrailers = response.Trailers.Count > 0;
+        var headerFlags = body.Length == 0 && !hasTrailers
             ? Http2FrameFlags.EndStream | Http2FrameFlags.EndHeaders
             : Http2FrameFlags.EndHeaders;
 
@@ -731,15 +732,29 @@ internal sealed class Http2Connection
             {
                 var take = Math.Min(_serverOptions.MaxFrameSize, body.Length - offset);
                 var end = offset + take >= body.Length;
+                // With trailers pending, END_STREAM moves to the trailing HEADERS frame.
                 await WriteFrameAsync(
                         Http2FrameType.Data,
-                        end ? Http2FrameFlags.EndStream : Http2FrameFlags.None,
+                        end && !hasTrailers ? Http2FrameFlags.EndStream : Http2FrameFlags.None,
                         streamId,
                         body.AsMemory(offset, take),
                         cancellationToken)
                     .ConfigureAwait(false);
                 offset += take;
             }
+        }
+
+        if (hasTrailers)
+        {
+            var trailerBlock = HpackCodec.EncodeTrailers(
+                response.Trailers.Select(static t => (t.Key, t.Value)));
+            await WriteFrameAsync(
+                    Http2FrameType.Headers,
+                    Http2FrameFlags.EndStream | Http2FrameFlags.EndHeaders,
+                    streamId,
+                    trailerBlock,
+                    cancellationToken)
+                .ConfigureAwait(false);
         }
     }
 

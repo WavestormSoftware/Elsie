@@ -12,7 +12,8 @@ public sealed class ElsieHttpResponse
         ElsieHeaders headers,
         ReadOnlyMemory<byte>? body,
         Func<Stream, CancellationToken, Task>? bodyWriter,
-        Func<ElsieWebSocket, CancellationToken, Task>? webSocketHandler = null)
+        Func<ElsieWebSocket, CancellationToken, Task>? webSocketHandler = null,
+        IReadOnlyList<KeyValuePair<string, string>>? trailers = null)
     {
         StatusCode = statusCode;
         ContentType = contentType;
@@ -20,6 +21,7 @@ public sealed class ElsieHttpResponse
         Body = body;
         BodyWriter = bodyWriter;
         WebSocketHandler = webSocketHandler;
+        Trailers = trailers ?? Array.Empty<KeyValuePair<string, string>>();
     }
 
     public int StatusCode { get; }
@@ -28,6 +30,20 @@ public sealed class ElsieHttpResponse
     public ReadOnlyMemory<byte>? Body { get; }
     public Func<Stream, CancellationToken, Task>? BodyWriter { get; }
     public Func<ElsieWebSocket, CancellationToken, Task>? WebSocketHandler { get; }
+
+    /// <summary>Response trailers (HTTP/2 / HTTP/3 trailing HEADERS after the body).</summary>
+    public IReadOnlyList<KeyValuePair<string, string>> Trailers { get; }
+
+    /// <summary>Construct a response directly (host transforms, compression, static files).</summary>
+    public static ElsieHttpResponse Create(
+        int statusCode,
+        string? contentType,
+        ElsieHeaders headers,
+        ReadOnlyMemory<byte>? body,
+        Func<Stream, CancellationToken, Task>? bodyWriter = null,
+        Func<ElsieWebSocket, CancellationToken, Task>? webSocketHandler = null,
+        IReadOnlyList<KeyValuePair<string, string>>? trailers = null) =>
+        new(statusCode, contentType, headers ?? new ElsieHeaders(), body, bodyWriter, webSocketHandler, trailers);
 
     /// <summary>Construct a response directly (host transforms, compression, static files).</summary>
     public static ElsieHttpResponse Create(
@@ -89,7 +105,8 @@ public sealed class ElsieHttpResponse
                         headers,
                         result.Body,
                         result.BodyWriter,
-                        result.WebSocketHandler);
+                        result.WebSocketHandler,
+                        outcome.Response?.Trailers);
                 }
 
             default:

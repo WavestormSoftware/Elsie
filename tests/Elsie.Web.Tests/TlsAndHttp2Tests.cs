@@ -124,6 +124,91 @@ public class TlsAndHttp2Tests
         Assert.Contains("hi", body, StringComparison.Ordinal);
     }
 
+    private sealed class TrailersModule : ElsieModule
+    {
+        public TrailersModule()
+        {
+            Get("/trailers", ctx =>
+            {
+                ctx.Response.AddTrailer("grpc-status", "0");
+                ctx.Response.AddTrailer("grpc-message", "ok");
+                return ElsieResult.Text("payload");
+            });
+            Get("/trailers-empty", ctx =>
+            {
+                ctx.Response.AddTrailer("x-tail", "1");
+                return ElsieResult.Text("");
+            });
+        }
+    }
+
+    [Fact]
+    public async Task Https_http2_response_trailers()
+    {
+        using var cert = CreateSelfSigned();
+        await using var server = await ElsieApp.Create()
+            .QuietConsole(false)
+            .Listen(IPAddress.Loopback, 0, o =>
+            {
+                o.UseHttps = true;
+                o.Certificate = cert;
+                o.Protocols = ElsieHttpProtocols.Http1AndHttp2;
+            })
+            .Configure(o => o.ScanEntryAssembly = false)
+            .Module<TrailersModule>()
+            .StartAsync();
+
+        var port = server.Endpoints[0].Port;
+        using var handler = CreateHttp2Handler();
+        using var client = new HttpClient(handler)
+        {
+            BaseAddress = new Uri($"https://127.0.0.1:{port}/"),
+            DefaultRequestVersion = HttpVersion.Version20,
+            DefaultVersionPolicy = HttpVersionPolicy.RequestVersionExact
+        };
+
+        using var res = await client.GetAsync("/trailers");
+        res.EnsureSuccessStatusCode();
+        Assert.Equal(HttpVersion.Version20, res.Version);
+        Assert.Equal("payload", await res.Content.ReadAsStringAsync());
+        Assert.True(res.TrailingHeaders.TryGetValues("grpc-status", out var status));
+        Assert.Equal("0", Assert.Single(status));
+        Assert.True(res.TrailingHeaders.TryGetValues("grpc-message", out var message));
+        Assert.Equal("ok", Assert.Single(message));
+    }
+
+    [Fact]
+    public async Task Https_http2_trailers_with_empty_body()
+    {
+        using var cert = CreateSelfSigned();
+        await using var server = await ElsieApp.Create()
+            .QuietConsole(false)
+            .Listen(IPAddress.Loopback, 0, o =>
+            {
+                o.UseHttps = true;
+                o.Certificate = cert;
+                o.Protocols = ElsieHttpProtocols.Http1AndHttp2;
+            })
+            .Configure(o => o.ScanEntryAssembly = false)
+            .Module<TrailersModule>()
+            .StartAsync();
+
+        var port = server.Endpoints[0].Port;
+        using var handler = CreateHttp2Handler();
+        using var client = new HttpClient(handler)
+        {
+            BaseAddress = new Uri($"https://127.0.0.1:{port}/"),
+            DefaultRequestVersion = HttpVersion.Version20,
+            DefaultVersionPolicy = HttpVersionPolicy.RequestVersionExact
+        };
+
+        using var res = await client.GetAsync("/trailers-empty");
+        res.EnsureSuccessStatusCode();
+        Assert.Equal(string.Empty, await res.Content.ReadAsStringAsync());
+        Assert.True(res.TrailingHeaders.TryGetValues("x-tail", out var tail));
+        Assert.Equal("1", Assert.Single(tail));
+    }
+
     private static SocketsHttpHandler CreateHttp2Handler()
     {
         var ssl = new SslClientAuthenticationOptions

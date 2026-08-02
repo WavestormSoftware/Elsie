@@ -176,6 +176,23 @@ internal static class HpackCodec
         return ms.ToArray();
     }
 
+    /// <summary>Encodes a trailing-HEADERS HPACK block (no <c>:status</c> pseudo-header).</summary>
+    public static byte[] EncodeTrailers(IEnumerable<(string Name, string Value)> trailers)
+    {
+        using var ms = new MemoryStream();
+        foreach (var (name, value) in trailers)
+        {
+            if (name.StartsWith(":", StringComparison.Ordinal))
+            {
+                continue;
+            }
+
+            WriteLiteral(ms, name.ToLowerInvariant(), value, neverIndexed: false);
+        }
+
+        return ms.ToArray();
+    }
+
     private static void WriteLiteral(MemoryStream ms, string name, string value, bool neverIndexed)
     {
         // Literal without indexing — new name
