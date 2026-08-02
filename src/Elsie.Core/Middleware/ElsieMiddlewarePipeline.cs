@@ -26,6 +26,14 @@ public sealed class ElsieMiddlewarePipeline
         return this;
     }
 
+    /// <summary>Register a middleware instance directly (shared across requests).</summary>
+    public ElsieMiddlewarePipeline Use(IElsieMiddleware middleware)
+    {
+        ArgumentNullException.ThrowIfNull(middleware);
+        _components.Add(_ => middleware);
+        return this;
+    }
+
     /// <summary>
     /// Register a before-hook style gate: when it returns a non-null result the pipeline
     /// short-circuits with that result (the handler and remaining middleware are skipped).

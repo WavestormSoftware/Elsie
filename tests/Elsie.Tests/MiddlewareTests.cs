@@ -227,4 +227,31 @@ public class MiddlewareTests
             Assert.True(outcome.Result!.Headers.Contains("X-RateLimit-Reset"));
         }
     }
+
+    [Fact]
+    public async Task Exception_handler_middleware_maps_downstream_errors()
+    {
+        var services = new ServiceCollection();
+        services.AddElsie(o =>
+        {
+            o.ScanEntryAssembly = false;
+            o.ExceptionHandler = (_, ex, _) =>
+                Task.FromResult(ElsieResult.Text($"handled:{ex.Message}", statusCode: 500));
+        });
+        services.AddElsieModule<MwModule>();
+        await using var sp = services.BuildServiceProvider();
+
+        var pipeline = sp.GetRequiredService<ElsieMiddlewarePipeline>();
+        // Exception handler middleware must be outermost (registered first).
+        pipeline.Use(new ElsieExceptionHandlerMiddleware(sp.GetRequiredService<ElsieOptions>()));
+        pipeline.Use(BoomAsync);
+
+        var dispatcher = sp.GetRequiredService<ElsieDispatcher>();
+        var outcome = await dispatcher.DispatchAsync(Request(sp, "/ok"));
+        Assert.Equal(500, outcome.Result!.StatusCode);
+        Assert.Equal("handled:boom", System.Text.Encoding.UTF8.GetString(outcome.Result.Body!.Value.Span));
+    }
+
+    private static Task BoomAsync(ElsieContext ctx, ElsieMiddlewareDelegate next) =>
+        throw new InvalidOperationException("boom");
 }
