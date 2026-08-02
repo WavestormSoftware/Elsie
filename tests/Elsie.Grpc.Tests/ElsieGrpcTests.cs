@@ -108,7 +108,8 @@ public class ElsieGrpcTests
             channel.Dispose();
             cert.Dispose();
             return server.DisposeAsync().AsTask();
-        });
+        }
+        );
     }
 
     [Fact]
