@@ -19,6 +19,13 @@ public sealed class ElsieListenOptions
     public X509Certificate2? Certificate { get; set; }
     public ElsieHttpProtocols Protocols { get; set; } = ElsieHttpProtocols.Http1;
 
+    /// <summary>
+    /// When true, also listen for HTTP/3 on a UDP socket with the same address/port
+    /// (requires TLS + ALPN <c>h3</c>, i.e. <see cref="UseHttps"/> and <see cref="Certificate"/>).
+    /// Skipped silently when <c>QuicListener.IsSupported</c> is false (e.g. no libmsquic).
+    /// </summary>
+    public bool EnableHttp3 { get; set; }
+
     public bool IsUnixSocket => !string.IsNullOrWhiteSpace(UnixSocketPath);
 
     /// <summary>Create a cleartext HTTP/1.1 Unix domain socket endpoint.</summary>

@@ -245,6 +245,8 @@ public class TlsAndHttp2Tests
         Assert.Equal(HttpStatusCode.RequestEntityTooLarge, res.StatusCode);
     }
 
+    internal static X509Certificate2 CreateSelfSignedForTests() => CreateSelfSigned();
+
     private static X509Certificate2 CreateSelfSigned()
     {
         using var rsa = RSA.Create(2048);
@@ -264,5 +266,103 @@ public class TlsAndHttp2Tests
 
         var cert = req.CreateSelfSigned(DateTimeOffset.UtcNow.AddDays(-1), DateTimeOffset.UtcNow.AddYears(1));
         return X509CertificateLoader.LoadPkcs12(cert.Export(X509ContentType.Pfx), password: null);
+    }
+}
+
+public class Http3ServerTests
+{
+    [Fact]
+    public async Task Https3_ping_when_supported()
+    {
+        if (!System.Net.Quic.QuicListener.IsSupported)
+        {
+            return; // libmsquic absent (e.g. local dev) — exercised in CI http3.yml
+        }
+
+        using var cert = TlsAndHttp2Tests.CreateSelfSignedForTests();
+        await using var server = await ElsieApp.Create()
+            .QuietConsole(false)
+            .Listen(IPAddress.Loopback, 0, o =>
+            {
+                o.UseHttps = true;
+                o.Certificate = cert;
+                o.EnableHttp3 = true;
+            })
+            .Configure(o => o.ScanEntryAssembly = false)
+            .Module<PingModule2>()
+            .StartAsync();
+
+        // TCP listener got the port; UDP h3 listener may differ when port 0 was requested.
+        var port = server.Endpoints[0].Port;
+        var quic = new System.Net.Quic.QuicClientConnectionOptions
+        {
+            RemoteEndPoint = new IPEndPoint(IPAddress.Loopback, port),
+            ClientAuthenticationOptions = new System.Net.Security.SslClientAuthenticationOptions
+            {
+                ApplicationProtocols = [System.Net.Security.SslApplicationProtocol.Http3],
+                RemoteCertificateValidationCallback = static (_, _, _, _) => true
+            },
+            DefaultStreamErrorCode = 0x0100,
+            DefaultCloseErrorCode = 0x0100
+        };
+
+        await using var connection = await System.Net.Quic.QuicConnection.ConnectAsync(quic);
+        await using var control = await connection.OpenOutboundStreamAsync(System.Net.Quic.QuicStreamType.Unidirectional);
+        await control.WriteAsync(new byte[] { 0x00 });
+        await using var request = await connection.OpenOutboundStreamAsync(System.Net.Quic.QuicStreamType.Bidirectional);
+        // Minimal request: HEADERS frame with QPACK-encoded :method GET / :scheme https / :path /ping.
+        await request.WriteAsync(BuildH3RequestHeaders());
+        await request.WriteAsync(new byte[] { 0x00, 0x00 }); // empty DATA frame
+        await request.FlushAsync();
+        request.CompleteWrites();
+
+        // Read response frames until a DATA frame arrives.
+        var payload = new MemoryStream();
+        while (true)
+        {
+            var frame = await Elsie.Web.Http3.Http3FrameReader.ReadAsync(request, CancellationToken.None);
+            if (frame is null)
+            {
+                break;
+            }
+
+            if (frame.Value.Type == Elsie.Web.Http3.Http3FrameType.Data)
+            {
+                payload.Write(frame.Value.Payload.Span);
+            }
+
+            if (frame.Value.Type == Elsie.Web.Http3.Http3FrameType.Headers &&
+                payload.Length > 0)
+            {
+                break;
+            }
+        }
+
+        var body = System.Text.Encoding.UTF8.GetString(payload.ToArray());
+        Assert.Equal("h3-pong", body);
+    }
+
+    private static byte[] BuildH3RequestHeaders()
+    {
+        using var ms = new MemoryStream();
+        ms.WriteByte(0x00); // required insert count
+        ms.WriteByte(0x00); // delta base
+        // :method GET → indexed (QPACK static 1)
+        ms.WriteByte(0x81);
+        // :scheme https → indexed (QPACK static 10)
+        ms.WriteByte(0x8A);
+        // :path /ping → literal name ref (:path QPACK static 3) + value "/ping"
+        ms.WriteByte(0x23);
+        ms.WriteByte(0x05);
+        ms.Write(System.Text.Encoding.ASCII.GetBytes("/ping"));
+        return ms.ToArray();
+    }
+
+    private sealed class PingModule2 : ElsieModule
+    {
+        public PingModule2()
+        {
+            Get("/ping", () => ElsieResult.Text("h3-pong"));
+        }
     }
 }

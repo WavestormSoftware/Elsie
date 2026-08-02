@@ -9,7 +9,9 @@ namespace Elsie.Web.Http2;
 internal static class HpackCodec
 {
     // RFC 7541 Appendix A — subset of static table we need for requests/responses
-    private static readonly (string Name, string Value)[] StaticTable =
+    /// <summary>RFC 7541 static table (index 0 unused; entries 1-61). QPACK uses the same
+    /// entries 0-indexed (QPACK index N == this[N + 1]).</summary>
+    internal static readonly (string Name, string Value)[] StaticTable =
     {
         ("", ""), // 0 unused
         (":authority", ""),

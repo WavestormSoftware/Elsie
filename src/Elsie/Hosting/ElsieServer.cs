@@ -1,6 +1,9 @@
 using System.Collections.Concurrent;
 using System.Net;
+using System.Net.Quic;
+using System.Net.Security;
 using System.Net.Sockets;
+using Elsie.Web.Http3;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
@@ -22,6 +25,9 @@ internal sealed class ElsieServer : IHostedService, IAsyncDisposable
     private readonly List<TcpListener> _listeners = new();
     private readonly List<Socket> _unixListeners = new();
     private readonly List<string> _unixPaths = new();
+#pragma warning disable CA1416 // guarded by QuicListener.IsSupported + OS checks at runtime
+    private readonly List<QuicListener> _quicListeners = new();
+#pragma warning restore CA1416
     private readonly CancellationTokenSource _cts = new();
     private readonly List<Task> _acceptLoops = new();
     private readonly ConcurrentDictionary<Guid, ConnectionEntry> _connections = new();
@@ -85,12 +91,115 @@ internal sealed class ElsieServer : IHostedService, IAsyncDisposable
             _log?.Invoke(msg);
             _logger.LogInformation("{Message}", msg);
             _acceptLoops.Add(AcceptLoopAsync(listener, ep, _cts.Token));
+            StartHttp3ListenerIfSupported(ep);
         }
 
         BoundEndpoints = bound;
         BoundUnixSocketPaths = _unixPaths.ToArray();
         return Task.CompletedTask;
     }
+
+    /// <summary>
+    /// Starts the HTTP/3 (QUIC) listener for <paramref name="ep"/> when enabled and the
+    /// platform has QUIC support (libmsquic). Silently skipped otherwise.
+    /// </summary>
+#pragma warning disable CA1416 // guarded by QuicListener.IsSupported + OS checks at runtime
+    private void StartHttp3ListenerIfSupported(ElsieListenOptions ep)
+    {
+        if (!ep.EnableHttp3 || !ep.UseHttps || ep.Certificate is null || !QuicListener.IsSupported)
+        {
+            return;
+        }
+
+        if (!OperatingSystem.IsLinux() && !OperatingSystem.IsWindows() && !OperatingSystem.IsMacOS())
+        {
+            return;
+        }
+
+        var options = new QuicListenerOptions
+        {
+            ListenEndPoint = new IPEndPoint(ep.Address, ep.Port),
+            ApplicationProtocols = [SslApplicationProtocol.Http3],
+            ConnectionOptionsCallback = (_, _, _) => ValueTask.FromResult(new QuicServerConnectionOptions
+            {
+                ServerAuthenticationOptions = new SslServerAuthenticationOptions
+                {
+                    ServerCertificate = ep.Certificate,
+                    ApplicationProtocols = [SslApplicationProtocol.Http3]
+                },
+                MaxInboundBidirectionalStreams = _serverOptions.MaxConcurrentStreams > 0 ? _serverOptions.MaxConcurrentStreams : 100,
+                MaxInboundUnidirectionalStreams = 10,
+                DefaultStreamErrorCode = 0x0100, // H3_NO_ERROR
+                DefaultCloseErrorCode = 0x0100  // H3_NO_ERROR
+            })
+        };
+
+        QuicListener listener;
+        try
+        {
+            listener = QuicListener.ListenAsync(options, _cts.Token).GetAwaiter().GetResult();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to start HTTP/3 listener on udp://{Host}:{Port} — continuing without HTTP/3.", ep.Address, ep.Port);
+            return;
+        }
+
+        _quicListeners.Add(listener);
+        var local = listener.LocalEndPoint;
+        var msg = $"Listening on https+quic://{FormatHost(local)}/";
+        _log?.Invoke(msg);
+        _logger.LogInformation("{Message}", msg);
+        _acceptLoops.Add(AcceptHttp3LoopAsync(listener, ep, _cts.Token));
+    }
+
+    private async Task AcceptHttp3LoopAsync(QuicListener listener, ElsieListenOptions ep, CancellationToken ct)
+    {
+        while (!ct.IsCancellationRequested)
+        {
+            QuicConnection connection;
+            try
+            {
+                connection = await listener.AcceptConnectionAsync(ct).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException) when (ct.IsCancellationRequested)
+            {
+                break;
+            }
+            catch (ObjectDisposedException)
+            {
+                break;
+            }
+            catch (QuicException)
+            {
+                if (ct.IsCancellationRequested)
+                {
+                    break;
+                }
+
+                continue;
+            }
+
+            var conn = connection;
+            _ = Task.Run(
+                () => RunHttp3ConnectionAsync(conn, ep, ct),
+                CancellationToken.None);
+        }
+    }
+
+    private async Task RunHttp3ConnectionAsync(QuicConnection connection, ElsieListenOptions ep, CancellationToken ct)
+    {
+        await using var conn = connection;
+        var dispatch = new HostDispatch(
+            _services,
+            _dispatcher,
+            _features,
+            _serverOptions,
+            _loggerFactory);
+        var handler = new Http3Connection(_services, dispatch, _serverOptions, _log, _loggerFactory);
+        await handler.RunAsync(conn, ct).ConfigureAwait(false);
+    }
+#pragma warning restore CA1416
 
     private void StartUnixListener(ElsieListenOptions ep)
     {
@@ -176,6 +285,20 @@ internal sealed class ElsieServer : IHostedService, IAsyncDisposable
             try
             {
                 listener.Dispose();
+            }
+            catch
+            {
+                // ignore
+            }
+        }
+
+        foreach (var listener in _quicListeners)
+        {
+            try
+            {
+#pragma warning disable CA1416 // guarded at runtime by QuicListener.IsSupported + OS checks
+                listener.DisposeAsync().AsTask().GetAwaiter().GetResult();
+#pragma warning restore CA1416
             }
             catch
             {
