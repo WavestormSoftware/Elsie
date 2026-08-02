@@ -1,8 +1,10 @@
 # Elsie
 
-HTTP module framework for **.NET 8** and **.NET 10**. Define routes in small modules, return results, run on Elsie’s own lightweight host.
+HTTP module framework for **.NET 10** (net10.0-only). Define routes in small modules, return results, run on Elsie's own lightweight host.
 
-**Why Elsie?** Tiny Sinatra-style modules, one fluent host (`ElsieApp`), no ASP.NET tax. Hold the whole request path in your head — modules → results → server — without `WebApplication` ceremony or a shared-framework dependency.
+**Why Elsie?** Tiny Sinatra-style modules, one fluent host (`ElsieApp`), no ASP.NET tax. Hold the whole request path in your head — modules → middleware → results → server — without `WebApplication` ceremony or a shared-framework dependency.
+
+> **No Kestrel / no ASP.NET — ever.** Elsie is a standalone HTTP framework with its own transport stack (`System.Net.Sockets`, `System.Net.Security`, `System.Net.Quic`). There is no ASP.NET adapter, and no `Microsoft.AspNetCore.*` package or type is used anywhere in Core or the host. Same constraint as [AGENTS.md](AGENTS.md).
 
 ```bash
 dotnet add package Elsie          # 0.4.0-beta — host + Elsie.Core
@@ -87,7 +89,7 @@ public sealed class TodosModule : ElsieModule
     public TodosModule(ITodoStore store)
     {
         Path("/api");
-        Before(ElsieAuth.RequireApiKey("dev-secret", onlyMutatingMethods: true));
+        Use(ElsieAuth.RequireApiKey("dev-secret", onlyMutatingMethods: true));
 
         Group("/todos", () =>
         {
@@ -157,53 +159,44 @@ ctx.Response.SetCookie("sid", value, new ElsieCookieOptions { HttpOnly = true, S
 ctx.GetRequiredService<IMyService>();
 ```
 
-Exception handling (first match wins):
+## Middleware
+
+Requests flow through a **single middleware pipeline** (Core `Elsie.Middleware`). App-wide middleware is added with `app.Use(...)` / `Use<T>()` (DI); module-scoped middleware with `Module.Use(...)` (runs only for the module's routes). Ordering is FIFO pre / LIFO post; a step short-circuits by setting `ctx.Result` (or by not calling `next`).
+
+```csharp
+// app-wide: runs for every request
+app.Use(async (ctx, next) =>
+{
+    ctx.Response.Headers["X-Request-Id"] = Guid.NewGuid().ToString("n");
+    await next(ctx);                 // post-processing runs after next() returns
+    ctx.Response.Headers["X-Status"] = ctx.Result?.StatusCode.ToString();
+});
+
+// or as a class (resolved from DI, per-request scope)
+app.Use<RequestLoggingMiddleware>();
+
+// module-scoped: only for routes in this module
+public sealed class AdminModule : ElsieModule
+{
+    public AdminModule()
+    {
+        Path("/admin");
+        Use(ElsieAuth.RequireApiKey("dev-secret", onlyMutatingMethods: true));
+    }
+}
+```
+
+**Exception handling** — `ElsieOptions.ExceptionHandler` is the terminal middleware: when an unhandled exception bubbles past every middleware, it produces the response.
 
 ```csharp
 .Configure(o =>
 {
-    o.MapException<KeyNotFoundException>((_, ex) => ElsieResult.NotFound(ex.Message));
     o.ExceptionHandler = (ctx, ex, ct) =>
         Task.FromResult(ElsieResult.Problem(500, "Server Error"));
 })
-// MapException → module OnError → ExceptionHandler → rethrow
-// After-hooks still run when the exception is mapped to a result
 ```
 
----
-
-## Pipelines
-
-App-wide or per-module **before** / **after** hooks. After-hooks may transform the result.
-
-```csharp
-.Services(s => s.ConfigureElsiePipelines(p =>
-{
-    p.AddBefore((ctx, _) =>
-    {
-        ctx.Response.Headers["X-Request-Id"] = Guid.NewGuid().ToString("n");
-        return Task.FromResult<ElsieResult?>(null); // null = continue
-    });
-    p.AddAfter((ctx, result) =>
-    {
-        ctx.Response.Headers["X-Status"] = result.StatusCode.ToString();
-        return result;
-    });
-}))
-// Order: app.Before → module.Before → handler → module.After → app.After
-```
-
-Core gates:
-
-```csharp
-Before(ElsieAuth.RequireApiKey("dev-secret"));                    // all methods (default)
-Before(ElsieAuth.RequireApiKey("dev-secret", onlyMutatingMethods: true));
-Before(ElsieAuth.RequireHeader("X-Tenant", "acme"));
-Before(ElsieAuth.RequireBearer(token => token == "ok"));
-Before(ElsieAuth.RequireCookie("session"));
-```
-
-Cookie sessions + JWT + antiforgery → **`Elsie.Auth`**.
+Built-ins are first-class middleware: auth gates (`ElsieAuth.*`), rate limiting (`ElsieRateLimit.*`), CORS, security headers, antiforgery, health checks, and static files. Legacy `Before` / `After` / `OnError` / `MapException` hooks are removed.
 
 ---
 
@@ -227,9 +220,9 @@ Cookie sessions + JWT + antiforgery → **`Elsie.Auth`**.
     s.AddElsieAntiforgery(); // double-submit cookie
 })
 
-Before(ElsieAuthGates.RequireAuthenticated());
-Before(ElsieAuthGates.RequireRole("admin"));
-Before(ElsieAntiforgeryService.RequireAntiforgery()); // header X-CSRF-TOKEN or form field
+Use(ElsieAuthGates.RequireAuthenticated());
+Use(ElsieAuthGates.RequireRole("admin"));
+Use(ElsieAntiforgeryService.RequireAntiforgery()); // header X-CSRF-TOKEN or form field
 await ctx.SignInCookieAsync("ada", roles: ["user"]);
 var user = ctx.GetUser();
 var csrf = ctx.GetAntiforgeryToken(); // Base64Url
@@ -237,7 +230,7 @@ var csrf = ctx.GetAntiforgeryToken(); // Base64Url
 
 ### CORS — `Elsie.Cors`
 
-Preflight is handled by a host request filter; ACAO is applied on actual responses via an after-hook.
+Preflight and the ACAO response header are handled by middleware.
 
 ```csharp
 .Services(s => s.AddElsieCors(o => o.AddDefaultPolicy(p => p
@@ -262,10 +255,10 @@ Preflight is handled by a host request filter; ACAO is applied on actual respons
 ### Rate limiting (in `Elsie.Core`)
 
 ```csharp
-Before(ElsieRateLimit.FixedWindow(100, TimeSpan.FromMinutes(1)));
-Before(ElsieRateLimit.SlidingWindow(30, TimeSpan.FromSeconds(10),
+Use(ElsieRateLimit.FixedWindow(100, TimeSpan.FromMinutes(1)));
+Use(ElsieRateLimit.SlidingWindow(30, TimeSpan.FromSeconds(10),
     partitionKey: ctx => ctx.Request.GetHeader("X-Api-Key") ?? "anon"));
-Before(ElsieRateLimit.TokenBucket(capacity: 20, tokensPerSecond: 5));
+Use(ElsieRateLimit.TokenBucket(capacity: 20, tokensPerSecond: 5));
 // 429 problem+json + Retry-After; default partition = RemoteIp only (not XFF)
 // Behind a trusted proxy: partitionKey: ElsieRateLimit.ForwardedPartitionKey
 ```
@@ -345,6 +338,7 @@ In tests, set `ScanEntryAssembly = false` and register modules explicitly.
 | [Elsie.Templates](https://www.nuget.org/packages/Elsie.Templates) | `dotnet new elsie` / `elsie-api` |
 | [Elsie.Extensions.RateLimiting.Redis](https://www.nuget.org/packages/Elsie.Extensions.RateLimiting.Redis) | Distributed rate limiting over Redis (Lua, fail-open) |
 | [Elsie.Extensions.Auth.Redis](https://www.nuget.org/packages/Elsie.Extensions.Auth.Redis) | Server-side cookie sessions over Redis (`RedisSessionStore`) |
+| [Elsie.Grpc](https://www.nuget.org/packages/Elsie.Grpc) | Native gRPC server over Elsie's HTTP/2 + HTTP/3 (ServiceBinderBase, reflection-lite) |
 
 Current version: **`0.4.0-beta`** (prerelease; APIs may still change).
 
@@ -355,16 +349,16 @@ Namespaces stay `Elsie` / `Elsie.Web` (host assembly is still `Elsie.Web.dll`). 
 ## Request flow
 
 ```
-TCP (+ optional TLS/ALPN)
-  → HTTP/1.1 or HTTP/2 parse
+TCP / UDP(+TLS, ALPN h1/h2/h3)
+  → HTTP/1.1, HTTP/2, or HTTP/3 (QUIC) parse
   → ElsieRequest
-  → principal / filters (CORS preflight, …)
-  → RouteTable.Lookup → before hooks → handler → after hooks → ElsieResult
+  → middleware pipeline (auth gates, rate limiting, CORS, security headers, …)
+  → RouteTable.Lookup → handler → ElsieResult
   → ElsieHttpResponse.FromDispatch
-  → host writes status / headers / body (or WebSocket upgrade)
+  → host writes status / headers / body (or WebSocket / gRPC upgrade)
 ```
 
-Unmatched routes return 404 problem+json from the host.
+Unmatched routes return 404 problem+json from the host. HTTP/3 runs on its own QUIC listener (`ElsieListenOptions.EnableHttp3`) with full QPACK; WebSocket works over HTTP/1.1 (Upgrade) and HTTP/3 (RFC 9220 extended CONNECT); gRPC (package `Elsie.Grpc`) runs over HTTP/2 and HTTP/3.
 
 ---
 
@@ -377,7 +371,7 @@ Unmatched routes return 404 problem+json from the host.
 | [Routing](docs/routing.md) | Templates, constraints, `UrlFor` |
 | [Results](docs/results.md) | Response factories |
 | [Binding](docs/binding.md) | Route/query/JSON/form/files + validation |
-| [Pipelines & errors](docs/pipelines-and-errors.md) | Before/after, exception maps |
+| [Pipelines & errors](docs/pipelines-and-errors.md) | Middleware model, exception handler |
 | [Auth](docs/auth.md) | Gates, cookies, JWT, CSRF, OIDC helpers |
 | [CORS](docs/cors.md) | `Elsie.Cors` |
 | [Rate limiting](docs/rate-limiting.md) | Fixed / sliding / token bucket |
@@ -386,7 +380,9 @@ Unmatched routes return 404 problem+json from the host.
 | [Views](docs/views.md) | Fluid/Liquid |
 | [Static files](docs/static-files.md) | Stream, ETag, Range |
 | [Testing](docs/testing.md) | In-memory + loopback |
-| [Hosting & AOT](docs/hosting-and-aot.md) | TLS, HTTP/2, WebSockets, limits, reverse proxy |
+| [Hosting & AOT](docs/hosting-and-aot.md) | TLS, HTTP/2, HTTP/3, WebSockets, limits, reverse proxy |
+| [HTTP/3](docs/http3.md) | QUIC + QPACK, dynamic tables, WebSocket over h3 |
+| [gRPC](docs/grpc.md) | Native gRPC over h2/h3, reflection |
 | [Security](docs/security.md) | Tickets, CSRF, XFF, CI scan |
 | [Production checklist](docs/production-checklist.md) | Deploy gates |
 | [Lifecycle](docs/lifecycle.md) | Socket → response path |
@@ -410,7 +406,7 @@ ElsieApp.Create(args)
         s.AddElsieAuth(/* TicketKey from secret store */);
         s.AddElsieAntiforgery();
         s.AddElsieDataAnnotationsValidation();
-        s.ConfigureElsiePipelines(p => p.AddAfter(ElsieSecurityHeaders.DefaultAfter()));
+        s.AddElsieMiddleware(p => p.Use(ElsieSecurityHeaders.DefaultAfter()));
     })
     .Module<AppModule>()
     .Run();
