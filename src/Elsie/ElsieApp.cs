@@ -316,6 +316,21 @@ public sealed class ElsieApp
     }
 
     /// <summary>
+    /// Adds the terminal static-file middleware ahead of user middleware so static files
+    /// short-circuit before routes (legacy pre-dispatch behavior).
+    /// </summary>
+    private void RegisterStaticMiddleware(IServiceCollection services)
+    {
+        if (_staticFiles is null)
+        {
+            return;
+        }
+
+        services.AddSingleton(new ElsieMiddlewareSetup(
+            p => p.Use(new Hosting.StaticFileMiddleware(_staticFiles, _contentRoot))));
+    }
+
+    /// <summary>
     /// Registers <see cref="IOptionsMonitor{T}"/> bindings for the host server options
     /// (seeded from the app instance, optionally bound from the <c>Elsie:Server</c> config
     /// section) so safe knobs — timeouts, limits, compression, LogRequests — can hot reload.
@@ -370,6 +385,7 @@ public sealed class ElsieApp
             }
         });
         RegisterOptionsReload(services);
+        RegisterStaticMiddleware(services);
 
         foreach (var cfg in _serviceConfigs)
         {
@@ -435,6 +451,7 @@ public sealed class ElsieApp
             }
         });
         RegisterOptionsReload(_services);
+        RegisterStaticMiddleware(_services);
 
         foreach (var cfg in _serviceConfigs)
         {

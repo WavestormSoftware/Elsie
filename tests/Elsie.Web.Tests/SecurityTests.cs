@@ -420,7 +420,7 @@ public class SecurityTests
     {
         public ApiKeyModule()
         {
-            Before(ElsieAuth.RequireApiKey("super-secret-key"));
+            Use(ElsieAuth.RequireApiKey("super-secret-key"));
             Get("/secure", () => ElsieResult.Text("ok"));
         }
     }

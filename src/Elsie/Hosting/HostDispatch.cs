@@ -14,7 +14,6 @@ internal sealed class HostDispatch
     private readonly ElsieDispatcher _dispatcher;
     private readonly ElsieServerFeatures _features;
     private readonly ElsieServerOptions _serverOptions;
-    private readonly IElsieRequestFilter[] _filters;
     private readonly IElsiePrincipalAttacher[] _attachers;
     private readonly ILogger _logger;
 
@@ -29,7 +28,6 @@ internal sealed class HostDispatch
         _dispatcher = dispatcher;
         _features = features;
         _serverOptions = serverOptions ?? new ElsieServerOptions();
-        _filters = services.GetServices<IElsieRequestFilter>().ToArray();
         _attachers = services.GetServices<IElsiePrincipalAttacher>().ToArray();
         var factory = loggerFactory ?? services.GetService<ILoggerFactory>() ?? NullLoggerFactory.Instance;
         _logger = factory.CreateLogger("Elsie.Request");
@@ -193,38 +191,9 @@ internal sealed class HostDispatch
             }
         }
 
-        if (_features.StaticFiles is not null)
-        {
-            var headerMap = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-            foreach (var (k, v) in request.Headers)
-            {
-                headerMap[k] = v;
-            }
-
-            var staticResponse = StaticFileHandler.TryServe(
-                request.Method,
-                request.Path,
-                headerMap,
-                _features.StaticFiles,
-                _features.ContentRoot);
-            if (staticResponse is not null)
-            {
-                return staticResponse;
-            }
-        }
-
         foreach (var attacher in _attachers)
         {
             await attacher.AttachAsync(request, cancellationToken).ConfigureAwait(false);
-        }
-
-        foreach (var filter in _filters)
-        {
-            var handled = await filter.TryHandleAsync(request, cancellationToken).ConfigureAwait(false);
-            if (handled is not null)
-            {
-                return handled;
-            }
         }
 
         var outcome = await _dispatcher.DispatchAsync(request, cancellationToken).ConfigureAwait(false);

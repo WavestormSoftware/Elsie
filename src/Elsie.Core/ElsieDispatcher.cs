@@ -1,15 +1,13 @@
 using Elsie.Middleware;
-using Elsie.Pipelines;
 using Elsie.Routing;
 
 namespace Elsie;
 
 /// <summary>
-/// Host-agnostic route dispatch: match → pipelines → handler → result.
-/// Order: app before hooks → app middleware → module before hooks → module middleware → handler
-/// → module after hooks → app after hooks. Short-circuits still run afters.
-/// Errors: options.MapException → module.OnError → ExceptionHandler → rethrow.
-/// After-hook exceptions re-enter the same error chain; remaining afters continue.
+/// Host-agnostic route dispatch: route lookup → middleware pipeline → handler.
+/// Route values are populated right after lookup so middleware can bind route parameters;
+/// exceptions are mapped by the terminal <see cref="ElsieExceptionHandlerMiddleware"/>.
+/// The dispatcher runs the pipeline only — no legacy before/after hooks.
 /// </summary>
 public sealed class ElsieDispatcher
 {
@@ -17,18 +15,15 @@ public sealed class ElsieDispatcher
         new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
 
     private readonly RouteTable _routes;
-    private readonly ElsiePipelines _applicationPipelines;
     private readonly ElsieMiddlewarePipeline _applicationPipeline;
     private readonly ElsieOptions _options;
 
     public ElsieDispatcher(
         RouteTable routes,
-        ElsiePipelines applicationPipelines,
         ElsieMiddlewarePipeline applicationPipeline,
         ElsieOptions options)
     {
         _routes = routes ?? throw new ArgumentNullException(nameof(routes));
-        _applicationPipelines = applicationPipelines ?? throw new ArgumentNullException(nameof(applicationPipelines));
         _applicationPipeline = applicationPipeline ?? throw new ArgumentNullException(nameof(applicationPipeline));
         _options = options ?? throw new ArgumentNullException(nameof(options));
     }
@@ -67,180 +62,63 @@ public sealed class ElsieDispatcher
             ct = request.RequestAborted;
         }
 
+        context.DispatchCancellationToken = ct;
+
+        // Route lookup happens BEFORE the pipeline so middleware sees populated RouteValues
+        // (e.g. {tenant} bindings). Middleware may still short-circuit or override the outcome.
+        var lookup = _routes.Lookup(request.Method, request.Path);
+        var match = lookup.Status == RouteLookupStatus.Matched ? lookup.Match! : null;
+        if (match is not null)
+        {
+            context.RouteValues = match.RouteValues;
+        }
+
         try
         {
-            // Legacy application before hooks (phase-D migration keeps them working).
-            var shortCircuit = await _applicationPipelines.InvokeBeforeAsync(context, ct).ConfigureAwait(false);
-            if (shortCircuit is not null)
-            {
-                context.Result = shortCircuit;
-            }
-            else
-            {
-                await _applicationPipeline.InvokeAsync(context, TerminalAsync(context, ct), ct).ConfigureAwait(false);
-            }
-        }
-        catch (Exception ex) when (ex is not OperationCanceledException)
-        {
-            context.Result = await MapErrorAsync(context, module: null, ex, ct).ConfigureAwait(false);
+            await _applicationPipeline.InvokeAsync(context, TerminalAsync(context, ct, match), ct).ConfigureAwait(false);
         }
         finally
         {
             linked?.Dispose();
         }
 
-        if (context.Result is null)
+        if (context.Result is not null)
         {
-            return ElsieDispatchResult.NotFound();
+            return ElsieDispatchResult.Handled(context.Result, response);
         }
 
-        var result = await RunAftersAsync(context, context.Result, ct).ConfigureAwait(false);
-        return ElsieDispatchResult.Handled(result, response);
+        return lookup.Status == RouteLookupStatus.MethodNotAllowed
+            ? ElsieDispatchResult.MethodNotAllowed(lookup.AllowedMethods)
+            : ElsieDispatchResult.NotFound();
     }
 
     /// <summary>
-    /// Terminal pipeline step: route lookup, module hooks/middleware, and the handler.
-    /// Leaves <see cref="ElsieContext.Result"/> null for an unmatched route (404).
+    /// Terminal pipeline step: module middleware (if any) wrapped around the route handler.
+    /// Leaves <see cref="ElsieContext.Result"/> null when the route did not match (404 / 405 outcome).
     /// </summary>
-    private ElsieMiddlewareDelegate TerminalAsync(ElsieContext context, CancellationToken ct)
+    private ElsieMiddlewareDelegate TerminalAsync(ElsieContext context, CancellationToken ct, RouteMatch? match)
     {
-        var routes = _routes;
-        var options = _options;
-        var dispatcher = this;
+        if (match is null)
+        {
+            return static _ => Task.CompletedTask;
+        }
+
+        var moduleMiddleware = match.Route.Module?.Middleware;
+        var route = match.Route;
 
         return async ctx =>
         {
-            var lookup = routes.Lookup(ctx.Request.Method, ctx.Request.Path);
-            if (lookup.Status == RouteLookupStatus.NotFound)
+            if (moduleMiddleware is { Count: > 0 })
             {
-                return; // ctx.Result stays null → NotFound dispatch outcome
-            }
-
-            if (lookup.Status == RouteLookupStatus.MethodNotAllowed)
-            {
-                ctx.Response.Headers.Set("Allow", string.Join(", ", lookup.AllowedMethods));
-                ctx.Result = ElsieResult.Problem(
-                    405,
-                    "Method Not Allowed",
-                    $"Allowed: {string.Join(", ", lookup.AllowedMethods)}");
-                return;
-            }
-
-            var match = lookup.Match!;
-            var module = match.Route.Module;
-            ctx.RouteValues = match.RouteValues;
-
-            var modulePipelines = module?.Pipelines;
-            var moduleMiddleware = module?.Middleware;
-
-            try
-            {
-                var shortCircuit = modulePipelines is null
-                    ? null
-                    : await modulePipelines.InvokeBeforeAsync(ctx, ct).ConfigureAwait(false);
-                if (shortCircuit is not null)
-                {
-                    ctx.Result = shortCircuit;
-                }
-                else if (moduleMiddleware is { Count: > 0 })
-                {
-                    await moduleMiddleware.InvokeAsync(
-                        ctx,
-                        async handlerCtx => handlerCtx.Result = await match.Route.Handler(handlerCtx, ct).ConfigureAwait(false),
-                        ct).ConfigureAwait(false);
-                }
-                else
-                {
-                    ctx.Result = await match.Route.Handler(ctx, ct).ConfigureAwait(false);
-                }
-            }
-            catch (Exception ex) when (ex is not OperationCanceledException)
-            {
-                ctx.Result = await dispatcher.MapErrorAsync(ctx, module, ex, ct).ConfigureAwait(false);
-            }
-
-            if (modulePipelines is { After.Count: > 0 })
-            {
-                ctx.Result = await dispatcher.RunAfterListAsync(
+                await moduleMiddleware.InvokeAsync(
                     ctx,
-                    modulePipelines.After,
-                    module,
-                    ctx.Result!,
+                    async handlerCtx => handlerCtx.Result = await route.Handler(handlerCtx, ct).ConfigureAwait(false),
                     ct).ConfigureAwait(false);
             }
+            else
+            {
+                ctx.Result = await route.Handler(ctx, ct).ConfigureAwait(false);
+            }
         };
-    }
-
-    private async Task<ElsieResult> RunAftersAsync(
-        ElsieContext context,
-        ElsieResult result,
-        CancellationToken ct)
-    {
-        // Module after hooks run inside the terminal (module known there); the application
-        // after hooks run here so they wrap the entire dispatch.
-        result = await RunAfterListAsync(context, _applicationPipelines.After, module: null, result, ct).ConfigureAwait(false);
-        return result;
-    }
-
-    private async Task<ElsieResult> RunAfterListAsync(
-        ElsieContext context,
-        IReadOnlyList<ElsieAfterDelegate> hooks,
-        ElsieModule? module,
-        ElsieResult result,
-        CancellationToken ct)
-    {
-        for (var i = 0; i < hooks.Count; i++)
-        {
-            try
-            {
-                result = await hooks[i](context, result, ct).ConfigureAwait(false)
-                    ?? throw new InvalidOperationException("After hook returned a null ElsieResult.");
-            }
-            catch (Exception ex) when (ex is not OperationCanceledException)
-            {
-                result = await MapErrorAsync(context, module, ex, ct).ConfigureAwait(false);
-                // continue remaining after hooks with the error-mapped result
-            }
-        }
-
-        return result;
-    }
-
-    private async Task<ElsieResult> MapErrorAsync(
-        ElsieContext context,
-        ElsieModule? module,
-        Exception exception,
-        CancellationToken cancellationToken)
-    {
-        if (exception is ElsieRequestException protocol)
-        {
-            return ElsieResult.Problem(protocol.StatusCode, protocol.Title, protocol.Message);
-        }
-
-        var mapped = await _options.TryMapExceptionAsync(context, exception, cancellationToken).ConfigureAwait(false);
-        if (mapped is not null)
-        {
-            return mapped;
-        }
-
-        if (module?.OnErrorHandler is not null)
-        {
-            try
-            {
-                return await module.OnErrorHandler(context, exception, cancellationToken).ConfigureAwait(false);
-            }
-            catch (Exception rethrown) when (rethrown is not OperationCanceledException)
-            {
-                // OnError threw — fall through to global handler / rethrow original? use rethrown
-                exception = rethrown;
-            }
-        }
-
-        if (_options.ExceptionHandler is not null)
-        {
-            return await _options.ExceptionHandler(context, exception, cancellationToken).ConfigureAwait(false);
-        }
-
-        throw exception;
     }
 }

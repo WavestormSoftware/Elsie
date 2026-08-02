@@ -47,8 +47,8 @@ public sealed class ElsieContext
     public ElsieResponse Response { get; }
 
     /// <summary>
-    /// Route values for the matched route. Empty before the router has matched; the dispatcher
-    /// populates them just before module hooks/handler run.
+    /// Route values for the matched route. The dispatcher populates them right after route
+    /// lookup (before the middleware pipeline runs) so middleware can bind route parameters.
     /// </summary>
     public IReadOnlyDictionary<string, string> RouteValues { get; internal set; }
 
@@ -58,8 +58,13 @@ public sealed class ElsieContext
     /// </summary>
     public ElsieResult? Result { get; set; }
 
-    /// <summary>True once <see cref="Result"/> has been set (a response may be written).</summary>
-    public bool Handled => Result is not null;
+    /// <summary>
+    /// Cancellation token the dispatcher uses for this request (linked from the caller's token
+    /// and <see cref="RequestAborted"/>). Middleware adapters that need the dispatch-wide token
+    /// (e.g. before-hook gates) observe this instead of the transport-only aborted token.
+    /// </summary>
+    internal CancellationToken DispatchCancellationToken { get; set; } = CancellationToken.None;
+
     public IServiceProvider RequestServices => Request.RequestServices;
 
     /// <summary>Alias for <see cref="RequestServices"/>.</summary>

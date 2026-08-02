@@ -1,3 +1,4 @@
+using Elsie.Middleware;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 
@@ -6,7 +7,7 @@ namespace Elsie.HealthChecks;
 public static class ElsieHealthCheckServiceCollectionExtensions
 {
     /// <summary>
-    /// Registers health checks and the <see cref="ElsieHealthChecksModule"/>
+    /// Registers health checks and the <see cref="ElsieHealthCheckMiddleware"/>
     /// (<c>/healthz</c>, <c>/healthz/live</c>, <c>/healthz/ready</c>).
     /// </summary>
     public static IServiceCollection AddElsieHealthChecks(
@@ -21,7 +22,8 @@ public static class ElsieHealthCheckServiceCollectionExtensions
         configure?.Invoke(options);
         services.AddSingleton(options);
         services.TryAddSingleton<ElsieHealthCheckRunner>();
-        services.AddElsieModule<ElsieHealthChecksModule>();
+        services.TryAddSingleton<ElsieHealthCheckMiddleware>();
+        services.AddSingleton(new ElsieMiddlewareSetup(p => p.Use<ElsieHealthCheckMiddleware>()));
         return services;
     }
 }

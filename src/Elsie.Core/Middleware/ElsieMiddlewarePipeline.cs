@@ -60,13 +60,15 @@ public sealed class ElsieMiddlewarePipeline
     /// Register an async before-hook style gate (e.g. <c>ElsieAntiforgeryService.RequireAntiforgery()</c>,
     /// or any <see cref="Elsie.Pipelines.ElsieBeforeDelegate"/>).
     /// Non-null result short-circuits; null continues the pipeline.
+    /// Cancellation uses the dispatcher's linked token (<see cref="ElsieContext.DispatchCancellationToken"/>),
+    /// consistent with the rest of the pipeline.
     /// </summary>
     public ElsieMiddlewarePipeline Use(Elsie.Pipelines.ElsieBeforeDelegate asyncGate)
     {
         ArgumentNullException.ThrowIfNull(asyncGate);
         return Use(async (ctx, next) =>
         {
-            var result = await asyncGate(ctx, ctx.RequestAborted);
+            var result = await asyncGate(ctx, ctx.DispatchCancellationToken);
             if (result is not null)
             {
                 ctx.Result = result;

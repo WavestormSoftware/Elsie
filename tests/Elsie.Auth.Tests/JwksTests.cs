@@ -17,7 +17,7 @@ public class JwksTests
     {
         public JwtSecureModule()
         {
-            Before(ElsieAuthGates.RequireAuthenticated());
+            Use(ElsieAuthGates.RequireAuthenticated());
             Get("/jwt-secure", ctx => ctx.Json(new { sub = ctx.GetUser().FindFirst("sub")?.Value }));
         }
     }

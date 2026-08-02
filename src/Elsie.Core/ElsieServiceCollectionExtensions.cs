@@ -1,6 +1,6 @@
 using System.Diagnostics.CodeAnalysis;
 using System.Reflection;
-using Elsie.Pipelines;
+using Elsie.Middleware;
 using Elsie.Routing;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
@@ -23,19 +23,12 @@ public static class ElsieServiceCollectionExtensions
             configure(options);
         }
 
-        services.TryAddSingleton<ElsiePipelines>(sp =>
-        {
-            var pipelines = new ElsiePipelines();
-            foreach (var setup in sp.GetServices<ElsiePipelineSetup>())
-            {
-                setup.Configure(pipelines);
-            }
-
-            return pipelines;
-        });
+        services.TryAddSingleton<Middleware.ElsieExceptionHandlerMiddleware>();
         services.TryAddSingleton<Middleware.ElsieMiddlewarePipeline>(sp =>
         {
             var pipeline = new Middleware.ElsieMiddlewarePipeline();
+            // Terminal exception handler first (outermost) so it wraps every other middleware.
+            pipeline.Use(sp.GetRequiredService<Middleware.ElsieExceptionHandlerMiddleware>());
             foreach (var setup in sp.GetServices<ElsieMiddlewareSetup>())
             {
                 setup.Configure(pipeline);
@@ -57,18 +50,19 @@ public static class ElsieServiceCollectionExtensions
     }
 
     /// <summary>
-    /// Configures application-wide before/after pipelines.
-    /// Multiple calls compose in registration order onto a single <see cref="ElsiePipelines"/> instance.
+    /// Configures application-wide middleware (ordering: FIFO pre / LIFO post).
+    /// Multiple calls compose in registration order onto the single application pipeline.
+    /// This is the middleware replacement for the removed <c>ConfigureElsiePipelines</c> hooks API.
     /// </summary>
-    public static IServiceCollection ConfigureElsiePipelines(
+    public static IServiceCollection AddElsieMiddleware(
         this IServiceCollection services,
-        Action<ElsiePipelines> configure)
+        Action<Middleware.ElsieMiddlewarePipeline> configure)
     {
         ArgumentNullException.ThrowIfNull(services);
         ArgumentNullException.ThrowIfNull(configure);
 
         services.AddElsie();
-        services.AddSingleton(new ElsiePipelineSetup(configure));
+        services.AddSingleton(new ElsieMiddlewareSetup(configure));
         return services;
     }
 
@@ -156,8 +150,11 @@ public static class ElsieServiceCollectionExtensions
     }
 }
 
-/// <summary>Internal registration hook so middleware configures compose on one singleton.</summary>
-internal sealed class ElsieMiddlewareSetup
+/// <summary>
+/// Registration hook so middleware configures compose onto the single application pipeline.
+/// Extension packages (Cors, Auth, HealthChecks, ...) add one setup per <c>AddXxx</c> call.
+/// </summary>
+public sealed class ElsieMiddlewareSetup
 {
     public ElsieMiddlewareSetup(Action<Middleware.ElsieMiddlewarePipeline> configure)
     {
@@ -165,15 +162,4 @@ internal sealed class ElsieMiddlewareSetup
     }
 
     public Action<Middleware.ElsieMiddlewarePipeline> Configure { get; }
-}
-
-/// <summary>Internal registration hook so pipeline configures compose on one singleton.</summary>
-internal sealed class ElsiePipelineSetup
-{
-    public ElsiePipelineSetup(Action<ElsiePipelines> configure)
-    {
-        Configure = configure ?? throw new ArgumentNullException(nameof(configure));
-    }
-
-    public Action<ElsiePipelines> Configure { get; }
 }

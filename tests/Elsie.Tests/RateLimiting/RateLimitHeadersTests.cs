@@ -11,14 +11,14 @@ public class RateLimitHeadersTests
     {
         public HeaderModule(IRateLimitStore store)
         {
-            Before(ctx =>
+            Use(ctx =>
             {
                 var key = ctx.Request.RemoteIp ?? "unknown";
                 return store.TryAcquire(key, out var retryAfter)
                     ? null
                     : ElsieResult.Problem(429, "Too Many Requests", "limited");
             });
-            After(ElsieRateLimitHeaders.Attach(store));
+            Use(ElsieRateLimitHeaders.Attach(store));
             Get("/ping", () => ElsieResult.Text("pong"));
         }
     }

@@ -16,7 +16,11 @@ public class DispatcherTests
                 return bind.IsSuccess ? ctx.Json(bind.Value) : bind.Error!;
             });
             Get("/hdr", () => ElsieResult.Text("x"));
-            After((ctx, _) => ctx.Response.Headers["X-Core"] = "1");
+            Use((Func<ElsieContext, ElsieResult, ElsieResult>)((ctx, result) =>
+            {
+                ctx.Response.Headers["X-Core"] = "1";
+                return result;
+            }));
             Get("/todo/{id}", ctx => ElsieResult.Text(ctx.UrlFor("self", new { id = ctx.RouteValues["id"] })))
                 .Named("self");
             Get("/cookie", ctx =>

@@ -83,7 +83,7 @@ public class HostingTests
     {
         public GuardedModule()
         {
-            Before(ElsieAuth.RequireHeader("X-Api-Key", "secret"));
+            Use(ElsieAuth.RequireHeader("X-Api-Key", "secret"));
             Get("/guarded", () => ElsieResult.Text("ok"));
         }
     }
@@ -154,12 +154,22 @@ public class HostingTests
     {
         await using var host = ElsieTestHost.Create(s =>
         {
-            s.AddElsie(o =>
-            {
-                o.ScanEntryAssembly = false;
-                o.MapException<KeyNotFoundException>((_, ex) => ElsieResult.NotFound(ex.Message));
-            });
+            s.AddElsie(o => o.ScanEntryAssembly = false);
             s.AddElsieModule<ApiModule>();
+            s.AddElsieMiddleware(p =>
+            {
+                p.Use(async (ctx, next) =>
+                {
+                    try
+                    {
+                        await next(ctx);
+                    }
+                    catch (KeyNotFoundException ex)
+                    {
+                        ctx.Result = ElsieResult.NotFound(ex.Message);
+                    }
+                });
+            });
         });
 
         Assert.Equal("list", await host.Client.GetStringAsync("/api/things/"));

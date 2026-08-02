@@ -12,9 +12,6 @@ public abstract class ElsieModule
     private readonly List<RouteDescriptor> _routes = [];
     private string _pathPrefix = string.Empty;
 
-    /// <summary>Module-scoped before/after hooks.</summary>
-    public ElsiePipelines Pipelines { get; } = new();
-
     /// <summary>
     /// Module-scoped middleware. Runs for routes registered on this module only, between the
     /// application pipeline and the route handler (FIFO pre / LIFO post).
@@ -35,8 +32,26 @@ public abstract class ElsieModule
         Middleware.Use<TMiddleware>();
     }
 
-    /// <summary>Optional module-level exception mapper (after options.MapException, before global ExceptionHandler).</summary>
-    public ElsieExceptionHandler? OnErrorHandler { get; private set; }
+    /// <summary>Add a before-hook style gate scoped to this module's routes.</summary>
+    protected void Use(Func<ElsieContext, ElsieResult?> gate)
+    {
+        ArgumentNullException.ThrowIfNull(gate);
+        Middleware.Use(gate);
+    }
+
+    /// <summary>Add an async before-hook style gate scoped to this module's routes.</summary>
+    protected void Use(Pipelines.ElsieBeforeDelegate asyncGate)
+    {
+        ArgumentNullException.ThrowIfNull(asyncGate);
+        Middleware.Use(asyncGate);
+    }
+
+    /// <summary>Add an after-hook style transform scoped to this module's routes.</summary>
+    protected void Use(Func<ElsieContext, ElsieResult, ElsieResult> after)
+    {
+        ArgumentNullException.ThrowIfNull(after);
+        Middleware.Use(after);
+    }
 
     /// <summary>Current path prefix applied to newly registered routes.</summary>
     protected string PathPrefix => _pathPrefix;
@@ -65,29 +80,6 @@ public abstract class ElsieModule
         {
             _pathPrefix = previous;
         }
-    }
-
-    protected void Before(ElsieBeforeDelegate hook) => Pipelines.AddBefore(hook);
-
-    protected void Before(Func<ElsieContext, ElsieResult?> hook) => Pipelines.AddBefore(hook);
-
-    protected void After(ElsieAfterDelegate hook) => Pipelines.AddAfter(hook);
-
-    protected void After(Action<ElsieContext, ElsieResult> hook) => Pipelines.AddAfter(hook);
-
-    protected void After(Func<ElsieContext, ElsieResult, ElsieResult> hook) => Pipelines.AddAfter(hook);
-
-    /// <summary>Module exception handler. Return a result to handle; throw to continue the error chain.</summary>
-    protected void OnError(ElsieExceptionHandler handler)
-    {
-        ArgumentNullException.ThrowIfNull(handler);
-        OnErrorHandler = handler;
-    }
-
-    protected void OnError(Func<ElsieContext, Exception, ElsieResult> handler)
-    {
-        ArgumentNullException.ThrowIfNull(handler);
-        OnErrorHandler = (ctx, ex, _) => Task.FromResult(handler(ctx, ex));
     }
 
     protected RouteBuilder Get(string template, Func<ElsieResult> handler) =>

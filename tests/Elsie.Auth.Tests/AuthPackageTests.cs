@@ -37,7 +37,7 @@ public class AuthPackageTests
     {
         public SecureModule()
         {
-            Before(ElsieAuthGates.RequireAuthenticated());
+            Use(ElsieAuthGates.RequireAuthenticated());
 
             Get("/me", ctx =>
             {
@@ -58,7 +58,7 @@ public class AuthPackageTests
         public RoleModule()
         {
             Path("/roles");
-            Before(ElsieAuthGates.RequireRole("admin"));
+            Use(ElsieAuthGates.RequireRole("admin"));
             Get("/admin", () => ElsieResult.Text("admin-ok"));
         }
     }
@@ -68,7 +68,7 @@ public class AuthPackageTests
         public ClaimModule()
         {
             Path("/claims");
-            Before(ElsieAuthGates.RequireClaim(ClaimTypes.Name, "ada"));
+            Use(ElsieAuthGates.RequireClaim(ClaimTypes.Name, "ada"));
             Get("/named", () => ElsieResult.Text("named-ok"));
         }
     }

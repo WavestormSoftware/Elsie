@@ -1,3 +1,4 @@
+using Elsie.Middleware;
 using Elsie.Routing;
 using Elsie.Web;
 using Microsoft.Extensions.Configuration;
@@ -10,9 +11,11 @@ namespace Elsie.Cors;
 public static class ElsieCorsServiceCollectionExtensions
 {
     /// <summary>
-    /// Registers CORS options, after-hook ACAO headers, and preflight <see cref="IElsieRequestFilter"/>.
+    /// Registers CORS options and <see cref="ElsieCorsMiddleware"/> into the app middleware
+    /// pipeline (preflight short-circuit + ACAO headers on the way out).
     /// The <c>Elsie:Cors</c> config section binds via <see cref="IOptionsMonitor{T}"/> when present
     /// and reloads are applied to the live options (hot reload of origins/methods/headers).
+    /// The legacy <c>IElsieRequestFilter</c> preflight + ACAO after-hook wiring is removed.
     /// </summary>
     public static IServiceCollection AddElsieCors(
         this IServiceCollection services,
@@ -53,15 +56,7 @@ public static class ElsieCorsServiceCollectionExtensions
             sp.GetRequiredService<ElsieCorsConfigRelay>(),
             sp.GetRequiredService<RouteTable>(),
             sp.GetRequiredService<ElsieCorsApplier>()));
-        services.TryAddEnumerable(ServiceDescriptor.Singleton<IElsieRequestFilter, ElsieCorsPreflightFilter>());
-        services.ConfigureElsiePipelines(p =>
-        {
-            p.AddAfter((ctx, result, _) =>
-            {
-                var applier = ctx.GetService<ElsieCorsApplier>();
-                return Task.FromResult(applier is null ? result : applier.Apply(ctx, result));
-            });
-        });
+        services.AddSingleton(new ElsieMiddlewareSetup(p => p.UseElsieCors()));
 
         return services;
     }
@@ -109,71 +104,6 @@ internal sealed class ElsieCorsApplier
     }
 }
 
-internal sealed class ElsieCorsPreflightFilter : IElsieRequestFilter
-{
-    private readonly ElsieCorsOptions _options;
-    private readonly RouteTable _routes;
-
-    public ElsieCorsPreflightFilter(ElsieCorsOptions options, ElsieCorsConfigRelay relay, RouteTable routes)
-    {
-        _options = options;
-        _routes = routes;
-        _ = relay; // constructed so config reload forwarding is live
-    }
-
-    public Task<ElsieHttpResponse?> TryHandleAsync(ElsieRequest request, CancellationToken cancellationToken)
-    {
-        var origin = request.GetHeader("Origin");
-        if (string.IsNullOrEmpty(origin) ||
-            !request.Method.Equals("OPTIONS", StringComparison.OrdinalIgnoreCase) ||
-            string.IsNullOrEmpty(request.GetHeader("Access-Control-Request-Method")))
-        {
-            return Task.FromResult<ElsieHttpResponse?>(null);
-        }
-
-        var policy = ResolvePreflightPolicy(request);
-        var requestMethod = request.GetHeader("Access-Control-Request-Method");
-        var requestHeaders = request.GetHeader("Access-Control-Request-Headers");
-
-        ElsieResult result;
-        if (ElsieCorsEvaluator.TryBuildPreflightHeaders(
-                policy,
-                origin!,
-                requestMethod,
-                string.IsNullOrEmpty(requestHeaders) ? null : requestHeaders,
-                out var headers))
-        {
-            result = ElsieResult.NoContent().WithHeaders(headers);
-        }
-        else
-        {
-            // Origin/method not allowed — empty 204 (browser enforces missing ACAO).
-            result = ElsieResult.NoContent();
-        }
-
-        var response = ElsieHttpResponse.FromDispatch(
-            ElsieDispatchResult.Handled(result, new ElsieResponse()));
-        return Task.FromResult(response);
-    }
-
-    private ElsieCorsPolicy ResolvePreflightPolicy(ElsieRequest request)
-    {
-        var requestMethod = request.GetHeader("Access-Control-Request-Method");
-        if (!string.IsNullOrEmpty(requestMethod))
-        {
-            var lookup = _routes.Lookup(requestMethod!, request.Path);
-            if (lookup.Status == RouteLookupStatus.Matched &&
-                lookup.Match!.Route.TryGetCorsPolicyName(out var named) &&
-                named is not null &&
-                _options.TryGetPolicy(named, out var policy))
-            {
-                return policy;
-            }
-        }
-
-        return _options.GetRequiredPolicy(_options.DefaultPolicy);
-    }
-}
 
 public static class ElsieCorsAppExtensions
 {

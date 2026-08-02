@@ -12,7 +12,7 @@ public class RateLimitTests
     {
         public GatedModule(Func<ElsieContext, ElsieResult?> gate)
         {
-            Before(gate);
+            Use(gate);
             Get("/ping", () => ElsieResult.Text("pong"));
         }
     }

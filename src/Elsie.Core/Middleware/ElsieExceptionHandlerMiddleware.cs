@@ -2,9 +2,11 @@ namespace Elsie.Middleware;
 
 /// <summary>
 /// Terminal exception-handler middleware: catches exceptions thrown by downstream middleware and
-/// maps them through <see cref="ElsieOptions.TryMapExceptionAsync"/> then
-/// <see cref="ElsieOptions.ExceptionHandler"/>, rethrowing when neither applies.
-/// Register it **first** (outermost) in the app pipeline so it wraps everything downstream.
+/// route handlers and maps them. <see cref="ElsieRequestException"/> becomes a problem result;
+/// other exceptions go through <see cref="ElsieOptions.ExceptionHandler"/> (default: safe 500),
+/// rethrowing when the handler is null. Register it **first** (outermost) in the app pipeline so
+/// it wraps everything downstream — <see cref="ElsieServiceCollectionExtensions.AddElsie(Microsoft.Extensions.DependencyInjection.IServiceCollection, Action{ElsieOptions}?)"/>
+/// does this automatically.
 /// </summary>
 public sealed class ElsieExceptionHandlerMiddleware : IElsieMiddleware
 {
@@ -28,16 +30,15 @@ public sealed class ElsieExceptionHandlerMiddleware : IElsieMiddleware
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
-            var mapped = await _options.TryMapExceptionAsync(context, ex, context.RequestAborted);
-            if (mapped is not null)
+            if (ex is ElsieRequestException protocol)
             {
-                context.Result = mapped;
+                context.Result = ElsieResult.Problem(protocol.StatusCode, protocol.Title, protocol.Message);
                 return;
             }
 
             if (_options.ExceptionHandler is not null)
             {
-                context.Result = await _options.ExceptionHandler(context, ex, context.RequestAborted);
+                context.Result = await _options.ExceptionHandler(context, ex, context.DispatchCancellationToken);
                 return;
             }
 

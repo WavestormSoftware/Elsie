@@ -24,7 +24,7 @@ public class PolicyTests
         public PolicyModule(ElsieAuthOptions auth)
         {
             Path("/policy");
-            Before(ElsieAuthGates.RequirePolicy(auth, "admin"));
+            Use(ElsieAuthGates.RequirePolicy(auth, "admin"));
             Get("/admin", () => ElsieResult.Text("policy-ok"));
         }
     }
@@ -33,7 +33,7 @@ public class PolicyTests
     {
         public BadPolicyModule(ElsieAuthOptions auth)
         {
-            Before(ElsieAuthGates.RequirePolicy(auth, "not-registered"));
+            Use(ElsieAuthGates.RequirePolicy(auth, "not-registered"));
             Get("/x", () => ElsieResult.Text("x"));
         }
     }
@@ -106,7 +106,7 @@ public class PolicyTests
         public StrictPolicyModule(ElsieAuthOptions auth)
         {
             Path("/policy");
-            Before(ElsieAuthGates.RequirePolicy(auth, "strict"));
+            Use(ElsieAuthGates.RequirePolicy(auth, "strict"));
             Get("/strict", () => ElsieResult.Text("strict-ok"));
         }
     }

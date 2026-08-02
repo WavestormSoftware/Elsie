@@ -12,8 +12,6 @@ internal sealed class ElsieServerFeatures
 
     /// <summary>Bundled offline Scalar UI bundle (embedded resource), served when <c>UseScalarCdn = false</c>.</summary>
     public byte[]? OpenApiUiStandaloneJs { get; set; }
-    public Func<ElsieRequest, CancellationToken, Task<ElsieHttpResponse?>>? TryCorsPreflight { get; init; }
-    public Action<ElsieRequest>? AttachPrincipal { get; init; }
     public string ContentRoot { get; init; } = AppContext.BaseDirectory;
 
     public void WarmOpenApi(RouteTable routes)

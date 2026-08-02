@@ -143,14 +143,14 @@ public class RedisStoreIntegrationTests : IAsyncLifetime
     {
         public HeaderModule(Elsie.RateLimiting.IRateLimitStore store)
         {
-            Before(ctx =>
+            Use(ctx =>
             {
                 var key = ctx.Request.RemoteIp ?? "test";
                 return store.TryAcquire(key, out var retryAfter)
                     ? null
                     : Elsie.ElsieResult.Problem(429, "Too Many Requests", "limited");
             });
-            After(Elsie.RateLimiting.ElsieRateLimitHeaders.Attach(store, _ => "test"));
+            Use(Elsie.RateLimiting.ElsieRateLimitHeaders.Attach(store, _ => "test"));
             Get("/ping", () => Elsie.ElsieResult.Text("pong"));
         }
     }

@@ -7,7 +7,7 @@ namespace Elsie.Web.Hosting;
 
 internal static class StaticFileHandler
 {
-    public static ElsieHttpResponse? TryServe(
+    public static ElsieResult? TryServe(
         string method,
         string path,
         IReadOnlyDictionary<string, string> headers,
@@ -48,7 +48,7 @@ internal static class StaticFileHandler
             relative.Contains('\\', StringComparison.Ordinal) ||
             Path.IsPathRooted(relative))
         {
-            return FromResult(ElsieResult.BadRequest("Invalid path."));
+            return ElsieResult.BadRequest("Invalid path.");
         }
 
         var root = options.Root;
@@ -75,16 +75,16 @@ internal static class StaticFileHandler
 
         if (headers.TryGetValue("If-None-Match", out var inm) && EtagMatches(inm, etag))
         {
-            return FromResult(ElsieResult.NotModified().WithHeader("ETag", etag));
+            return ElsieResult.NotModified().WithHeader("ETag", etag);
         }
 
         if (headers.TryGetValue("If-Modified-Since", out var ims) &&
             DateTimeOffset.TryParse(ims, CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal, out var since) &&
             lastModified <= since.UtcDateTime.AddSeconds(1))
         {
-            return FromResult(ElsieResult.NotModified()
+            return ElsieResult.NotModified()
                 .WithHeader("ETag", etag)
-                .WithHeader("Last-Modified", lastModified.ToString("R", CultureInfo.InvariantCulture)));
+                .WithHeader("Last-Modified", lastModified.ToString("R", CultureInfo.InvariantCulture));
         }
 
         var contentType = ContentTypes.FromExtension(full) ?? "application/octet-stream";
@@ -160,7 +160,7 @@ internal static class StaticFileHandler
             result = result.WithHeader("Cache-Control", $"public, max-age={(int)maxAge.TotalSeconds}");
         }
 
-        return FromResult(result);
+        return result;
     }
 
     private static string ComputeEtag(FileInfo info)
@@ -244,9 +244,6 @@ internal static class StaticFileHandler
         count = end - start + 1;
         return count > 0;
     }
-
-    private static ElsieHttpResponse FromResult(ElsieResult result) =>
-        ElsieHttpResponse.FromDispatch(ElsieDispatchResult.Handled(result, new ElsieResponse()))!;
 
     private static string NormalizePrefix(string? requestPath)
     {

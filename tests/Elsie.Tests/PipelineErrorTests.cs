@@ -10,23 +10,51 @@ public class PipelineErrorTests
     {
         public PipeModule()
         {
-            Before(ctx =>
+            Use(ctx =>
             {
                 ctx.Response.Headers["X-Mod-Before"] = "1";
                 return null;
             });
-            After((ctx, result) =>
+            // Registered before the gate so its post-logic still runs when the gate short-circuits.
+            Use((Func<ElsieContext, ElsieResult, ElsieResult>)((ctx, result) =>
             {
                 ctx.Response.Headers["X-Mod-After"] = "1";
                 return result.WithHeader("X-Wrapped", "m");
-            });
-            OnError((ctx, ex) => ElsieResult.Text($"mod:{ex.GetType().Name}", statusCode: 418));
+            }));
+            Use(ctx => ctx.Request.Path == "/short" ? ElsieResult.Text("short") : null);
 
             Get("/ok", () => ElsieResult.Text("ok"));
             Get("/boom", _ => throw new InvalidOperationException("x"));
             Get("/key", _ => throw new KeyNotFoundException("missing"));
             Get("/short", () => ElsieResult.Text("never"));
-            Before(ctx => ctx.Request.Path == "/short" ? ElsieResult.Text("short") : null);
+        }
+    }
+
+    private sealed class ModuleOnErrorModule : ElsieModule
+    {
+        public ModuleOnErrorModule()
+        {
+            // Module-scoped error mapping as middleware: catch, map, or rethrow what the
+            // app-level mapping owns (module OnError used to sit after app MapException).
+            Use(async (ctx, next) =>
+            {
+                try
+                {
+                    await next(ctx);
+                }
+                catch (Exception ex) when (ex is not OperationCanceledException)
+                {
+                    if (ex is KeyNotFoundException)
+                    {
+                        throw;
+                    }
+
+                    ctx.Result = ElsieResult.Text($"mod:{ex.GetType().Name}", statusCode: 418);
+                }
+            });
+
+            Get("/boom", _ => throw new InvalidOperationException("x"));
+            Get("/key", _ => throw new KeyNotFoundException("missing"));
         }
     }
 
@@ -35,7 +63,8 @@ public class PipelineErrorTests
         public AfterThrowModule()
         {
             Get("/a", () => ElsieResult.Text("a"));
-            After((_, _) => throw new InvalidOperationException("after-boom"));
+            Use((Func<ElsieContext, ElsieResult, ElsieResult>)((_, _) =>
+                throw new InvalidOperationException("after-boom")));
         }
     }
 
@@ -48,19 +77,19 @@ public class PipelineErrorTests
     }
 
     [Fact]
-    public async Task After_can_transform_result()
+    public async Task After_transform_can_replace_result()
     {
         var services = new ServiceCollection();
         services.AddElsie(o => o.ScanEntryAssembly = false);
         services.AddElsieModule<PipeModule>();
-        services.ConfigureElsiePipelines(p =>
+        services.AddElsieMiddleware(p =>
         {
-            p.AddBefore(ctx =>
+            p.Use(ctx =>
             {
                 ctx.Response.Headers["X-App-Before"] = "1";
                 return null;
             });
-            p.AddAfter((ctx, result) =>
+            p.Use((ctx, result) =>
             {
                 ctx.Response.Headers["X-App-After"] = "1";
                 return result.WithHeader("X-App-Wrap", "1");
@@ -80,7 +109,7 @@ public class PipelineErrorTests
     }
 
     [Fact]
-    public async Task Short_circuit_still_runs_afters()
+    public async Task Short_circuit_still_runs_outer_transforms()
     {
         var services = new ServiceCollection();
         services.AddElsie(o => o.ScanEntryAssembly = false);
@@ -95,28 +124,35 @@ public class PipelineErrorTests
     }
 
     [Fact]
-    public async Task MapException_then_module_OnError()
+    public async Task App_mapping_then_module_error_middleware()
     {
         var services = new ServiceCollection();
-        services.AddElsie(o =>
+        services.AddElsie(o => o.ScanEntryAssembly = false);
+        services.AddElsieModule<ModuleOnErrorModule>();
+        services.AddElsieMiddleware(p =>
         {
-            o.ScanEntryAssembly = false;
-            o.MapException<KeyNotFoundException>((_, ex) =>
-                ElsieResult.NotFound(ex.Message));
+            p.Use(async (ctx, next) =>
+            {
+                try
+                {
+                    await next(ctx);
+                }
+                catch (KeyNotFoundException ex)
+                {
+                    ctx.Result = ElsieResult.NotFound(ex.Message);
+                }
+            });
         });
-        services.AddElsieModule<PipeModule>();
         await using var sp = services.BuildServiceProvider();
         var dispatcher = sp.GetRequiredService<ElsieDispatcher>();
 
         var mapped = await dispatcher.DispatchAsync(new ElsieRequest("GET", "/key"));
         Assert.Equal(404, mapped.Result!.StatusCode);
-        Assert.Equal("1", mapped.Response!.Headers["X-Mod-After"]); // afters run for error results
 
         var onError = await dispatcher.DispatchAsync(new ElsieRequest("GET", "/boom"));
         Assert.Equal(418, onError.Result!.StatusCode);
         Assert.Equal("mod:InvalidOperationException", Encoding.UTF8.GetString(onError.Result.Body!.Value.Span));
     }
-
 
     [Fact]
     public async Task Default_exception_handler_hides_message()
@@ -152,7 +188,7 @@ public class PipelineErrorTests
     }
 
     [Fact]
-    public async Task After_exception_reenters_error_chain()
+    public async Task Transform_exception_reenters_error_chain()
     {
         var services = new ServiceCollection();
         services.AddElsie(o =>

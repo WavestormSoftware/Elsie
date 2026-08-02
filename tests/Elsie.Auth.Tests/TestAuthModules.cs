@@ -48,7 +48,7 @@ internal sealed class TestSecureModule : ElsieModule
 {
     public TestSecureModule()
     {
-        Before(ElsieAuthGates.RequireAuthenticated());
+        Use(ElsieAuthGates.RequireAuthenticated());
         Get("/secure", () => ElsieResult.Text("ok"));
         Get("/me", ctx => ctx.Json(new { name = ctx.GetUser().Identity?.Name }));
     }
@@ -59,7 +59,7 @@ internal sealed class TestRoleModule : ElsieModule
     public TestRoleModule()
     {
         Path("/roles");
-        Before(ElsieAuthGates.RequireRole("admin"));
+        Use(ElsieAuthGates.RequireRole("admin"));
         Get("/admin", () => ElsieResult.Text("admin-ok"));
     }
 }
