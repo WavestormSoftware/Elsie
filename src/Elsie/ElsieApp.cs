@@ -6,6 +6,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Options;
 
 namespace Elsie.Web;
 
@@ -288,6 +289,31 @@ public sealed class ElsieApp
         return new ElsieTestServer(server);
     }
 
+    /// <summary>
+    /// Registers <see cref="IOptionsMonitor{T}"/> bindings for the host server options
+    /// (seeded from the app instance, optionally bound from the <c>Elsie:Server</c> config
+    /// section) so safe knobs — timeouts, limits, compression, LogRequests — can hot reload.
+    /// </summary>
+    private void RegisterOptionsReload(IServiceCollection services)
+    {
+        services.AddOptions<ElsieServerOptions>().Configure(o => o.CopyFrom(_serverOptions));
+        if (_configuration is not null)
+        {
+            services.AddOptions<ElsieServerOptions>().BindConfiguration("Elsie:Server");
+        }
+    }
+
+    /// <summary>Applies config values (initial + reloads) onto the live options instances consumers already hold.</summary>
+    private void WireOptionsReload(IServiceProvider sp)
+    {
+        var serverMonitor = sp.GetService<IOptionsMonitor<ElsieServerOptions>>();
+        if (serverMonitor is not null)
+        {
+            serverMonitor.OnChange(updated => _serverOptions.CopyFrom(updated));
+            _serverOptions.CopyFrom(serverMonitor.CurrentValue);
+        }
+    }
+
     /// <summary>Wire DI + hosted service into a Generic Host container (called by <see cref="ElsieHostingExtensions"/>).</summary>
     internal void RegisterWithHost(
         IServiceCollection services,
@@ -317,6 +343,7 @@ public sealed class ElsieApp
                 cfg(o);
             }
         });
+        RegisterOptionsReload(services);
 
         foreach (var cfg in _serviceConfigs)
         {
@@ -346,6 +373,7 @@ public sealed class ElsieApp
         EnsureConfigured();
         var endpoints = ResolveEndpoints();
         var dispatcher = sp.GetRequiredService<ElsieDispatcher>();
+        WireOptionsReload(sp);
         var features = sp.GetRequiredService<ElsieServerFeatures>();
 
         Action<string>? log = _quietConsole
@@ -380,6 +408,7 @@ public sealed class ElsieApp
                 cfg(o);
             }
         });
+        RegisterOptionsReload(_services);
 
         foreach (var cfg in _serviceConfigs)
         {
@@ -406,6 +435,7 @@ public sealed class ElsieApp
             ContentRoot = _contentRoot
         };
         _featureSetup?.Invoke(features, sp);
+        WireOptionsReload(sp);
 
         Action<string>? log = _quietConsole
             ? msg => Console.WriteLine($"{DateTime.Now:HH:mm:ss} {msg}")

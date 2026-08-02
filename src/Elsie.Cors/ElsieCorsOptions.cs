@@ -42,4 +42,16 @@ public sealed class ElsieCorsOptions
 
         throw new InvalidOperationException($"CORS policy '{name}' is not registered.");
     }
+
+    /// <summary>Copies the default policy and all named policies from <paramref name="source"/> (reload plumbing).</summary>
+    internal void CopyFrom(ElsieCorsOptions source)
+    {
+        ArgumentNullException.ThrowIfNull(source);
+        DefaultPolicy = source.DefaultPolicy;
+        _policies.Clear();
+        foreach (var (name, policy) in source._policies)
+        {
+            _policies[name] = policy.Clone();
+        }
+    }
 }

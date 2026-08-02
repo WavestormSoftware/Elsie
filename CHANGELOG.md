@@ -20,6 +20,7 @@ Elsie is **unreleased** software; prereleases may include breaking API changes.
 - `ElsieMetrics` meter version string bumped to `0.4.0`.
 
 ### Added
+- **Hot reload (IOptionsMonitor)**: `Elsie:Server` binds onto `ElsieServerOptions` and `Elsie:Cors` binds onto CORS policies; config reloads flow into the live instances so server limits/timeouts, compression, `LogRequests`, and CORS origins/methods/headers update without restart (safe-knob list documented in `docs/hosting-and-aot.md`; routing/modules/binding/listener settings stay restart-only)
 - **OpenAPI 3.1** (`openapi: 3.1.0`, JSON Schema 2020-12): nullable properties and optional query parameters are emitted as type unions (`["string", "null"]`) instead of the removed `nullable` keyword
 - **Offline Scalar UI**: bundled `@scalar/api-reference` standalone bundle (embedded resource, served at `{UiPath}/standalone.js`) when `UseScalarCdn = false`; update via `tools/UpdateScalarAssets.sh`
 - **JWKS signing-key discovery** (`JwksResolver`): OIDC `/.well-known/openid-configuration` or explicit `JwksUrl` discovery via `ConfigurationManager`, refresh on `ElsieJwtBearerOptions.JwksRefreshInterval` (default 24 h), `kid` validation with rollover (previous keys kept), unreachable authority → clean 401 (never crashes); `AllowHttpMetadata` knob for dev/test

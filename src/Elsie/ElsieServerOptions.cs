@@ -85,4 +85,31 @@ public sealed class ElsieServerOptions
     /// Default <see cref="TimeSpan.Zero"/> = off (use <see cref="RequestHeadersTimeout"/> only).
     /// </summary>
     public TimeSpan ConnectionIdleTimeout { get; set; }
+
+    /// <summary>Copies all values from <paramref name="source"/> onto this instance (reload plumbing).</summary>
+    internal void CopyFrom(ElsieServerOptions source)
+    {
+        ArgumentNullException.ThrowIfNull(source);
+        MaxRequestLineLength = source.MaxRequestLineLength;
+        MaxHeaderBytes = source.MaxHeaderBytes;
+        MaxRequestBodyBytes = source.MaxRequestBodyBytes;
+        RequestHeadersTimeout = source.RequestHeadersTimeout;
+        RequestBodyIdleTimeout = source.RequestBodyIdleTimeout;
+        DisableContinue = source.DisableContinue;
+        AbortRequestsOnClientDisconnect = source.AbortRequestsOnClientDisconnect;
+        ShutdownAbortConnections = source.ShutdownAbortConnections;
+        MaxConcurrentConnections = source.MaxConcurrentConnections;
+        ConnectionDrainTimeout = source.ConnectionDrainTimeout;
+        ListenBacklog = source.ListenBacklog;
+        MaxConcurrentStreams = source.MaxConcurrentStreams;
+        MaxFrameSize = source.MaxFrameSize;
+        UseForwardedHeaders = source.UseForwardedHeaders;
+        EnableResponseCompression = source.EnableResponseCompression;
+        CompressionMinBodyBytes = source.CompressionMinBodyBytes;
+        LogRequests = source.LogRequests;
+        TcpKeepAlive = source.TcpKeepAlive;
+        TcpKeepAliveTime = source.TcpKeepAliveTime;
+        TcpKeepAliveInterval = source.TcpKeepAliveInterval;
+        ConnectionIdleTimeout = source.ConnectionIdleTimeout;
+    }
 }

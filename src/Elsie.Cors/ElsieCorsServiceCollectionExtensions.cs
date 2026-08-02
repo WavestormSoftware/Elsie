@@ -1,7 +1,9 @@
 using Elsie.Routing;
 using Elsie.Web;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using Microsoft.Extensions.Options;
 
 namespace Elsie.Cors;
 
@@ -9,9 +11,21 @@ public static class ElsieCorsServiceCollectionExtensions
 {
     /// <summary>
     /// Registers CORS options, after-hook ACAO headers, and preflight <see cref="IElsieRequestFilter"/>.
+    /// The <c>Elsie:Cors</c> config section binds via <see cref="IOptionsMonitor{T}"/> when present
+    /// and reloads are applied to the live options (hot reload of origins/methods/headers).
     /// </summary>
     public static IServiceCollection AddElsieCors(
         this IServiceCollection services,
+        Action<ElsieCorsOptions>? configure = null)
+    {
+        ArgumentNullException.ThrowIfNull(services);
+        return services.AddElsieCors(configuration: null, configure);
+    }
+
+    /// <inheritdoc cref="AddElsieCors(IServiceCollection, Action{ElsieCorsOptions}?)"/>
+    public static IServiceCollection AddElsieCors(
+        this IServiceCollection services,
+        IConfiguration? configuration,
         Action<ElsieCorsOptions>? configure = null)
     {
         ArgumentNullException.ThrowIfNull(services);
@@ -25,6 +39,14 @@ public static class ElsieCorsServiceCollectionExtensions
         }
 
         services.AddSingleton(options);
+        services.AddOptions<ElsieCorsOptions>().Configure(o => o.CopyFrom(options));
+        services.AddOptions<ElsieCorsConfigurationOptions>();
+        if (configuration is not null)
+        {
+            services.AddOptions<ElsieCorsConfigurationOptions>().BindConfiguration("Elsie:Cors");
+        }
+
+        services.TryAddSingleton<ElsieCorsConfigRelay>();
         services.TryAddSingleton<ElsieCorsApplier>();
         services.TryAddEnumerable(ServiceDescriptor.Singleton<IElsieRequestFilter, ElsieCorsPreflightFilter>());
         services.ConfigureElsiePipelines(p =>
@@ -46,10 +68,11 @@ internal sealed class ElsieCorsApplier
     private readonly ElsieCorsOptions _options;
     private readonly RouteTable _routes;
 
-    public ElsieCorsApplier(ElsieCorsOptions options, RouteTable routes)
+    public ElsieCorsApplier(ElsieCorsOptions options, ElsieCorsConfigRelay relay, RouteTable routes)
     {
         _options = options;
         _routes = routes;
+        _ = relay; // constructed so config reload forwarding is live
     }
 
     public ElsieResult Apply(ElsieContext ctx, ElsieResult result)
@@ -86,10 +109,11 @@ internal sealed class ElsieCorsPreflightFilter : IElsieRequestFilter
     private readonly ElsieCorsOptions _options;
     private readonly RouteTable _routes;
 
-    public ElsieCorsPreflightFilter(ElsieCorsOptions options, RouteTable routes)
+    public ElsieCorsPreflightFilter(ElsieCorsOptions options, ElsieCorsConfigRelay relay, RouteTable routes)
     {
         _options = options;
         _routes = routes;
+        _ = relay; // constructed so config reload forwarding is live
     }
 
     public Task<ElsieHttpResponse?> TryHandleAsync(ElsieRequest request, CancellationToken cancellationToken)

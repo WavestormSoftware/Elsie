@@ -4,6 +4,7 @@ using System.Net;
 using System.Text;
 using Elsie.Testing;
 using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.Configuration.Memory;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
@@ -223,6 +224,67 @@ public class HostingOpsTests
             l.Contains("GET", StringComparison.Ordinal) &&
             l.Contains("/ping", StringComparison.Ordinal) &&
             l.Contains("200", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task Server_limits_hot_reload_from_configuration()
+    {
+        var urls = $"http://127.0.0.1:{GetFreePort()}";
+        var provider = new MemoryConfigurationProvider(new MemoryConfigurationSource
+        {
+            InitialData = new Dictionary<string, string?>
+            {
+                ["Elsie:Urls"] = urls,
+                ["Elsie:Server:MaxHeaderBytes"] = "4096"
+            }
+        });
+
+        var builder = Host.CreateApplicationBuilder();
+        builder.Configuration.AddInMemoryCollection(new Dictionary<string, string?>
+        {
+            ["Elsie:Urls"] = urls,
+            ["Elsie:Server:MaxHeaderBytes"] = "4096"
+        });
+        builder.UseElsie(app =>
+        {
+            app.QuietConsole(false)
+                .Configure(o => o.ScanEntryAssembly = false)
+                .Module<PingModule>();
+        });
+
+        using var host = builder.Build();
+        await host.StartAsync();
+
+        try
+        {
+            // 8 KiB header exceeds the 4096-byte limit → rejected.
+            using (var client = new HttpClient { BaseAddress = new Uri(urls + "/") })
+            {
+                using var before = new HttpRequestMessage(HttpMethod.Get, "/ping");
+                before.Headers.TryAddWithoutValidation("X-Big", new string('x', 8192));
+                var rejected = await client.SendAsync(before);
+                Assert.Equal(HttpStatusCode.RequestEntityTooLarge, rejected.StatusCode);
+            }
+
+            // Hot reload: raise the limit, then the same request succeeds on a new connection.
+            var root = (IConfigurationRoot)builder.Configuration;
+            root.Providers.OfType<MemoryConfigurationProvider>()
+                .First(p => p.TryGet("Elsie:Server:MaxHeaderBytes", out _))
+                .Set("Elsie:Server:MaxHeaderBytes", "16384");
+            root.Reload();
+
+            using var client2 = new HttpClient { BaseAddress = new Uri(urls + "/") };
+            using var after = new HttpRequestMessage(HttpMethod.Get, "/ping");
+            after.Headers.TryAddWithoutValidation("X-Big", new string('x', 8192));
+            var ok = await client2.SendAsync(after);
+            Assert.Equal(HttpStatusCode.OK, ok.StatusCode);
+            Assert.Equal("pong", await ok.Content.ReadAsStringAsync());
+        }
+        finally
+        {
+            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+            await host.StopAsync(cts.Token);
+        }
     }
 
     private static int GetFreePort()

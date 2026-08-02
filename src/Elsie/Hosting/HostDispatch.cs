@@ -17,7 +17,6 @@ internal sealed class HostDispatch
     private readonly IElsieRequestFilter[] _filters;
     private readonly IElsiePrincipalAttacher[] _attachers;
     private readonly ILogger _logger;
-    private readonly bool _logRequests;
 
     public HostDispatch(
         IServiceProvider services,
@@ -34,7 +33,6 @@ internal sealed class HostDispatch
         _attachers = services.GetServices<IElsiePrincipalAttacher>().ToArray();
         var factory = loggerFactory ?? services.GetService<ILoggerFactory>() ?? NullLoggerFactory.Instance;
         _logger = factory.CreateLogger("Elsie.Request");
-        _logRequests = _serverOptions.LogRequests && factory is not NullLoggerFactory;
     }
 
     public async Task<ElsieHttpResponse> ProcessAsync(
@@ -89,7 +87,7 @@ internal sealed class HostDispatch
                 new KeyValuePair<string, object?>("method", request.Method),
                 new KeyValuePair<string, object?>("status", 500),
                 new KeyValuePair<string, object?>("route", request.Path));
-            if (_logRequests)
+            if (_serverOptions.LogRequests)
             {
                 _logger.LogError(
                     ex,
@@ -148,7 +146,7 @@ internal sealed class HostDispatch
             response = ResponseCompression.MaybeCompress(request, response, _serverOptions.CompressionMinBodyBytes);
         }
 
-        if (_logRequests)
+        if (_serverOptions.LogRequests)
         {
             _logger.LogInformation(
                 "{Method} {Path} {StatusCode} {DurationMs}ms trace={TraceId} client={Client}",
@@ -159,7 +157,6 @@ internal sealed class HostDispatch
                 request.TraceIdentifier,
                 request.RemoteIp);
         }
-
         return response;
     }
 

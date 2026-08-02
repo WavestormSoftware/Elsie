@@ -134,6 +134,92 @@ public sealed class ElsieCorsPolicy
         return this;
     }
 
+    internal ElsieCorsPolicy Clone()
+    {
+        var clone = new ElsieCorsPolicy();
+        clone.AllowAnyOrigin = AllowAnyOrigin;
+        clone.AllowAnyMethod = AllowAnyMethod;
+        clone.AllowAnyHeader = AllowAnyHeader;
+        clone.SupportsCredentials = SupportsCredentials;
+        clone.PreflightMaxAge = PreflightMaxAge;
+        foreach (var origin in _origins)
+        {
+            clone._origins.Add(origin);
+        }
+
+        foreach (var method in _methods)
+        {
+            clone._methods.Add(method);
+        }
+
+        foreach (var header in _headers)
+        {
+            clone._headers.Add(header);
+        }
+
+        foreach (var header in _exposedHeaders)
+        {
+            clone._exposedHeaders.Add(header);
+        }
+
+        return clone;
+    }
+
+    /// <summary>Applies a config-defined policy definition onto this policy.</summary>
+    internal ElsieCorsPolicy ApplyConfig(ElsieCorsPolicyConfiguration config)
+    {
+        ArgumentNullException.ThrowIfNull(config);
+        AllowAnyOrigin = false;
+        AllowAnyMethod = false;
+        AllowAnyHeader = false;
+        SupportsCredentials = false;
+        PreflightMaxAge = null;
+        _origins.Clear();
+        _methods.Clear();
+        _headers.Clear();
+        _exposedHeaders.Clear();
+
+        if (config.AllowAnyOrigin)
+        {
+            AllowOrigin("*");
+        }
+        else
+        {
+            AllowOrigins(config.Origins);
+        }
+
+        if (config.AllowAnyMethod)
+        {
+            AllowMethod("*");
+        }
+        else
+        {
+            AllowMethods(config.Methods);
+        }
+
+        if (config.AllowAnyHeader)
+        {
+            AllowHeader("*");
+        }
+        else
+        {
+            AllowHeaders(config.Headers);
+        }
+
+        WithExposedHeaders(config.ExposedHeaders);
+        if (config.AllowCredentials)
+        {
+            AllowCredentials();
+        }
+
+        if (config.PreflightMaxAge is { } maxAge)
+        {
+            SetPreflightMaxAge(maxAge);
+        }
+
+        return this;
+    }
+
     internal bool IsOriginAllowed(string origin)
     {
         if (string.IsNullOrEmpty(origin))

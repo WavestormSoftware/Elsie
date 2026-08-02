@@ -72,6 +72,27 @@ await builder.Build().RunAsync();
 |------------|--------|
 | `Elsie:Urls` / `urls` | Listen URLs (`;`-separated), if no `.Listen` calls |
 | `Elsie` section | Bound onto `ElsieOptions` |
+| `Elsie:Server` section | Bound onto `ElsieServerOptions` via `IOptionsMonitor` — **hot-reloadable** |
+| `Elsie:Cors` section | Bound onto `ElsieCorsConfigurationOptions` via `IOptionsMonitor` — **hot-reloadable** |
+
+## Hot reload (IOptionsMonitor)
+
+Server options bind through `IOptionsMonitor<ElsieServerOptions>` (section `Elsie:Server`) and CORS policies through
+`ElsieCorsConfigurationOptions` (section `Elsie:Cors`, shape `Policies:<name>:Origins/Methods/Headers/…`). Config
+changes (e.g. `appsettings.json` reloadOnChange, or `IConfigurationRoot.Reload()`) are applied to the live instances.
+
+**Safe knob set (reload applies to new connections/requests):**
+
+- server limits & timeouts — `MaxHeaderBytes`, `MaxRequestLineLength`, `MaxRequestBodyBytes`,
+  `RequestHeadersTimeout`, `RequestBodyIdleTimeout`, `ConnectionIdleTimeout`, `DisableContinue`,
+  `AbortRequestsOnClientDisconnect`, `UseForwardedHeaders`
+- response compression — `EnableResponseCompression`, `CompressionMinBodyBytes`
+- logging — `LogRequests`
+- CORS origins/methods/headers via `Elsie:Cors`
+
+**Not reloadable (startup/restart only):** routing, module registration, `ListenBacklog` / `MaxConcurrentConnections`
+(listener + semaphore), TLS/listen endpoints, and rate-limit factory closures (captured at gate creation — the
+middleware rewrite moves rate limiting to config-driven middleware).
 
 Development environment enables `ElsieOptions.ShowExceptionDetails` (HTML 500 with stack). Plain `ElsieApp.Run` is unchanged.
 
