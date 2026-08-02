@@ -3,6 +3,7 @@ using System.Net.Sockets;
 using Elsie.Web.Hosting;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -242,6 +243,31 @@ public sealed class ElsieApp
     {
         ArgumentNullException.ThrowIfNull(configure);
         _serviceConfigs.Add(s => configure(this, s));
+        return this;
+    }
+
+    /// <summary>
+    /// Add an inline middleware component to the application pipeline. Pre-logic runs FIFO in
+    /// registration order; code after <c>await next(context)</c> runs LIFO on the way back out.
+    /// Short-circuit by setting <see cref="ElsieContext.Result"/> and returning without calling next.
+    /// </summary>
+    public ElsieApp Use(Func<ElsieContext, Middleware.ElsieMiddlewareDelegate, Task> middleware)
+    {
+        ArgumentNullException.ThrowIfNull(middleware);
+        _serviceConfigs.Add(s => s.AddSingleton(
+            new ElsieMiddlewareSetup(p => p.Use(middleware))));
+        return this;
+    }
+
+    /// <summary>Add a DI-resolved middleware component (per-request scope) to the application pipeline.</summary>
+    public ElsieApp Use<TMiddleware>()
+        where TMiddleware : class, Middleware.IElsieMiddleware
+    {
+        _serviceConfigs.Add(s =>
+        {
+            s.AddSingleton(new ElsieMiddlewareSetup(p => p.Use<TMiddleware>()));
+            s.TryAddSingleton<TMiddleware>();
+        });
         return this;
     }
 

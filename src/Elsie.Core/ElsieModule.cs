@@ -21,6 +21,20 @@ public abstract class ElsieModule
     /// </summary>
     public ElsieMiddlewarePipeline Middleware { get; } = new();
 
+    /// <summary>Add an inline middleware component scoped to this module's routes.</summary>
+    protected void Use(Func<ElsieContext, ElsieMiddlewareDelegate, Task> middleware)
+    {
+        ArgumentNullException.ThrowIfNull(middleware);
+        Middleware.Use(middleware);
+    }
+
+    /// <summary>Add a DI-resolved middleware component scoped to this module's routes.</summary>
+    protected void Use<TMiddleware>()
+        where TMiddleware : class, IElsieMiddleware
+    {
+        Middleware.Use<TMiddleware>();
+    }
+
     /// <summary>Optional module-level exception mapper (after options.MapException, before global ExceptionHandler).</summary>
     public ElsieExceptionHandler? OnErrorHandler { get; private set; }
 

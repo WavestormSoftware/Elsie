@@ -33,7 +33,16 @@ public static class ElsieServiceCollectionExtensions
 
             return pipelines;
         });
-        services.TryAddSingleton<Middleware.ElsieMiddlewarePipeline>();
+        services.TryAddSingleton<Middleware.ElsieMiddlewarePipeline>(sp =>
+        {
+            var pipeline = new Middleware.ElsieMiddlewarePipeline();
+            foreach (var setup in sp.GetServices<ElsieMiddlewareSetup>())
+            {
+                setup.Configure(pipeline);
+            }
+
+            return pipeline;
+        });
         services.TryAddSingleton<RouteTable>(sp =>
         {
             var modules = sp.GetServices<ElsieModule>().ToArray();
@@ -145,6 +154,17 @@ public static class ElsieServiceCollectionExtensions
             }
         }
     }
+}
+
+/// <summary>Internal registration hook so middleware configures compose on one singleton.</summary>
+internal sealed class ElsieMiddlewareSetup
+{
+    public ElsieMiddlewareSetup(Action<Middleware.ElsieMiddlewarePipeline> configure)
+    {
+        Configure = configure ?? throw new ArgumentNullException(nameof(configure));
+    }
+
+    public Action<Middleware.ElsieMiddlewarePipeline> Configure { get; }
 }
 
 /// <summary>Internal registration hook so pipeline configures compose on one singleton.</summary>

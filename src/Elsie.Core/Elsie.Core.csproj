@@ -11,5 +11,6 @@
   </ItemGroup>
   <ItemGroup>
     <InternalsVisibleTo Include="Elsie.Tests" />
+    <InternalsVisibleTo Include="Elsie.Web" />
   </ItemGroup>
 </Project>
