@@ -26,6 +26,47 @@ public sealed class ElsieMiddlewarePipeline
         return this;
     }
 
+    /// <summary>
+    /// Register a before-hook style gate: when it returns a non-null result the pipeline
+    /// short-circuits with that result (the handler and remaining middleware are skipped).
+    /// This is how <c>ElsieAuth.RequireApiKey(...)</c> / <c>ElsieRateLimit.*</c> factories
+    /// plug into the middleware pipeline.
+    /// </summary>
+    public ElsieMiddlewarePipeline Use(Func<ElsieContext, ElsieResult?> gate)
+    {
+        ArgumentNullException.ThrowIfNull(gate);
+        return Use(async (ctx, next) =>
+        {
+            var result = gate(ctx);
+            if (result is not null)
+            {
+                ctx.Result = result;
+                return;
+            }
+
+            await next(ctx);
+        });
+    }
+
+    /// <summary>
+    /// Register an after-hook style transform: it runs on the way back out (after the rest of
+    /// the pipeline produced a result) and may replace <see cref="ElsieContext.Result"/>.
+    /// This is how <c>ElsieSecurityHeaders.DefaultAfter(...)</c> and
+    /// <c>ElsieRateLimitHeaders.Attach(...)</c> plug into the middleware pipeline.
+    /// </summary>
+    public ElsieMiddlewarePipeline Use(Func<ElsieContext, ElsieResult, ElsieResult> after)
+    {
+        ArgumentNullException.ThrowIfNull(after);
+        return Use(async (ctx, next) =>
+        {
+            await next(ctx);
+            if (ctx.Result is not null)
+            {
+                ctx.Result = after(ctx, ctx.Result);
+            }
+        });
+    }
+
     /// <summary>Register a DI-resolved middleware component (per-request scope).</summary>
     public ElsieMiddlewarePipeline Use<TMiddleware>()
         where TMiddleware : class, IElsieMiddleware

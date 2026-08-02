@@ -1,5 +1,6 @@
 using System.Net;
 using Elsie.Cors;
+using Elsie.Middleware;
 using Elsie.Testing;
 using Elsie.Web;
 using Microsoft.Extensions.Configuration;
@@ -149,5 +150,56 @@ public class CorsTests
         var port = ((System.Net.IPEndPoint)listener.LocalEndpoint).Port;
         listener.Stop();
         return port;
+    }
+
+    [Fact]
+    public async Task Cors_middleware_handles_preflight_and_actuals()
+    {
+        var services = new ServiceCollection();
+        services.AddElsie(o => o.ScanEntryAssembly = false);
+        services.AddElsieCors(o =>
+        {
+            o.AddDefaultPolicy(p => p
+                .AllowOrigin("https://app.example")
+                .AllowMethods("GET")
+                .SetPreflightMaxAge(TimeSpan.FromMinutes(10)));
+        });
+        services.AddElsieModule<ApiModule>();
+        await using var sp = services.BuildServiceProvider();
+
+        var pipeline = sp.GetRequiredService<ElsieMiddlewarePipeline>();
+        pipeline.UseElsieCors();
+        var dispatcher = sp.GetRequiredService<ElsieDispatcher>();
+
+        // Preflight: short-circuits before route matching.
+        var preflight = await dispatcher.DispatchAsync(new ElsieRequest(
+            "OPTIONS",
+            "/hello",
+            headers: new Dictionary<string, string>
+            {
+                ["Origin"] = "https://app.example",
+                ["Access-Control-Request-Method"] = "GET"
+            },
+            requestServices: sp));
+        Assert.Equal(204, preflight.Result!.StatusCode);
+        Assert.Equal("https://app.example", preflight.Result.Headers["Access-Control-Allow-Origin"]);
+        Assert.Equal("600", preflight.Result.Headers["Access-Control-Max-Age"]);
+
+        // Actual request: ACAO applied on the way out.
+        var actual = await dispatcher.DispatchAsync(new ElsieRequest(
+            "GET",
+            "/hello",
+            headers: new Dictionary<string, string> { ["Origin"] = "https://app.example" },
+            requestServices: sp));
+        Assert.Equal(200, actual.Result!.StatusCode);
+        Assert.Equal("https://app.example", actual.Result.Headers["Access-Control-Allow-Origin"]);
+
+        // Disallowed origin → no ACAO header.
+        var denied = await dispatcher.DispatchAsync(new ElsieRequest(
+            "GET",
+            "/hello",
+            headers: new Dictionary<string, string> { ["Origin"] = "https://evil.example" },
+            requestServices: sp));
+        Assert.False(denied.Result!.Headers.Contains("Access-Control-Allow-Origin"));
     }
 }

@@ -1,4 +1,5 @@
 using Elsie.Middleware;
+using Elsie.RateLimiting;
 using Microsoft.Extensions.DependencyInjection;
 using Xunit;
 
@@ -24,6 +25,9 @@ public class MiddlewareTests
             return next(context);
         }
     }
+
+    private static readonly Elsie.RateLimiting.FixedWindowStore SharedStore =
+        new(permitLimit: 5, window: TimeSpan.FromMinutes(1), TimeProvider.System, maxPartitions: 100);
 
     private static (ServiceProvider Services, ElsieDispatcher Dispatcher) Build(
         Action<ElsieMiddlewarePipeline>? appMiddleware = null,
@@ -148,5 +152,79 @@ public class MiddlewareTests
         }
 
         Assert.True(ran);
+    }
+
+    [Fact]
+    public async Task Auth_gate_factory_short_circuits_as_middleware()
+    {
+        var (sp, dispatcher) = Build(pipeline =>
+            pipeline.Use(ElsieAuth.RequireApiKey("s3cret")));
+
+        await using (sp)
+        {
+            var ok = await dispatcher.DispatchAsync(
+                new ElsieRequest("GET", "/ok", headers: new Dictionary<string, string>
+                {
+                    ["X-Api-Key"] = "s3cret"
+                }, requestServices: sp));
+            Assert.Equal(200, ok.Result!.StatusCode);
+
+            var denied = await dispatcher.DispatchAsync(Request(sp, "/ok"));
+            Assert.Equal(401, denied.Result!.StatusCode);
+        }
+    }
+
+    [Fact]
+    public async Task Security_headers_after_factory_applies_via_middleware()
+    {
+        var (sp, dispatcher) = Build(pipeline =>
+            pipeline.Use(ElsieSecurityHeaders.DefaultAfter()));
+
+        await using (sp)
+        {
+            var outcome = await dispatcher.DispatchAsync(Request(sp, "/ok"));
+            Assert.Equal(200, outcome.Result!.StatusCode);
+            Assert.Equal("nosniff", outcome.Result!.Headers["X-Content-Type-Options"]);
+        }
+    }
+
+    [Fact]
+    public async Task Rate_limit_factory_short_circuits_as_middleware()
+    {
+        var (sp, dispatcher) = Build(pipeline =>
+            pipeline.Use(ElsieRateLimit.FixedWindow(
+                permitLimit: 2,
+                window: TimeSpan.FromMinutes(1))));
+
+        await using (sp)
+        {
+            Assert.Equal(200, (await dispatcher.DispatchAsync(Request(sp, "/ok"))).Result!.StatusCode);
+            Assert.Equal(200, (await dispatcher.DispatchAsync(Request(sp, "/ok"))).Result!.StatusCode);
+            var limited = await dispatcher.DispatchAsync(Request(sp, "/ok"));
+            Assert.Equal(429, limited.Result!.StatusCode);
+            Assert.True(limited.Result!.Headers.Contains("Retry-After"));
+        }
+    }
+
+    [Fact]
+    public async Task Rate_limit_headers_attach_via_middleware()
+    {
+        var (sp, dispatcher) = Build(pipeline =>
+        {
+            pipeline.Use(ElsieRateLimit.FixedWindow(
+                permitLimit: 5,
+                window: TimeSpan.FromMinutes(1),
+                store: SharedStore));
+            pipeline.Use(ElsieRateLimitHeaders.Attach(SharedStore));
+        });
+
+        await using (sp)
+        {
+            var outcome = await dispatcher.DispatchAsync(Request(sp, "/ok"));
+            Assert.Equal(200, outcome.Result!.StatusCode);
+            Assert.Equal("5", outcome.Result!.Headers["X-RateLimit-Limit"]);
+            Assert.Equal("4", outcome.Result!.Headers["X-RateLimit-Remaining"]);
+            Assert.True(outcome.Result!.Headers.Contains("X-RateLimit-Reset"));
+        }
     }
 }

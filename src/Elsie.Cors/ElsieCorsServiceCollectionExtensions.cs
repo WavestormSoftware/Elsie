@@ -48,6 +48,11 @@ public static class ElsieCorsServiceCollectionExtensions
 
         services.TryAddSingleton<ElsieCorsConfigRelay>();
         services.TryAddSingleton<ElsieCorsApplier>();
+        services.TryAddSingleton<ElsieCorsMiddleware>(sp => new ElsieCorsMiddleware(
+            sp.GetRequiredService<ElsieCorsOptions>(),
+            sp.GetRequiredService<ElsieCorsConfigRelay>(),
+            sp.GetRequiredService<RouteTable>(),
+            sp.GetRequiredService<ElsieCorsApplier>()));
         services.TryAddEnumerable(ServiceDescriptor.Singleton<IElsieRequestFilter, ElsieCorsPreflightFilter>());
         services.ConfigureElsiePipelines(p =>
         {
