@@ -8,6 +8,10 @@ Elsie is a small HTTP stack. Treat production like any other custom host.
 |---------|---------|---------------------|
 | Cookie `TicketKey` | Required (or dev flag) | Long random secret; never commit |
 | `AllowInsecureDevelopmentKey` | off unless you set it | **Never** in prod |
+| Cookie `Secure` | **true** (strict) | Set false only for plain-HTTP local dev; `__Host-` prefix forbids it anyway |
+| Cookie `MaxAge` | 8 h | Emitted in `Set-Cookie`; `ExpireTimeSpan` drives the actual ticket/session lifetime |
+| Cookie `CookiePrefix` | unset | `__Host-` validated at startup (Secure + Path=/ + no Domain); name must start with the prefix |
+| Server-side sessions | **off** (client-side v1 ticket) | Opt into `SessionStore` for logout/revocation; opaque ≥128-bit v2 ids |
 | Cookie / antiforgery `SameSite` | `ElsieSameSite.Lax` / `Strict` | Use `None` + `Secure` only for cross-site HTTPS |
 | `UseForwardedHeaders` | **false** | Enable only behind a trusted proxy |
 | Rate-limit partition | **RemoteIp only** | Use `ForwardedPartitionKey` only with trusted XFF |

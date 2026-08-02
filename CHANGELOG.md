@@ -12,12 +12,18 @@ Elsie is **unreleased** software; prereleases may include breaking API changes.
 ### Breaking
 - Target framework is **net10.0 only** (net8.0 support dropped).
 - `IRateLimitStore` gained `TryPeek(string key, out RateLimitCounters counters)` (default impl throws `NotSupportedException`) — custom stores should implement it to opt into `X-RateLimit-*` headers.
+- **Cookie hardening (breaking):** `ElsieCookieAuthOptions.Secure` now defaults to **true**; `MaxAge` defaults to 8 h (emitted in `Set-Cookie`); a `CookiePrefix` is enforced at startup (`__Host-` requires `Secure`, `Path=/`, no `Domain`, and the cookie name must start with the prefix).
+- `IElsiePrincipalAttacher` is now async: `Task AttachAsync(ElsieRequest, CancellationToken)` (host-side principal restore now supports sessions/JWKS lookups).
 
 ### Changed
 - OIDC: `PrincipalFromIdToken` no longer accepts unvalidated id_tokens by default (`allowUnvalidated` opt-in); optional `expectedNonce` check; state/nonce are Base64Url.
 - `ElsieMetrics` meter version string bumped to `0.4.0`.
 
 ### Added
+- **JWKS signing-key discovery** (`JwksResolver`): OIDC `/.well-known/openid-configuration` or explicit `JwksUrl` discovery via `ConfigurationManager`, refresh on `ElsieJwtBearerOptions.JwksRefreshInterval` (default 24 h), `kid` validation with rollover (previous keys kept), unreachable authority → clean 401 (never crashes); `AllowHttpMetadata` knob for dev/test
+- **Server-side sessions (A2):** `IElsieSessionStore` + bounded `InMemoryElsieSessionStore` (~100k entries, sliding TTL, `TimeProvider`, LRU eviction); cookie v2 opaque ≥128-bit session ids; `SignInAsync` stores server-side when a store is configured; `SignOutAsync` removes the entry; principal restored per request with sliding renewal
+- **Challenge/Forbid (A4):** `ElsieAuthResultExtensions.Challenge(ElsieContext)` (JWT → 401 + `WWW-Authenticate: Bearer`; cookie → 302 `ChallengeLoginPath`) and `Forbid(ElsieContext)` (302 `ForbidAccessDeniedPath` or 403); auth gates use them when configured
+- **Named authorization policies (A5):** `ElsieAuthorizationPolicy` (requirement predicates + `RequireRole`/`RequireClaim` shortcuts), `AddElsiePolicy(...)` registry extension, `ElsieAuthGates.RequirePolicy(name)` with startup validation of unknown policy names
 - **Redis distributed rate limiting** — new package `Elsie.Extensions.RateLimiting.Redis`: `RedisFixedWindowStore` / `RedisSlidingWindowStore` / `RedisTokenBucketStore` (atomic Lua scripts), `RedisRateLimit.FixedWindow/SlidingWindow/TokenBucket` factories (shared multiplexer or connection-string), `RedisRateLimitOptions` (key prefix `elsie:rl:`, ~100 ms op timeout, fail-open default / optional fail-closed outage policy)
 - `RateLimitCounters` + `IRateLimitStore.TryPeek` and `ElsieRateLimitHeaders.Attach(store)` after-hook emitting `X-RateLimit-Limit` / `X-RateLimit-Remaining` / `X-RateLimit-Reset`
 - `Microsoft.Extensions.Logging.Abstractions` / `DependencyInjection.Abstractions` / `DependencyInjection` pins bumped to 10.0.5 (StackExchange.Redis 3.1.0 requires Logging.Abstractions ≥ 10.0.5)
