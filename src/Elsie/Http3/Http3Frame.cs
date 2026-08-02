@@ -5,6 +5,12 @@ namespace Elsie.Web.Http3;
 /// <summary>RFC 9000 §16 variable-length integer encoding.</summary>
 internal static class QuicVarInt
 {
+    /// <summary>
+    /// Reads a QUIC varint. Returns the value (≤ <see cref="int.MaxValue"/>) or -1 when the
+    /// value exceeds <see cref="int.MaxValue"/> (a protocol error for HTTP/3 frame lengths,
+    /// never a <see cref="OverflowException"/>). Throws <see cref="InvalidOperationException"/>
+    /// for truncated input.
+    /// </summary>
     public static int Read(ReadOnlySpan<byte> data, out int consumed)
     {
         if (data.Length == 0)
@@ -27,7 +33,7 @@ internal static class QuicVarInt
         }
 
         consumed = length;
-        return checked((int)value);
+        return value > int.MaxValue ? -1 : (int)value;
     }
 
     public static int EncodedLength(ulong value)
@@ -123,11 +129,22 @@ internal readonly struct Http3Frame
     }
 }
 
+/// <summary>Raised when a peer violates the HTTP/3 framing rules (protocol error → H3_FRAME_UNEXPECTED).</summary>
+internal sealed class Http3ProtocolException : Exception
+{
+    public Http3ProtocolException(string message) : base(message) { }
+}
+
 /// <summary>Reads HTTP/3 frames from a QUIC stream.</summary>
 internal static class Http3FrameReader
 {
+    /// <summary>Absolute cap on any single frame payload we will buffer (defends against
+    /// malicious length varints; typical DATA frames are ≤ 16 KiB and header blocks ≤ 64 KiB).</summary>
+    public const int MaxFramePayload = 64 * 1024 * 1024;
+
     /// <summary>
     /// Reads one frame from <paramref name="stream"/>. Returns false on end-of-stream.
+    /// Throws <see cref="Http3ProtocolException"/> for invalid varints or oversized payloads.
     /// </summary>
     public static async Task<Http3Frame?> ReadAsync(Stream stream, CancellationToken cancellationToken)
     {
@@ -153,6 +170,11 @@ internal static class Http3FrameReader
         }
 
         var typeValue = QuicVarInt.Read(header.AsSpan(0, typeLen), out _);
+        if (typeValue < 0)
+        {
+            throw new Http3ProtocolException("HTTP/3 frame type exceeds int range.");
+        }
+
         var lenFirst = new byte[1];
         read = await ReadExactlyAsync(stream, lenFirst, 1, cancellationToken).ConfigureAwait(false);
         if (read == 0)
@@ -175,6 +197,12 @@ internal static class Http3FrameReader
         }
 
         var length = QuicVarInt.Read(payloadLenHeader.AsSpan(0, lenLen), out _);
+        if (length < 0 || length > MaxFramePayload)
+        {
+            throw new Http3ProtocolException(
+                $"HTTP/3 frame payload length {length} is invalid or exceeds the {MaxFramePayload}-byte cap.");
+        }
+
         var payload = new byte[length];
         read = await ReadExactlyAsync(stream, payload, length, cancellationToken).ConfigureAwait(false);
         if (read < length)

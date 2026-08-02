@@ -9,9 +9,14 @@ using Microsoft.Extensions.Logging.Abstractions;
 namespace Elsie.Web.Http3;
 
 /// <summary>
-/// HTTP/3 connection handler (RFC 9114): opens the server control stream, reads the
-/// client's unidirectional streams (control + QPACK), and serves bidirectional request
-/// streams through the same <c>HostDispatch</c> as HTTP/1.1 / HTTP/2.
+/// HTTP/3 connection handler (RFC 9114): opens the server control stream, reads the client's
+/// unidirectional streams (control + QPACK encoder/decoder), and serves bidirectional request
+/// streams through the same <c>HostDispatch</c> as HTTP/1.1 / HTTP/2. Full QPACK (RFC 9204)
+/// with dynamic tables: the client's encoder stream feeds the per-connection
+/// <see cref="QpackDecoder"/>, blocked request streams are delivered when the encoder stream
+/// unblocks them, and responses are encoded with a real dynamic table bounded by the client's
+/// advertised capacity. WebSocket over HTTP/3 (RFC 9220 extended CONNECT) is handled on the
+/// request stream, reusing <see cref="ElsieWebSocket"/> framing.
 /// Only instantiated when <c>QuicListener.IsSupported</c> (libmsquic present).
 /// </summary>
 [System.Runtime.Versioning.SupportedOSPlatform("linux")]
@@ -24,6 +29,9 @@ internal sealed class Http3Connection
     private readonly ElsieServerOptions _serverOptions;
     private readonly Action<string>? _log;
     private readonly ILogger _logger;
+    private QpackDecoder _decoder = null!;
+    private QpackEncoder _encoder = null!;
+    private int _blockedStreams;
 
     public Http3Connection(
         IServiceProvider services,
@@ -41,13 +49,18 @@ internal sealed class Http3Connection
 
     public async Task RunAsync(QuicConnection connection, CancellationToken cancellationToken)
     {
+        _decoder = new QpackDecoder(
+            _serverOptions.QpackMaxTableCapacity,
+            new QpackDecoderStream(connection));
+        _encoder = new QpackEncoder(new QpackEncoderStream(connection));
+
         // Server control stream (unidirectional): type + SETTINGS.
         try
         {
             await using var controlStream = await connection.OpenOutboundStreamAsync(
                 QuicStreamType.Unidirectional,
                 cancellationToken).ConfigureAwait(false);
-            await Http3ControlStreams.WriteServerPreambleAsync(controlStream, cancellationToken)
+            await Http3ControlStreams.WriteServerPreambleAsync(controlStream, _serverOptions, cancellationToken)
                 .ConfigureAwait(false);
         }
         catch (Exception ex) when (ex is OperationCanceledException or QuicException)
@@ -84,7 +97,8 @@ internal sealed class Http3Connection
             if (!s.CanWrite)
             {
                 // Unidirectional stream (control / QPACK encoder+decoder).
-                _ = Task.Run(() => Http3ControlStreams.ReadClientUnidirectionalStreamAsync(s, cancellationToken));
+                _ = Task.Run(() => Http3ControlStreams.ReadClientUnidirectionalStreamAsync(
+                    s, _decoder, _encoder, cancellationToken));
                 continue;
             }
 
@@ -98,14 +112,16 @@ internal sealed class Http3Connection
         await using var s = stream;
         try
         {
-            var request = await ReadRequestAsync(s, cancellationToken).ConfigureAwait(false);
+            // Body state is per-stream (never shared across concurrent request streams).
+            var bodyStream = new QuicRequestBodyStream(stream, _serverOptions.MaxRequestBodyBytes);
+            var request = await ReadRequestAsync(stream, bodyStream, cancellationToken).ConfigureAwait(false);
             if (request is null)
             {
                 return;
             }
 
             var response = await _dispatch.ProcessAsync(request, cancellationToken).ConfigureAwait(false);
-            if (BodyStream!.IsTooLarge)
+            if (bodyStream.IsTooLarge)
             {
                 response = HostDispatch.FromResult(ElsieResult.Problem(
                     413,
@@ -113,15 +129,34 @@ internal sealed class Http3Connection
                     "Request body exceeds the configured maximum."));
             }
 
-            await WriteResponseAsync(s, response, request.Method, cancellationToken).ConfigureAwait(false);
+            if (response is null)
+            {
+                return;
+            }
+
+            if (response.WebSocketHandler is not null)
+            {
+                await HandleWebSocketUpgradeAsync(stream, request, response, cancellationToken).ConfigureAwait(false);
+            }
+            else
+            {
+                await WriteResponseAsync(stream, response, request.Method, cancellationToken).ConfigureAwait(false);
+            }
+
+            // Flush any queued Section Acknowledgments for decoded request field sections.
+            await _decoder.DrainDecoderInstructionsAsync(CancellationToken.None).ConfigureAwait(false);
             _log?.Invoke($"H3 {request.Method} {request.Path} → {response.StatusCode}");
         }
         catch (OperationCanceledException)
         {
+            _decoder.MarkStreamCancelled(stream.Id);
+            await DrainDecoderInstructionsAsync(CancellationToken.None).ConfigureAwait(false);
         }
         catch (Exception ex) when (ex is IOException or ObjectDisposedException or QuicException)
         {
             // Client aborted the stream — nothing to write.
+            _decoder.MarkStreamCancelled(stream.Id);
+            await DrainDecoderInstructionsAsync(CancellationToken.None).ConfigureAwait(false);
         }
         catch (Exception ex)
         {
@@ -129,29 +164,28 @@ internal sealed class Http3Connection
         }
     }
 
-    /// <summary>Reads the HEADERS frame, decodes QPACK, and builds an <see cref="ElsieRequest"/>.</summary>
-    private async Task<ElsieRequest?> ReadRequestAsync(QuicStream stream, CancellationToken cancellationToken)
+    /// <summary>Reads the HEADERS frame, decodes QPACK (blocking until unblocked), and builds an
+    /// <see cref="ElsieRequest"/>. The request body is served lazily by the caller-started pump.</summary>
+    private async Task<ElsieRequest?> ReadRequestAsync(
+        QuicStream stream,
+        QuicRequestBodyStream bodyStream,
+        CancellationToken cancellationToken)
     {
-        var bodyStream = new QuicRequestBodyStream(stream, _serverOptions.MaxRequestBodyBytes);
         var request = await ReadRequestCoreAsync(stream, bodyStream, cancellationToken).ConfigureAwait(false);
         if (request is not null)
         {
             bodyStream.StartReadingAsync(cancellationToken);
-            BodyStream = bodyStream;
         }
 
         return request;
     }
-
-    /// <summary>Body stream for the in-flight request (used for 413 detection).</summary>
-    private QuicRequestBodyStream? BodyStream { get; set; }
 
     private async Task<ElsieRequest?> ReadRequestCoreAsync(
         QuicStream stream,
         QuicRequestBodyStream bodyStream,
         CancellationToken cancellationToken)
     {
-        // Request HEADERS frame (DATA body follows; buffered for the minimal server).
+        // Request HEADERS frame (DATA body follows; served lazily).
         var first = await Http3FrameReader.ReadAsync(stream, cancellationToken).ConfigureAwait(false);
         if (first is null)
         {
@@ -163,9 +197,41 @@ internal sealed class Http3Connection
             return null;
         }
 
-        var fields = new QpackDecoder().DecodeHeaderBlock(first.Value.Payload.Span);
+        var block = first.Value.Payload;
+        var result = _decoder.DecodeHeaderBlock(block.Span);
+        if (result.IsBlocked)
+        {
+            // Blocked stream: wait for the encoder instruction stream to catch up.
+            if (Interlocked.Increment(ref _blockedStreams) > Math.Max(0, _serverOptions.QpackBlockedStreams))
+            {
+                Interlocked.Decrement(ref _blockedStreams);
+                throw new QpackException(
+                    "Client exceeded SETTINGS_QPACK_BLOCKED_STREAMS (too many blocked HTTP/3 request streams).");
+            }
 
-        string? method = null, path = null, scheme = null, authority = null;
+            try
+            {
+                while (result.IsBlocked)
+                {
+                    await _decoder
+                        .WaitUntilUnblockedAsync(result.RequiredInsertCount, cancellationToken)
+                        .ConfigureAwait(false);
+                    result = _decoder.DecodeHeaderBlock(block.Span);
+                }
+            }
+            finally
+            {
+                Interlocked.Decrement(ref _blockedStreams);
+            }
+        }
+
+        if (result.Fields is null)
+        {
+            return null;
+        }
+
+        var fields = result.Fields;
+        string? method = null, path = null, scheme = null, authority = null, protocol = null;
         string? contentType = null;
         long? contentLength = null;
         var headerDict = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
@@ -187,6 +253,9 @@ internal sealed class Http3Connection
                         break;
                     case ":authority":
                         authority = value;
+                        break;
+                    case ":protocol":
+                        protocol = value;
                         break;
                 }
 
@@ -238,9 +307,6 @@ internal sealed class Http3Connection
             pathOnly = "/";
         }
 
-        // Request body arrives as DATA frames after the HEADERS frame and is served lazily
-        // (pump started by the caller once the request is built).
-
         var queryValues = Http1RequestReader.ParseQuery(queryString);
         var headerRo = new Dictionary<string, IReadOnlyList<string>>(headerDict.Count, StringComparer.OrdinalIgnoreCase);
         foreach (var (k, v) in headerDict)
@@ -253,8 +319,15 @@ internal sealed class Http3Connection
             headerRo["Host"] = new[] { authority };
         }
 
+        // RFC 9220: the :protocol pseudo-header (e.g. "websocket") is surfaced to the
+        // WebSocket upgrade path through a synthetic header entry.
+        if (protocol is not null)
+        {
+            headerRo[":protocol"] = new[] { protocol };
+        }
+
         await using var scope = _services.CreateAsyncScope();
-        return Hosting.ElsieRequestFactory.Create(
+        var request = Hosting.ElsieRequestFactory.Create(
             method: method,
             path: pathOnly,
             queryString: queryString,
@@ -270,8 +343,61 @@ internal sealed class Http3Connection
             protocol: "HTTP/3",
             remoteIp: ElsieRequestFactory.RemoteIpFromEndPoint(null),
             useForwardedHeaders: _serverOptions.UseForwardedHeaders);
+
+        if (result.HasDynamicReferences)
+        {
+            _decoder.MarkSectionDecoded(stream.Id);
+        }
+
+        return request;
     }
 
+    /// <summary>
+    /// RFC 9220 WebSocket over HTTP/3: validates the extended CONNECT request, replies with a
+    /// 2xx HEADERS frame, then runs the <see cref="ElsieWebSocket"/> handler on the stream.
+    /// </summary>
+    private async Task HandleWebSocketUpgradeAsync(
+        QuicStream stream,
+        ElsieRequest request,
+        ElsieHttpResponse response,
+        CancellationToken cancellationToken)
+    {
+        var protocol = request.GetHeader(":protocol");
+        if (!string.Equals(request.Method, "CONNECT", StringComparison.OrdinalIgnoreCase) ||
+            !string.Equals(protocol, "websocket", StringComparison.OrdinalIgnoreCase))
+        {
+            var error = HostDispatch.FromResult(ElsieResult.Problem(
+                400,
+                "Bad Request",
+                "WebSocket over HTTP/3 requires an extended CONNECT request with :protocol: websocket."));
+            await WriteResponseAsync(stream, error, request.Method, cancellationToken).ConfigureAwait(false);
+            return;
+        }
+
+        var respHeaders = new List<(string, string)>();
+        foreach (var (name, values) in response.Headers)
+        {
+            foreach (var v in values)
+            {
+                respHeaders.Add((name.ToLowerInvariant(), v));
+            }
+        }
+
+        var headerBlock = _encoder.EncodeResponse(200, respHeaders, stream.Id);
+        await _encoder.FlushEncoderInstructionsAsync(cancellationToken).ConfigureAwait(false);
+        await Http3FrameWriter.WriteAsync(
+            stream,
+            new Http3Frame(Http3FrameType.Headers, headerBlock),
+            cancellationToken).ConfigureAwait(false);
+        await stream.FlushAsync(cancellationToken).ConfigureAwait(false);
+
+        ElsieMetrics.WebSocketConnections.Add(1);
+        await using var ws = new ElsieWebSocket(stream, leaveOpen: true);
+        await response.WebSocketHandler!(ws, cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>Writes the response HEADERS + DATA frames, streaming BodyWriter bodies
+    /// incrementally (SSE / static files) instead of buffering them in memory.</summary>
     private async Task WriteResponseAsync(
         QuicStream stream,
         ElsieHttpResponse response,
@@ -292,50 +418,61 @@ internal sealed class Http3Connection
             }
         }
 
-        byte[] body;
-        if (string.Equals(method, "HEAD", StringComparison.OrdinalIgnoreCase))
-        {
-            body = Array.Empty<byte>();
-        }
-        else if (response.Body is { } mem)
-        {
-            body = mem.ToArray();
-        }
-        else if (response.BodyWriter is not null)
-        {
-            await using var ms = new MemoryStream();
-            await response.BodyWriter(ms, cancellationToken).ConfigureAwait(false);
-            body = ms.ToArray();
-        }
-        else
-        {
-            body = Array.Empty<byte>();
-        }
+        var isHead = string.Equals(method, "HEAD", StringComparison.OrdinalIgnoreCase);
+        var hasBufferedBody = !isHead && response.Body is { Length: > 0 };
+        var hasStreamedBody = !isHead && response.BodyWriter is not null;
+        var hasContentLength = respHeaders.Any(h =>
+            h.Item1.Equals("content-length", StringComparison.OrdinalIgnoreCase));
 
-        if (!respHeaders.Any(h => h.Item1.Equals("content-length", StringComparison.OrdinalIgnoreCase)))
+        if (!hasContentLength)
         {
-            respHeaders.Add(("content-length", body.Length.ToString()));
+            if (response.Body is { } mem && !isHead)
+            {
+                respHeaders.Add(("content-length", mem.Length.ToString()));
+            }
+            else if (response.Body is { } headMem && isHead && headMem.Length > 0)
+            {
+                // HEAD mirrors the GET body length.
+                respHeaders.Add(("content-length", headMem.Length.ToString()));
+            }
+            // Unknown-length BodyWriter: DATA frames delimit the body (no chunked needed on h3).
         }
 
         var hasTrailers = response.Trailers.Count > 0;
-        var headerBlock = QpackEncoder.EncodeResponse(response.StatusCode, respHeaders);
+        var headerBlock = _encoder.EncodeResponse(response.StatusCode, respHeaders, stream.Id);
+        await _encoder.FlushEncoderInstructionsAsync(cancellationToken).ConfigureAwait(false);
         await Http3FrameWriter.WriteAsync(
             stream,
             new Http3Frame(Http3FrameType.Headers, headerBlock),
             cancellationToken).ConfigureAwait(false);
 
-        if (body.Length > 0)
+        if (hasBufferedBody)
         {
-            await Http3FrameWriter.WriteAsync(
-                stream,
-                new Http3Frame(Http3FrameType.Data, body),
-                cancellationToken).ConfigureAwait(false);
+            var memory = response.Body!.Value;
+            var offset = 0;
+            while (offset < memory.Length)
+            {
+                var take = Math.Min(16 * 1024, memory.Length - offset);
+                await Http3FrameWriter.WriteAsync(
+                    stream,
+                    new Http3Frame(Http3FrameType.Data, memory.Slice(offset, take)),
+                    cancellationToken).ConfigureAwait(false);
+                offset += take;
+            }
+        }
+        else if (hasStreamedBody)
+        {
+            await using var dataStream = new Http3DataStream(stream, cancellationToken);
+            await response.BodyWriter!(dataStream, cancellationToken).ConfigureAwait(false);
+            await dataStream.FinishAsync(cancellationToken).ConfigureAwait(false);
         }
 
         if (hasTrailers)
         {
-            var trailerBlock = QpackEncoder.EncodeTrailers(
-                response.Trailers.Select(static t => (t.Key, t.Value)));
+            var trailerBlock = _encoder.EncodeTrailers(
+                response.Trailers.Select(static t => (t.Key, t.Value)),
+                stream.Id);
+            await _encoder.FlushEncoderInstructionsAsync(cancellationToken).ConfigureAwait(false);
             await Http3FrameWriter.WriteAsync(
                 stream,
                 new Http3Frame(Http3FrameType.Headers, trailerBlock),
@@ -344,4 +481,7 @@ internal sealed class Http3Connection
 
         await stream.FlushAsync(cancellationToken).ConfigureAwait(false);
     }
+
+    private Task DrainDecoderInstructionsAsync(CancellationToken cancellationToken) =>
+        _decoder.DrainDecoderInstructionsAsync(cancellationToken);
 }

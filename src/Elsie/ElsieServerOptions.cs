@@ -48,6 +48,19 @@ public sealed class ElsieServerOptions
     /// <summary>Max concurrent HTTP/2 streams per connection.</summary>
     public int MaxConcurrentStreams { get; set; } = 100;
 
+    /// <summary>
+    /// Dynamic-table capacity advertised to HTTP/3 clients via SETTINGS_QPACK_MAX_TABLE_CAPACITY
+    /// (bounds the memory the client's QPACK encoder can use against us; RFC 9204 §5).
+    /// A value of 0 keeps the capacity-0 interop path (no client dynamic inserts). Default 4096.
+    /// </summary>
+    public int QpackMaxTableCapacity { get; set; } = 4096;
+
+    /// <summary>
+    /// Max simultaneously blocked HTTP/3 request streams we promise to support
+    /// (SETTINGS_QPACK_BLOCKED_STREAMS; RFC 9204 §2.1.2). Default 100.
+    /// </summary>
+    public int QpackBlockedStreams { get; set; } = 100;
+
     /// <summary>Max HTTP/2 frame payload size we accept.</summary>
     public int MaxFrameSize { get; set; } = 16384;
 
@@ -102,6 +115,8 @@ public sealed class ElsieServerOptions
         ConnectionDrainTimeout = source.ConnectionDrainTimeout;
         ListenBacklog = source.ListenBacklog;
         MaxConcurrentStreams = source.MaxConcurrentStreams;
+        QpackMaxTableCapacity = source.QpackMaxTableCapacity;
+        QpackBlockedStreams = source.QpackBlockedStreams;
         MaxFrameSize = source.MaxFrameSize;
         UseForwardedHeaders = source.UseForwardedHeaders;
         EnableResponseCompression = source.EnableResponseCompression;
