@@ -25,6 +25,9 @@ jobs:
       - name: Restore
         run: dotnet restore Elsie.sln
 
+      - name: Format check
+        run: dotnet format Elsie.sln --verify-no-changes --no-restore
+
       - name: Build
         run: dotnet build Elsie.sln -c Release --no-restore
 

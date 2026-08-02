@@ -1,7 +1,7 @@
 using System.Net;
 using Elsie;
-using Elsie.Web;
 using Elsie.Testing;
+using Elsie.Web;
 using Xunit;
 
 namespace Elsie.Testing.Tests;

@@ -72,16 +72,16 @@ public sealed class ElsieWebSocket : IAsyncDisposable
                 case 0x2: // binary
                     return new ElsieWebSocketMessage(WebSocketMessageType.Binary, frame.Payload);
                 case 0x8: // close
-                {
-                    if (!_closed)
                     {
-                        // Echo close frame then mark closed
-                        await SendFrameAsync(0x8, frame.Payload, cancellationToken).ConfigureAwait(false);
-                        _closed = true;
-                    }
+                        if (!_closed)
+                        {
+                            // Echo close frame then mark closed
+                            await SendFrameAsync(0x8, frame.Payload, cancellationToken).ConfigureAwait(false);
+                            _closed = true;
+                        }
 
-                    return null;
-                }
+                        return null;
+                    }
                 case 0x9: // ping
                     await SendFrameAsync(0xA, frame.Payload, cancellationToken).ConfigureAwait(false);
                     break;

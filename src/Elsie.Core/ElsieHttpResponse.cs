@@ -54,43 +54,43 @@ public sealed class ElsieHttpResponse
                 return null;
 
             case ElsieDispatchStatus.MethodNotAllowed:
-            {
-                var headers = new ElsieHeaders();
-                headers.Set("Allow", string.Join(", ", outcome.AllowedMethods));
-                var problem = ElsieResult.Problem(
-                    405,
-                    title: "Method Not Allowed",
-                    detail: $"Allowed: {string.Join(", ", outcome.AllowedMethods)}");
-                return new(405, problem.ContentType, headers, problem.Body, bodyWriter: null);
-            }
+                {
+                    var headers = new ElsieHeaders();
+                    headers.Set("Allow", string.Join(", ", outcome.AllowedMethods));
+                    var problem = ElsieResult.Problem(
+                        405,
+                        title: "Method Not Allowed",
+                        detail: $"Allowed: {string.Join(", ", outcome.AllowedMethods)}");
+                    return new(405, problem.ContentType, headers, problem.Body, bodyWriter: null);
+                }
 
             case ElsieDispatchStatus.Handled:
-            {
-                var result = outcome.Result!;
-                var headers = new ElsieHeaders();
-                if (outcome.Response is not null)
                 {
-                    headers.MergeFrom(outcome.Response.Headers);
-                }
-
-                headers.MergeFrom(result.Headers);
-
-                if (outcome.Response is not null)
-                {
-                    foreach (var cookie in outcome.Response.SetCookies)
+                    var result = outcome.Result!;
+                    var headers = new ElsieHeaders();
+                    if (outcome.Response is not null)
                     {
-                        headers.Add("Set-Cookie", cookie);
+                        headers.MergeFrom(outcome.Response.Headers);
                     }
-                }
 
-                return new(
-                    result.StatusCode,
-                    result.ContentType,
-                    headers,
-                    result.Body,
-                    result.BodyWriter,
-                    result.WebSocketHandler);
-            }
+                    headers.MergeFrom(result.Headers);
+
+                    if (outcome.Response is not null)
+                    {
+                        foreach (var cookie in outcome.Response.SetCookies)
+                        {
+                            headers.Add("Set-Cookie", cookie);
+                        }
+                    }
+
+                    return new(
+                        result.StatusCode,
+                        result.ContentType,
+                        headers,
+                        result.Body,
+                        result.BodyWriter,
+                        result.WebSocketHandler);
+                }
 
             default:
                 throw new InvalidOperationException($"Unknown dispatch status '{outcome.Status}'.");

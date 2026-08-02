@@ -1,5 +1,3 @@
-using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Logging;
 using System.Collections.Concurrent;
 using System.ComponentModel.DataAnnotations;
 using System.Security.Cryptography;
@@ -10,6 +8,8 @@ using Elsie.Sample.Dashboard;
 using Elsie.Validation;
 using Elsie.Views;
 using Elsie.Web;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 
 // -----------------------------------------------------------------------------
 // Multi-page dashboard sample — Fluid views + cookie auth + form CSRF + validation.

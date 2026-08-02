@@ -1,7 +1,7 @@
-using Microsoft.Extensions.DependencyInjection;
 using Elsie;
-using Elsie.Web;
 using Elsie.Views;
+using Elsie.Web;
+using Microsoft.Extensions.DependencyInjection;
 
 // Views sample — Fluid/Liquid templates + layout.
 //   dotnet run --project samples/Elsie.Sample.Views

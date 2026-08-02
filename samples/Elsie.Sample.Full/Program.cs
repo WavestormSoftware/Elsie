@@ -1,10 +1,7 @@
-using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Logging;
 using System.Collections.Concurrent;
 using System.ComponentModel.DataAnnotations;
 using System.Security.Claims;
 using Elsie;
-using Elsie.Web;
 using Elsie.Auth;
 using Elsie.Cors;
 using Elsie.HealthChecks;
@@ -12,6 +9,9 @@ using Elsie.RateLimiting;
 using Elsie.Sample.Full;
 using Elsie.Validation;
 using Elsie.Views;
+using Elsie.Web;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 
 // -----------------------------------------------------------------------------
 // Kitchen-sink sample — auth + cors + rate limit + health + static + views +

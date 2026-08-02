@@ -89,35 +89,35 @@ internal sealed class ChunkedReadStream : Stream, IDrainableRequestBody
                     continue;
 
                 case State.ChunkData:
-                {
-                    if (_chunkRemaining == 0)
                     {
-                        _state = State.ChunkCrlf;
-                        continue;
-                    }
+                        if (_chunkRemaining == 0)
+                        {
+                            _state = State.ChunkCrlf;
+                            continue;
+                        }
 
-                    var toRead = Math.Min(buffer.Length, _chunkRemaining);
-                    var n = await _input.ReadAsync(buffer[..toRead], cancellationToken, idleTimeout: true)
-                        .ConfigureAwait(false);
-                    if (n == 0)
-                    {
-                        throw new ElsieRequestException(400, "Unexpected EOF in chunk.");
-                    }
+                        var toRead = Math.Min(buffer.Length, _chunkRemaining);
+                        var n = await _input.ReadAsync(buffer[..toRead], cancellationToken, idleTimeout: true)
+                            .ConfigureAwait(false);
+                        if (n == 0)
+                        {
+                            throw new ElsieRequestException(400, "Unexpected EOF in chunk.");
+                        }
 
-                    _chunkRemaining -= n;
-                    _totalRead += n;
-                    if (_totalRead > _maxBodyBytes)
-                    {
-                        throw new ElsieRequestException(413, "Body too large.");
-                    }
+                        _chunkRemaining -= n;
+                        _totalRead += n;
+                        if (_totalRead > _maxBodyBytes)
+                        {
+                            throw new ElsieRequestException(413, "Body too large.");
+                        }
 
-                    if (_chunkRemaining == 0)
-                    {
-                        _state = State.ChunkCrlf;
-                    }
+                        if (_chunkRemaining == 0)
+                        {
+                            _state = State.ChunkCrlf;
+                        }
 
-                    return n;
-                }
+                        return n;
+                    }
 
                 case State.ChunkCrlf:
                     await ExpectEmptyLineAsync(cancellationToken).ConfigureAwait(false);

@@ -1,7 +1,7 @@
-using Elsie.Extensions.RateLimiting.Redis;
 using DotNet.Testcontainers;
 using DotNet.Testcontainers.Builders;
 using DotNet.Testcontainers.Containers;
+using Elsie.Extensions.RateLimiting.Redis;
 using Microsoft.Extensions.DependencyInjection;
 using StackExchange.Redis;
 using Xunit;

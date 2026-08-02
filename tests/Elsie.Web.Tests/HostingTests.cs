@@ -1,7 +1,7 @@
-using Microsoft.Extensions.DependencyInjection;
 using System.Net;
 using System.Text.Json;
 using Elsie.Testing;
+using Microsoft.Extensions.DependencyInjection;
 using Xunit;
 
 namespace Elsie.Web.Tests;

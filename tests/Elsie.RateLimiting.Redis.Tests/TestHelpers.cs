@@ -1,5 +1,5 @@
-using Elsie.Extensions.RateLimiting.Redis;
 using System.Globalization;
+using Elsie.Extensions.RateLimiting.Redis;
 using StackExchange.Redis;
 
 namespace Elsie.RateLimiting.Redis.Tests;

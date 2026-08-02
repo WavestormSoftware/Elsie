@@ -91,103 +91,103 @@ internal sealed class RouteConstraintResolver
                 predicate = static v => double.TryParse(v, NumberStyles.Float | NumberStyles.AllowThousands, CultureInfo.InvariantCulture, out _);
                 return true;
             case "minlength":
-            {
-                if (!TryParseIntArg(args, out var n, out error)) return false;
-                predicate = v => v.Length >= n;
-                return true;
-            }
-            case "maxlength":
-            {
-                if (!TryParseIntArg(args, out var n, out error)) return false;
-                predicate = v => v.Length <= n;
-                return true;
-            }
-            case "length":
-            {
-                if (args is null)
                 {
-                    error = "length constraint requires length(n) or length(min,max).";
-                    return false;
+                    if (!TryParseIntArg(args, out var n, out error)) return false;
+                    predicate = v => v.Length >= n;
+                    return true;
                 }
-
-                var parts = args.Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries);
-                if (parts.Length == 1)
+            case "maxlength":
                 {
-                    if (!int.TryParse(parts[0], NumberStyles.Integer, CultureInfo.InvariantCulture, out var exact))
+                    if (!TryParseIntArg(args, out var n, out error)) return false;
+                    predicate = v => v.Length <= n;
+                    return true;
+                }
+            case "length":
+                {
+                    if (args is null)
                     {
-                        error = $"Invalid length argument '{args}'.";
+                        error = "length constraint requires length(n) or length(min,max).";
                         return false;
                     }
 
-                    predicate = v => v.Length == exact;
-                    return true;
-                }
+                    var parts = args.Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries);
+                    if (parts.Length == 1)
+                    {
+                        if (!int.TryParse(parts[0], NumberStyles.Integer, CultureInfo.InvariantCulture, out var exact))
+                        {
+                            error = $"Invalid length argument '{args}'.";
+                            return false;
+                        }
 
-                if (parts.Length == 2
-                    && int.TryParse(parts[0], NumberStyles.Integer, CultureInfo.InvariantCulture, out var min)
-                    && int.TryParse(parts[1], NumberStyles.Integer, CultureInfo.InvariantCulture, out var max))
-                {
-                    predicate = v => v.Length >= min && v.Length <= max;
-                    return true;
-                }
+                        predicate = v => v.Length == exact;
+                        return true;
+                    }
 
-                error = $"Invalid length argument '{args}'.";
-                return false;
-            }
+                    if (parts.Length == 2
+                        && int.TryParse(parts[0], NumberStyles.Integer, CultureInfo.InvariantCulture, out var min)
+                        && int.TryParse(parts[1], NumberStyles.Integer, CultureInfo.InvariantCulture, out var max))
+                    {
+                        predicate = v => v.Length >= min && v.Length <= max;
+                        return true;
+                    }
+
+                    error = $"Invalid length argument '{args}'.";
+                    return false;
+                }
             case "min":
-            {
-                if (!TryParseLongArg(args, out var n, out error)) return false;
-                predicate = v => long.TryParse(v, NumberStyles.Integer, CultureInfo.InvariantCulture, out var x) && x >= n;
-                return true;
-            }
+                {
+                    if (!TryParseLongArg(args, out var n, out error)) return false;
+                    predicate = v => long.TryParse(v, NumberStyles.Integer, CultureInfo.InvariantCulture, out var x) && x >= n;
+                    return true;
+                }
             case "max":
-            {
-                if (!TryParseLongArg(args, out var n, out error)) return false;
-                predicate = v => long.TryParse(v, NumberStyles.Integer, CultureInfo.InvariantCulture, out var x) && x <= n;
-                return true;
-            }
+                {
+                    if (!TryParseLongArg(args, out var n, out error)) return false;
+                    predicate = v => long.TryParse(v, NumberStyles.Integer, CultureInfo.InvariantCulture, out var x) && x <= n;
+                    return true;
+                }
             case "range":
-            {
-                if (args is null)
                 {
-                    error = "range constraint requires range(min,max).";
-                    return false;
-                }
+                    if (args is null)
+                    {
+                        error = "range constraint requires range(min,max).";
+                        return false;
+                    }
 
-                var parts = args.Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries);
-                if (parts.Length != 2
-                    || !long.TryParse(parts[0], NumberStyles.Integer, CultureInfo.InvariantCulture, out var min)
-                    || !long.TryParse(parts[1], NumberStyles.Integer, CultureInfo.InvariantCulture, out var max))
-                {
-                    error = $"Invalid range argument '{args}'.";
-                    return false;
-                }
+                    var parts = args.Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries);
+                    if (parts.Length != 2
+                        || !long.TryParse(parts[0], NumberStyles.Integer, CultureInfo.InvariantCulture, out var min)
+                        || !long.TryParse(parts[1], NumberStyles.Integer, CultureInfo.InvariantCulture, out var max))
+                    {
+                        error = $"Invalid range argument '{args}'.";
+                        return false;
+                    }
 
-                predicate = v => long.TryParse(v, NumberStyles.Integer, CultureInfo.InvariantCulture, out var x) && x >= min && x <= max;
-                return true;
-            }
+                    predicate = v => long.TryParse(v, NumberStyles.Integer, CultureInfo.InvariantCulture, out var x) && x >= min && x <= max;
+                    return true;
+                }
             case "regex":
-            {
-                if (string.IsNullOrEmpty(args))
                 {
-                    error = "regex constraint requires regex(pattern).";
-                    return false;
-                }
+                    if (string.IsNullOrEmpty(args))
+                    {
+                        error = "regex constraint requires regex(pattern).";
+                        return false;
+                    }
 
-                Regex rx;
-                try
-                {
-                    rx = new Regex(args, RegexOptions.CultureInvariant | RegexOptions.Compiled | RegexOptions.ExplicitCapture, TimeSpan.FromSeconds(1));
-                }
-                catch (Exception ex)
-                {
-                    error = $"Invalid regex '{args}': {ex.Message}";
-                    return false;
-                }
+                    Regex rx;
+                    try
+                    {
+                        rx = new Regex(args, RegexOptions.CultureInvariant | RegexOptions.Compiled | RegexOptions.ExplicitCapture, TimeSpan.FromSeconds(1));
+                    }
+                    catch (Exception ex)
+                    {
+                        error = $"Invalid regex '{args}': {ex.Message}";
+                        return false;
+                    }
 
-                predicate = v => rx.IsMatch(v);
-                return true;
-            }
+                    predicate = v => rx.IsMatch(v);
+                    return true;
+                }
             default:
                 error = "Supported: int, long, guid, bool, alpha, datetime, decimal, double, minlength(n), maxlength(n), length(n|min,max), min(n), max(n), range(a,b), regex(...), plus custom RouteConstraints.";
                 return false;

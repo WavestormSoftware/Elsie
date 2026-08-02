@@ -1,6 +1,6 @@
-using Microsoft.Extensions.DependencyInjection;
 using Elsie;
 using Elsie.Web;
+using Microsoft.Extensions.DependencyInjection;
 
 // Easy sample — DI, typed route/query, constraints, pipelines (after HelloWorld).
 // Try:  GET /  |  GET /hello/Ada  |  GET /hello/Ada?shout=true  |  GET /health  |  GET /items/42
