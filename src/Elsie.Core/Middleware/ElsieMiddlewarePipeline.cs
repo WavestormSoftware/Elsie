@@ -1,0 +1,81 @@
+using Microsoft.Extensions.DependencyInjection;
+
+namespace Elsie.Middleware;
+
+/// <summary>
+/// Ordered middleware pipeline. Components run in registration order; each component's
+/// pre-logic runs FIFO and its post-logic (after <c>await next</c>) runs LIFO.
+/// Delegate components are added directly; <c>Use&lt;T&gt;</c> / factory components are
+/// resolved per request from <see cref="ElsieContext.RequestServices"/> (supports scoped DI).
+/// </summary>
+public sealed class ElsieMiddlewarePipeline
+{
+    private readonly List<Func<IServiceProvider, IElsieMiddleware>> _components = [];
+
+    /// <summary>Number of registered components.</summary>
+    public int Count => _components.Count;
+
+    /// <summary>
+    /// Register an inline middleware delegate.
+    /// <c>next</c> is a delegate that continues the pipeline (call it to proceed).
+    /// </summary>
+    public ElsieMiddlewarePipeline Use(Func<ElsieContext, ElsieMiddlewareDelegate, Task> middleware)
+    {
+        ArgumentNullException.ThrowIfNull(middleware);
+        _components.Add(_ => new DelegateMiddleware(middleware));
+        return this;
+    }
+
+    /// <summary>Register a DI-resolved middleware component (per-request scope).</summary>
+    public ElsieMiddlewarePipeline Use<TMiddleware>()
+        where TMiddleware : class, IElsieMiddleware
+    {
+        _components.Add(sp => sp.GetRequiredService<TMiddleware>());
+        return this;
+    }
+
+    /// <summary>Register a middleware component resolved by a custom factory.</summary>
+    public ElsieMiddlewarePipeline Use(Func<IServiceProvider, IElsieMiddleware> factory)
+    {
+        ArgumentNullException.ThrowIfNull(factory);
+        _components.Add(factory);
+        return this;
+    }
+
+    /// <summary>
+    /// Run the pipeline against <paramref name="context"/> ending at <paramref name="terminal"/>.
+    /// Components are resolved from <see cref="ElsieContext.RequestServices"/> at invocation time
+    /// so scoped DI lifetimes are honored per request.
+    /// </summary>
+    public Task InvokeAsync(
+        ElsieContext context,
+        ElsieMiddlewareDelegate terminal,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(context);
+        ArgumentNullException.ThrowIfNull(terminal);
+
+        var services = _components.Count == 0
+            ? null
+            : context.RequestServices
+              ?? throw new InvalidOperationException(
+                  "ElsieContext.RequestServices is null; middleware resolution requires a request scope.");
+
+        ElsieMiddlewareDelegate tail = terminal;
+        for (var i = _components.Count - 1; i >= 0; i--)
+        {
+            var middleware = _components[i](services!);
+            var next = tail;
+            tail = ctx => middleware.InvokeAsync(ctx, next);
+        }
+
+        return tail(context);
+    }
+
+    private sealed class DelegateMiddleware(Func<ElsieContext, ElsieMiddlewareDelegate, Task> middleware)
+        : IElsieMiddleware
+    {
+        public Task InvokeAsync(ElsieContext context, ElsieMiddlewareDelegate next) =>
+            middleware(context, next);
+    }
+}

@@ -45,7 +45,21 @@ public sealed class ElsieContext
 
     public ElsieRequest Request { get; }
     public ElsieResponse Response { get; }
-    public IReadOnlyDictionary<string, string> RouteValues { get; }
+
+    /// <summary>
+    /// Route values for the matched route. Empty before the router has matched; the dispatcher
+    /// populates them just before module hooks/handler run.
+    /// </summary>
+    public IReadOnlyDictionary<string, string> RouteValues { get; internal set; }
+
+    /// <summary>
+    /// Pipeline outcome. Middleware and handlers set this to produce a response. When the full
+    /// pipeline completes with a null result the request is treated as not handled (404).
+    /// </summary>
+    public ElsieResult? Result { get; set; }
+
+    /// <summary>True once <see cref="Result"/> has been set (a response may be written).</summary>
+    public bool Handled => Result is not null;
     public IServiceProvider RequestServices => Request.RequestServices;
 
     /// <summary>Alias for <see cref="RequestServices"/>.</summary>

@@ -33,6 +33,7 @@ public static class ElsieServiceCollectionExtensions
 
             return pipelines;
         });
+        services.TryAddSingleton<Middleware.ElsieMiddlewarePipeline>();
         services.TryAddSingleton<RouteTable>(sp =>
         {
             var modules = sp.GetServices<ElsieModule>().ToArray();

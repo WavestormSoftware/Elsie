@@ -1,3 +1,4 @@
+using Elsie.Middleware;
 using Elsie.Pipelines;
 using Elsie.Routing;
 
@@ -13,6 +14,12 @@ public abstract class ElsieModule
 
     /// <summary>Module-scoped before/after hooks.</summary>
     public ElsiePipelines Pipelines { get; } = new();
+
+    /// <summary>
+    /// Module-scoped middleware. Runs for routes registered on this module only, between the
+    /// application pipeline and the route handler (FIFO pre / LIFO post).
+    /// </summary>
+    public ElsieMiddlewarePipeline Middleware { get; } = new();
 
     /// <summary>Optional module-level exception mapper (after options.MapException, before global ExceptionHandler).</summary>
     public ElsieExceptionHandler? OnErrorHandler { get; private set; }
