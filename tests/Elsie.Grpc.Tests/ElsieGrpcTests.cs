@@ -1,5 +1,6 @@
 using System.Net;
 using System.Net.Http;
+using System.Net.Quic;
 using System.Security.Cryptography;
 using System.Security.Cryptography.X509Certificates;
 using Elsie.Test;
@@ -73,6 +74,13 @@ public sealed class GreeterServiceImpl : Greeter.GreeterBase
 
 public class ElsieGrpcTests
 {
+    private static int FindFreePort()
+    {
+        using var probe = new System.Net.Sockets.TcpListener(IPAddress.Loopback, 0);
+        probe.Start();
+        return ((IPEndPoint)probe.LocalEndpoint).Port;
+    }
+
     private static X509Certificate2 CreateSelfSigned()
     {
         using var rsa = RSA.Create(2048);
@@ -259,6 +267,91 @@ public class ElsieGrpcTests
                 new EchoRequest { Message = "slow" },
                 deadline: DateTime.UtcNow.AddMilliseconds(300)));
         Assert.Equal(StatusCode.DeadlineExceeded, ex.StatusCode);
+    }
+
+    /// <summary>
+    /// Starts an h3-enabled server (same port serves h1/h2 over TLS and QUIC/h3 over UDP) and
+    /// returns a GrpcChannel pinned to HTTP/3 (RequestVersionExact — no fallback to h2). Only
+    /// call when <see cref="QuicListener.IsSupported"/> (libmsquic present — CI installs it).
+    /// </summary>
+    private static async Task<(Echo.EchoClient Client, int Port, Func<Task> Dispose)> StartHttp3ServerAsync()
+    {
+        var cert = CreateSelfSigned();
+        var port = FindFreePort();
+        var server = await ElsieApp.Create()
+            .QuietConsole(false)
+            .Listen(IPAddress.Loopback, port, o =>
+            {
+                o.UseHttps = true;
+                o.Certificate = cert;
+                o.Protocols = ElsieHttpProtocols.Http1AndHttp2;
+                o.EnableHttp3 = true;
+            })
+            .Configure(o => o.ScanEntryAssembly = false)
+            .MapGrpcService<EchoServiceImpl>(fileDescriptor: EchoReflection.Descriptor)
+            .StartAsync();
+
+        var handler = new SocketsHttpHandler
+        {
+            SslOptions = new System.Net.Security.SslClientAuthenticationOptions
+            {
+                RemoteCertificateValidationCallback = static (_, _, _, _) => true
+            },
+            EnableMultipleHttp3Connections = true
+        };
+        var channel = GrpcChannel.ForAddress(
+            $"https://127.0.0.1:{port}",
+            new GrpcChannelOptions
+            {
+                HttpHandler = handler,
+                HttpVersion = HttpVersion.Version30,
+                HttpVersionPolicy = HttpVersionPolicy.RequestVersionExact
+            });
+        return (new Echo.EchoClient(channel), port, () =>
+        {
+            channel.Dispose();
+            handler.Dispose();
+            cert.Dispose();
+            return server.DisposeAsync().AsTask();
+        }
+        );
+    }
+
+    [Fact]
+    public async Task Unary_over_http3()
+    {
+        if (!QuicListener.IsSupported)
+        {
+            return; // libmsquic absent locally — CI installs it (http3.yml)
+        }
+
+        var (client, _, dispose) = await StartHttp3ServerAsync();
+        await using var d = AsyncDisposable.Create(dispose);
+        var reply = await client.UnaryAsync(new EchoRequest { Message = "h3" });
+        Assert.Equal("echo:h3", reply.Message);
+    }
+
+    [Fact]
+    public async Task Client_streaming_over_http3_preserves_message_order()
+    {
+        if (!QuicListener.IsSupported)
+        {
+            return; // libmsquic absent locally — CI installs it (http3.yml)
+        }
+
+        // Every client-streaming message over h3 splits its DATA frame (GrpcFraming reads the
+        // 5-byte header first); the server must still deliver the messages in exact order.
+        var (client, _, dispose) = await StartHttp3ServerAsync();
+        await using var d = AsyncDisposable.Create(dispose);
+        using var call = client.ClientStream();
+        for (var i = 0; i < 4; i++)
+        {
+            await call.RequestStream.WriteAsync(new EchoRequest { Message = $"m{i}" });
+        }
+
+        await call.RequestStream.CompleteAsync();
+        var response = await call.ResponseAsync;
+        Assert.Equal("count:4:last:m3", response.Message);
     }
 
     [Fact]
