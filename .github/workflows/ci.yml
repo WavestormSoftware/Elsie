@@ -76,6 +76,7 @@ jobs:
             src/Elsie.Views/Elsie.Views.csproj
             src/Elsie.Validation/Elsie.Validation.csproj
             src/Elsie.Extensions.RateLimiting.Redis/Elsie.Extensions.RateLimiting.Redis.csproj
+            src/Elsie.Extensions.Auth.Redis/Elsie.Extensions.Auth.Redis.csproj
             templates/Elsie.Templates.csproj
           )
           for proj in "${projects[@]}"; do
@@ -98,6 +99,7 @@ jobs:
             "Elsie.Testing.$version.nupkg"
             "Elsie.Validation.$version.nupkg"
             "Elsie.Extensions.RateLimiting.Redis.$version.nupkg"
+            "Elsie.Extensions.Auth.Redis.$version.nupkg"
             "Elsie.Templates.$version.nupkg"
           )
           missing=0

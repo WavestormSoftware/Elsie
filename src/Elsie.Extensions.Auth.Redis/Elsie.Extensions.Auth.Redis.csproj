@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <Description>Redis-backed server-side session store for Elsie cookie authentication (StackExchange.Redis, prefix elsie:session:, sliding TTL).</Description>
+    <RootNamespace>Elsie.Extensions.Auth.Redis</RootNamespace>
+    <AssemblyName>Elsie.Extensions.Auth.Redis</AssemblyName>
+    <PackageId>Elsie.Extensions.Auth.Redis</PackageId>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\Elsie.Auth\Elsie.Auth.csproj" />
+    <PackageReference Include="StackExchange.Redis" />
+  </ItemGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="Elsie.Auth.Redis.Tests" />
+  </ItemGroup>
+</Project>

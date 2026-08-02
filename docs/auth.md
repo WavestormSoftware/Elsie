@@ -66,6 +66,20 @@ The host attaches a principal before dispatch (`IElsiePrincipalAttacher`): JWT b
 
 **Cookies.** By default the client-side v1 ticket is used (AES-GCM sealed name/role claims + expiry). When `o.SessionStore` is set, cookies become opaque **v2 session ids** (≥ 128-bit) and the principal lives server-side with sliding TTL renewal on every request; `SignOutAsync` removes the store entry and clears the cookie.
 
+In-process: `new InMemoryElsieSessionStore()`. Multi-instance: the **`Elsie.Extensions.Auth.Redis`** package provides `RedisSessionStore` (StackExchange.Redis, keys `elsie:session:{id}`, sliding TTL):
+
+```csharp
+using Elsie.Extensions.Auth.Redis;
+using StackExchange.Redis;
+
+var redis = ConnectionMultiplexer.Connect("localhost:6379");
+s.AddElsieAuth(o =>
+{
+    o.SessionStore = new RedisSessionStore(redis); // or await RedisSessionStore.ConnectAsync("...")
+    o.Cookie = new ElsieCookieAuthOptions { TicketKeyFromString(secret) };
+});
+```
+
 **JWT / JWKS.** With only `Authority` (or `JwksUrl`) configured, signing keys are discovered from the OIDC metadata / JWKS endpoint: `ConfigurationManager`-backed caching, refresh on `JwksRefreshInterval` (default 24 h), previous keys kept during rollover, and an unreachable authority fails validation (→ 401) without ever crashing the request. `AllowHttpMetadata = true` permits plain-HTTP endpoints (dev/tests only); `ValidateIssuerSigningKey` is on by default so unknown `kid` values are rejected.
 
 **Production:** set a long random secret via `TicketKeyFromString` (≥ 16 chars) or a raw 32-byte `TicketKey`.

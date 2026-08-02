@@ -15,5 +15,6 @@
   </ItemGroup>
   <ItemGroup>
     <InternalsVisibleTo Include="Elsie.Auth.Tests" />
+    <InternalsVisibleTo Include="Elsie.Auth.Redis.Tests" />
   </ItemGroup>
 </Project>
