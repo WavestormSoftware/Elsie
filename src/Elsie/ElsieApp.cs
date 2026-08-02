@@ -501,6 +501,9 @@ public sealed class ElsieTestServer : IAsyncDisposable
 
     public IReadOnlyList<IPEndPoint> Endpoints => _server.BoundEndpoints;
 
+    /// <summary>Unix domain socket paths the server is listening on (if any).</summary>
+    public IReadOnlyList<string> UnixSocketPaths => _server.BoundUnixSocketPaths;
+
     public HttpClient CreateClient()
     {
         if (_client is not null)

@@ -8,9 +8,30 @@ public sealed class ElsieListenOptions
 {
     public IPAddress Address { get; set; } = IPAddress.Loopback;
     public int Port { get; set; } = 5000;
+
+    /// <summary>
+    /// When set, listen on a Unix domain socket at this path (HTTP/1.1 only; TLS/ALPN n/a).
+    /// Takes precedence over <see cref="Address"/>/<see cref="Port"/>.
+    /// </summary>
+    public string? UnixSocketPath { get; set; }
+
     public bool UseHttps { get; set; }
     public X509Certificate2? Certificate { get; set; }
     public ElsieHttpProtocols Protocols { get; set; } = ElsieHttpProtocols.Http1;
+
+    public bool IsUnixSocket => !string.IsNullOrWhiteSpace(UnixSocketPath);
+
+    /// <summary>Create a cleartext HTTP/1.1 Unix domain socket endpoint.</summary>
+    public static ElsieListenOptions FromUnixSocketPath(string path)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(path);
+        return new ElsieListenOptions
+        {
+            UnixSocketPath = path,
+            UseHttps = false,
+            Protocols = ElsieHttpProtocols.Http1
+        };
+    }
 
     /// <summary>Load PEM certificate + private key for HTTPS.</summary>
     public ElsieListenOptions CertificateFromPem(string certificatePath, string privateKeyPath)
@@ -40,6 +61,35 @@ public sealed class ElsieListenOptions
     public static ElsieListenOptions Parse(string url)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(url);
+
+        // http+unix:///tmp/elsie.sock  or  http://unix:/tmp/elsie.sock
+        if (url.StartsWith("http+unix:", StringComparison.OrdinalIgnoreCase))
+        {
+            var path = url["http+unix:".Length..];
+            if (path.StartsWith("//", StringComparison.Ordinal))
+            {
+                path = path[1..]; // keep single leading /
+            }
+
+            if (string.IsNullOrWhiteSpace(path) || path == "/")
+            {
+                throw new ArgumentException($"Unix socket path missing in '{url}'.", nameof(url));
+            }
+
+            return FromUnixSocketPath(path);
+        }
+
+        if (url.StartsWith("http://unix:", StringComparison.OrdinalIgnoreCase))
+        {
+            var path = url["http://unix:".Length..];
+            if (string.IsNullOrWhiteSpace(path))
+            {
+                throw new ArgumentException($"Unix socket path missing in '{url}'.", nameof(url));
+            }
+
+            return FromUnixSocketPath(path);
+        }
+
         if (!Uri.TryCreate(url, UriKind.Absolute, out var uri))
         {
             throw new ArgumentException($"Invalid listen URL '{url}'.", nameof(url));
@@ -48,7 +98,7 @@ public sealed class ElsieListenOptions
         if (!string.Equals(uri.Scheme, "http", StringComparison.OrdinalIgnoreCase) &&
             !string.Equals(uri.Scheme, "https", StringComparison.OrdinalIgnoreCase))
         {
-            throw new ArgumentException($"Listen URL must be http or https: '{url}'.", nameof(url));
+            throw new ArgumentException($"Listen URL must be http, https, or http+unix: '{url}'.", nameof(url));
         }
 
         var https = string.Equals(uri.Scheme, "https", StringComparison.OrdinalIgnoreCase);
