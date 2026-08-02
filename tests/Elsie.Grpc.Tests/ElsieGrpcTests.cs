@@ -65,6 +65,12 @@ public sealed class EchoServiceImpl : Echo.EchoBase
     }
 }
 
+public sealed class GreeterServiceImpl : Greeter.GreeterBase
+{
+    public override Task<HelloReply> Hello(HelloRequest request, ServerCallContext context) =>
+        Task.FromResult(new HelloReply { Message = "hello:" + request.Name });
+}
+
 public class ElsieGrpcTests
 {
     private static X509Certificate2 CreateSelfSigned()
@@ -119,6 +125,48 @@ public class ElsieGrpcTests
         await using var d = AsyncDisposable.Create(dispose);
         var reply = await client.UnaryAsync(new EchoRequest { Message = "hello" });
         Assert.Equal("echo:hello", reply.Message);
+    }
+
+    [Fact]
+    public async Task Two_grpc_services_both_register_routes()
+    {
+        // Regression: each MapGrpcService call must carry its own binder/options in its own
+        // module. Shared AddSingleton binder/options resolved last-wins, so the first service's
+        // routes silently disappeared (404) while the last one's routes were duplicated.
+        var cert = CreateSelfSigned();
+        await using var server = await ElsieApp.Create()
+            .QuietConsole(false)
+            .Listen(IPAddress.Loopback, 0, o =>
+            {
+                o.UseHttps = true;
+                o.Certificate = cert;
+                o.Protocols = ElsieHttpProtocols.Http1AndHttp2;
+            })
+            .Configure(o => o.ScanEntryAssembly = false)
+            .MapGrpcService<EchoServiceImpl>(fileDescriptor: EchoReflection.Descriptor)
+            .MapGrpcService<GreeterServiceImpl>(fileDescriptor: GreetReflection.Descriptor)
+            .StartAsync();
+
+        var port = server.Endpoints[0].Port;
+        var handler = new HttpClientHandler
+        {
+            ServerCertificateCustomValidationCallback = static (_, _, _, _) => true
+        };
+        using var channel = GrpcChannel.ForAddress(
+            $"https://127.0.0.1:{port}",
+            new GrpcChannelOptions { HttpHandler = handler });
+
+        // The FIRST mapped service's route must resolve (it used to 404).
+        var echo = new Echo.EchoClient(channel);
+        var echoReply = await echo.UnaryAsync(new EchoRequest { Message = "multi" });
+        Assert.Equal("echo:multi", echoReply.Message);
+
+        // The SECOND mapped service's route must resolve too.
+        var greet = new Greeter.GreeterClient(channel);
+        var greetReply = await greet.HelloAsync(new HelloRequest { Name = "world" });
+        Assert.Equal("hello:world", greetReply.Message);
+
+        cert.Dispose();
     }
 
     [Fact]

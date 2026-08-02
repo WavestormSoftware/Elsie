@@ -20,7 +20,7 @@ internal sealed class ElsieGrpcModule : ElsieModule
         }
     }
 
-    private static async Task<ElsieResult> HandleGrpcAsync(
+    internal static async Task<ElsieResult> HandleGrpcAsync(
         ElsieContext ctx,
         ElsieGrpcMethod method,
         ElsieGrpcOptions options,

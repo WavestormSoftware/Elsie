@@ -14,7 +14,8 @@ public static class ElsieGrpcExtensions
     /// the app. Each service method is exposed as a <c>POST /package.Service/Method</c> route
     /// served over HTTP/2 and HTTP/3 (when the h3 listener is active), with 5-byte framing,
     /// grpc-status / grpc-message trailers, deadline support (grpc-timeout), and the
-    /// application/grpc content-type gate.
+    /// application/grpc content-type gate. Multiple services can be mapped — each call carries
+    /// its own binder/options in its own module, so every service's routes are registered.
     /// </summary>
     /// <param name="app">The app to extend.</param>
     /// <param name="fileDescriptor">Optional <see cref="FileDescriptor"/> for the service's proto
@@ -37,12 +38,14 @@ public static class ElsieGrpcExtensions
 
         if (options.EnableReflection)
         {
-            RegisterReflection(binder, fileDescriptor);
+            RegisterReflection(app, binder, fileDescriptor, options);
         }
 
-        app.Services(s => s.AddSingleton(binder));
-        app.Services(s => s.AddSingleton(options));
-        app.Module<ElsieGrpcModule>();
+        // Each MapGrpcService call registers its own module carrying that call's binder and
+        // options directly — NOT shared AddSingleton types (MS.DI resolves the last registration
+        // only, so shared types made multi-service apps silently 404 on every service but the
+        // last one).
+        app.Services(s => s.AddSingleton<ElsieModule>(new ElsieGrpcModule(binder, options)));
         return app;
     }
 
@@ -72,27 +75,47 @@ public static class ElsieGrpcExtensions
         bindMethod.Invoke(null, [binder, implementation]);
     }
 
-    private static void RegisterReflection(ElsieServiceBinder binder, FileDescriptor? fileDescriptor)
+    private static void RegisterReflection(
+        ElsieApp app,
+        ElsieServiceBinder binder,
+        FileDescriptor? fileDescriptor,
+        ElsieGrpcOptions options)
     {
-        var descriptors = new Dictionary<string, FileDescriptor?>(StringComparer.Ordinal);
-        foreach (var method in binder.Methods)
+        // The grpc.reflection.v1alpha route must be registered exactly once per app even when
+        // several services are mapped; a shared host accumulates descriptors from every call and
+        // the reflection module is added alongside the first call that enables reflection.
+        // (Per-service reflection routes would be exact duplicates the route table rejects.)
+        ElsieGrpcReflectionHost? host = null;
+        app.Services(s =>
         {
-            var serviceName = method.FullName;
-            var dot = serviceName.LastIndexOf('.');
-            if (dot > 0)
+            foreach (var descriptor in s)
             {
-                serviceName = serviceName[..dot];
+                if (descriptor.ServiceType == typeof(ElsieGrpcReflectionHost) &&
+                    descriptor.ImplementationInstance is ElsieGrpcReflectionHost existing)
+                {
+                    host = existing;
+                    break;
+                }
             }
 
-            descriptors[serviceName] = fileDescriptor;
-        }
+            if (host is null)
+            {
+                host = new ElsieGrpcReflectionHost(options);
+                s.AddSingleton(host);
+                s.AddSingleton<ElsieModule>(new ElsieGrpcReflectionModule(host));
+            }
 
-        var reflection = new ReflectionServiceImpl(descriptors);
-        var reflectionBinder = new ElsieServiceBinder();
-        global::Grpc.Reflection.V1Alpha.ServerReflection.BindService(reflectionBinder, reflection);
-        foreach (var method in reflectionBinder.Methods)
-        {
-            binder.Add(method);
-        }
+            foreach (var method in binder.Methods)
+            {
+                var serviceName = method.FullName;
+                var dot = serviceName.LastIndexOf('.');
+                if (dot > 0)
+                {
+                    serviceName = serviceName[..dot];
+                }
+
+                host.AddDescriptor(serviceName, fileDescriptor);
+            }
+        });
     }
 }

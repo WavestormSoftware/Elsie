@@ -14,5 +14,6 @@
   </ItemGroup>
   <ItemGroup>
     <Protobuf Include="echo.proto" GrpcServices="Both" />
+    <Protobuf Include="greet.proto" GrpcServices="Both" />
   </ItemGroup>
 </Project>
