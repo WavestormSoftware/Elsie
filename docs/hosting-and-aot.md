@@ -31,6 +31,26 @@ ElsieApp.Create(args)
 Default listen (when none specified): `http://127.0.0.1:5000`.  
 Override with `.Listen(...)` or `--urls http://…`.
 
+### Unix domain sockets (HTTP/1.1)
+
+```csharp
+.Listen("http+unix:///run/elsie.sock")
+// or
+.Listen(url => { /* ... */ }) // Parse supports http+unix:///path and http://unix:/path
+// or
+_listen.Add(ElsieListenOptions.FromUnixSocketPath("/run/elsie.sock"));
+```
+
+TLS/HTTP/2 are not offered on UDS — terminate TLS on nginx/Caddy and proxy:
+
+```nginx
+upstream elsie { server unix:/run/elsie.sock; }
+server {
+  listen 443 ssl;
+  location / { proxy_pass http://elsie; proxy_set_header Host $host; }
+}
+```
+
 ## Generic Host (`HostApplicationBuilder`)
 
 Package `Elsie` references `Microsoft.Extensions.Hosting`. Use when you need config composition, hosted services, or host lifetime:
@@ -88,6 +108,8 @@ Development environment enables `ElsieOptions.ShowExceptionDetails` (HTML 500 wi
     o.MaxConcurrentConnections = 10_000;
     o.RequestHeadersTimeout = TimeSpan.FromSeconds(30);
     o.RequestBodyIdleTimeout = TimeSpan.FromSeconds(30);
+    o.ConnectionIdleTimeout = TimeSpan.FromMinutes(2); // keep-alive gap (0 = off)
+    o.TcpKeepAlive = true; // OS keepalive; TcpKeepAliveTime / TcpKeepAliveInterval
     o.LogRequests = true;
 })
 .Compression()

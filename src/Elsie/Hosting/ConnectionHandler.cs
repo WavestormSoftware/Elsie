@@ -137,21 +137,33 @@ internal sealed class ConnectionHandler
             requestBodyIdleTimeout: _serverOptions.RequestBodyIdleTimeout);
         try
         {
+            var firstRequest = true;
             while (!cancellationToken.IsCancellationRequested)
             {
                 ParsedHttpRequest? parsed;
                 try
                 {
                     using var headerCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-                    if (_serverOptions.RequestHeadersTimeout > TimeSpan.Zero)
+                    var headerTimeout = firstRequest
+                        ? _serverOptions.RequestHeadersTimeout
+                        : _serverOptions.ConnectionIdleTimeout > TimeSpan.Zero
+                            ? _serverOptions.ConnectionIdleTimeout
+                            : _serverOptions.RequestHeadersTimeout;
+                    if (headerTimeout > TimeSpan.Zero)
                     {
-                        headerCts.CancelAfter(_serverOptions.RequestHeadersTimeout);
+                        headerCts.CancelAfter(headerTimeout);
                     }
 
                     parsed = await reader.ReadAsync(headerCts.Token).ConfigureAwait(false);
                 }
                 catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
                 {
+                    // Keep-alive idle close: no request started — drop quietly.
+                    if (!firstRequest && _serverOptions.ConnectionIdleTimeout > TimeSpan.Zero)
+                    {
+                        return;
+                    }
+
                     await WriteErrorAsync(stream, 408, "Request Timeout", "Header read timed out.", keepAlive: false, cancellationToken)
                         .ConfigureAwait(false);
                     return;
@@ -177,6 +189,7 @@ internal sealed class ConnectionHandler
                     return;
                 }
 
+                firstRequest = false;
                 var start = Stopwatch.GetTimestamp();
                 ElsieHttpResponse response;
                 await using (var scope = _services.CreateAsyncScope())

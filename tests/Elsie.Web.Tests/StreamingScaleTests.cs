@@ -487,4 +487,33 @@ public class StreamingScaleTests
 
         return -1;
     }
+
+    [Fact]
+    public async Task Connection_idle_timeout_closes_keep_alive_quietly()
+    {
+        await using var server = await ElsieApp.Create()
+            .QuietConsole(false)
+            .Listen(IPAddress.Loopback, 0)
+            .Server(o => o.ConnectionIdleTimeout = TimeSpan.FromMilliseconds(200))
+            .Configure(o => o.ScanEntryAssembly = false)
+            .Module<StreamModule>()
+            .StartAsync();
+
+        var ep = server.Endpoints[0];
+        using var tcp = new TcpClient();
+        await tcp.ConnectAsync(ep.Address, ep.Port);
+        await using var ns = tcp.GetStream();
+
+        await ns.WriteAsync(Encoding.ASCII.GetBytes(
+            "GET /ping HTTP/1.1\r\nHost: localhost\r\nConnection: keep-alive\r\n\r\n"));
+        var res1 = await ReadHttpMessageAsync(ns, TimeSpan.FromSeconds(2));
+        Assert.Contains("200", res1.Headers, StringComparison.Ordinal);
+
+        // Wait past idle timeout; next read should see EOF (connection closed).
+        await Task.Delay(500);
+        var buf = new byte[1];
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(2));
+        var n = await ns.ReadAsync(buf.AsMemory(0, 1), cts.Token);
+        Assert.Equal(0, n);
+    }
 }

@@ -68,4 +68,21 @@ public sealed class ElsieServerOptions
     /// Default true when a non-null logger factory is configured on the host.
     /// </summary>
     public bool LogRequests { get; set; } = true;
+
+    /// <summary>
+    /// Enable OS-level TCP keepalive on accepted sockets (default true).
+    /// </summary>
+    public bool TcpKeepAlive { get; set; } = true;
+
+    /// <summary>Idle time before the first TCP keepalive probe (default 2 minutes).</summary>
+    public TimeSpan TcpKeepAliveTime { get; set; } = TimeSpan.FromMinutes(2);
+
+    /// <summary>Interval between TCP keepalive probes (default 1 minute).</summary>
+    public TimeSpan TcpKeepAliveInterval { get; set; } = TimeSpan.FromMinutes(1);
+
+    /// <summary>
+    /// Close keep-alive connections that sit idle between requests longer than this.
+    /// Default <see cref="TimeSpan.Zero"/> = off (use <see cref="RequestHeadersTimeout"/> only).
+    /// </summary>
+    public TimeSpan ConnectionIdleTimeout { get; set; }
 }
