@@ -12,14 +12,20 @@ namespace Elsie.Web.Http3;
 internal sealed class QuicRequestBodyStream : Stream
 {
     private readonly Channel<byte[]> _frames;
-    private readonly QuicStream _quicStream;
+    private readonly Stream _stream;
     private readonly long _maxBody;
     private long _readTotal;
     private bool _tooLarge;
+    // Unconsumed remainder of a frame that did not fit the caller's buffer. Served FIRST on
+    // the next read — never pushed back onto the channel (push-back reordered bytes behind
+    // later frames and violated the channel's single-writer contract, dropping data).
+    private byte[]? _pending;
+    private int _pendingOffset;
+    private int _pendingLength;
 
-    public QuicRequestBodyStream(QuicStream quicStream, long maxBody)
+    public QuicRequestBodyStream(Stream stream, long maxBody)
     {
-        _quicStream = quicStream ?? throw new ArgumentNullException(nameof(quicStream));
+        _stream = stream ?? throw new ArgumentNullException(nameof(stream));
         _maxBody = maxBody > 0 ? maxBody : long.MaxValue;
         _frames = Channel.CreateBounded<byte[]>(new BoundedChannelOptions(16)
         {
@@ -41,7 +47,7 @@ internal sealed class QuicRequestBodyStream : Stream
         {
             while (!cancellationToken.IsCancellationRequested)
             {
-                var frame = await Http3FrameReader.ReadAsync(_quicStream, cancellationToken).ConfigureAwait(false);
+                var frame = await Http3FrameReader.ReadAsync(_stream, cancellationToken).ConfigureAwait(false);
                 if (frame is null)
                 {
                     break; // stream FIN
@@ -93,23 +99,30 @@ internal sealed class QuicRequestBodyStream : Stream
         Memory<byte> buffer,
         CancellationToken cancellationToken = default)
     {
-        while (await _frames.Reader.WaitToReadAsync(cancellationToken).ConfigureAwait(false))
+        // Serve the unconsumed remainder of a split frame first; only refill from the channel
+        // when nothing is pending. A frame larger than the caller's buffer (e.g. the framework
+        // CopyToAsync 81920-byte reads or gRPC's 5-byte header reads) must never be reordered
+        // behind frames that arrived later.
+        while (_pending is null || _pendingOffset >= _pendingLength)
         {
+            _pending = null;
+            if (!await _frames.Reader.WaitToReadAsync(cancellationToken).ConfigureAwait(false))
+            {
+                return 0; // end of body
+            }
+
             if (_frames.Reader.TryRead(out var chunk))
             {
-                var take = Math.Min(chunk.Length, buffer.Length);
-                chunk.AsMemory(0, take).CopyTo(buffer);
-                if (take < chunk.Length)
-                {
-                    // Refill path: put the remainder back (rare; frames are small).
-                    _frames.Writer.TryWrite(chunk[take..]);
-                }
-
-                return take;
+                _pending = chunk;
+                _pendingOffset = 0;
+                _pendingLength = chunk.Length;
             }
         }
 
-        return 0; // end of body
+        var take = Math.Min(buffer.Length, _pendingLength - _pendingOffset);
+        _pending.AsMemory(_pendingOffset, take).CopyTo(buffer);
+        _pendingOffset += take;
+        return take;
     }
 
     public override void Flush() { }
