@@ -184,6 +184,16 @@ internal sealed class HostDispatch
             {
                 return FromResult(ElsieResult.Bytes(_features.OpenApiUiHtml, "text/html; charset=utf-8"));
             }
+
+            // Offline Scalar: the bundled standalone bundle is served next to the UI page.
+            var standalonePath = Normalize(_features.OpenApi.UiPath!.TrimEnd('/') + "/standalone.js");
+            if (string.Equals(request.Path, standalonePath, StringComparison.OrdinalIgnoreCase) &&
+                _features.OpenApiUiStandaloneJs is not null)
+            {
+                return FromResult(ElsieResult.Bytes(
+                    _features.OpenApiUiStandaloneJs,
+                    "application/javascript; charset=utf-8"));
+            }
         }
 
         if (_features.StaticFiles is not null)

@@ -174,7 +174,13 @@ internal static class ElsieJsonSchema
                 EnsureSchema(el, components, typeToName, visiting, root: false);
             }
 
-            props[name] = CreateSchema(propType, components, typeToName, visiting, forceInline: IsSimple(propType) || IsEnumerable(propType, out _));
+            var propertySchema = CreateSchema(
+                propType,
+                components,
+                typeToName,
+                visiting,
+                forceInline: IsSimple(propType) || IsEnumerable(propType, out _));
+            props[name] = isOptional ? MakeNullable(propertySchema) : propertySchema;
 
             if (!isOptional)
             {
@@ -217,6 +223,32 @@ internal static class ElsieJsonSchema
             _ when type == typeof(Uri) => Dict(("type", "string"), ("format", "uri")),
             _ => Dict(("type", "object"))
         };
+    }
+
+    /// <summary>
+    /// JSON Schema 2020-12 nullability: typed schemas become a type union with "null";
+    /// $ref schemas are wrapped in anyOf (a sibling "null" type next to $ref is invalid).
+    /// </summary>
+    internal static Dictionary<string, object> MakeNullable(Dictionary<string, object> schema)
+    {
+        if (schema.TryGetValue("type", out var typeValue) && typeValue is string type && type != "null")
+        {
+            var copy = new Dictionary<string, object>(schema, StringComparer.Ordinal);
+            copy["type"] = new object[] { type, "null" };
+            return copy;
+        }
+
+        if (schema.TryGetValue("$ref", out var reference))
+        {
+            return Dict(
+                ("anyOf", new object[]
+                {
+                    Dict(("$ref", reference)),
+                    Dict(("type", "null"))
+                }));
+        }
+
+        return schema;
     }
 
     private static bool IsSimple(Type type)

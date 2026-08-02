@@ -42,6 +42,33 @@ public class OpenApiDocumentTests
         }
     }
 
+    [Fact]
+    public void Nullable_properties_use_type_unions_in_component_schemas()
+    {
+        var table = RouteTable.FromModules([new NullableDtoModule()]);
+        var doc = ElsieOpenApiDocument.Create(table, new ElsieOpenApiInfo());
+        var components = Assert.IsAssignableFrom<Dictionary<string, object?>>(doc["components"]);
+        var schemas = Assert.IsAssignableFrom<Dictionary<string, object>>(components["schemas"]);
+        var dto = Assert.IsAssignableFrom<Dictionary<string, object>>(schemas["NullableDto"]);
+        var props = Assert.IsAssignableFrom<Dictionary<string, object>>(dto["properties"]);
+
+        var count = Assert.IsAssignableFrom<Dictionary<string, object>>(props["count"]);
+        Assert.Equal(new object[] { "integer", "null" }, count["type"]);
+
+        var name = Assert.IsAssignableFrom<Dictionary<string, object>>(props["name"]);
+        Assert.Equal(new object[] { "string", "null" }, name["type"]);
+    }
+
+    private sealed record NullableDto(int Id, int? Count, string? Name);
+
+    private sealed class NullableDtoModule : ElsieModule
+    {
+        public NullableDtoModule()
+        {
+            Get("/nullable", () => ElsieResult.Json(new NullableDto(1, null, null))).Produces<NullableDto>();
+        }
+    }
+
     private sealed class CycleModule : ElsieModule
     {
         public CycleModule()
@@ -64,7 +91,7 @@ public class OpenApiDocumentTests
         var table = RouteTable.FromModules([new SampleModule()]);
         var doc = ElsieOpenApiDocument.Create(table, new ElsieOpenApiInfo { Title = "T", Version = "1" });
 
-        Assert.Equal("3.0.3", doc["openapi"]);
+        Assert.Equal("3.1.0", doc["openapi"]);
         var paths = Assert.IsAssignableFrom<IDictionary<string, Dictionary<string, object>>>(doc["paths"]);
         Assert.True(paths.ContainsKey("/hello/{name}"));
         Assert.True(paths.ContainsKey("/items/{id}"));
@@ -102,6 +129,14 @@ public class OpenApiDocumentTests
         var list = Assert.IsAssignableFrom<Dictionary<string, object>>(paths["/todos"]["get"]);
         var qParams = Assert.IsAssignableFrom<List<Dictionary<string, object>>>(list["parameters"]);
         Assert.Contains(qParams, p => (string)p["name"] == "q" && (string)p["in"] == "query");
+
+        // OpenAPI 3.1 / JSON Schema 2020-12: optional query params are type unions with null.
+        var q = qParams.First(p => (string)p["name"] == "q");
+        var qSchema = Assert.IsAssignableFrom<Dictionary<string, object>>(q["schema"]);
+        Assert.Equal(new object[] { "string", "null" }, qSchema["type"]);
+        var done = qParams.First(p => (string)p["name"] == "done");
+        var doneSchema = Assert.IsAssignableFrom<Dictionary<string, object>>(done["schema"]);
+        Assert.Equal(new object[] { "boolean", "null" }, doneSchema["type"]);
 
         var post = Assert.IsAssignableFrom<Dictionary<string, object>>(paths["/todos"]["post"]);
         var body = Assert.IsAssignableFrom<Dictionary<string, object>>(post["requestBody"]);

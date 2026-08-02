@@ -6,6 +6,10 @@
     <PackageId>Elsie</PackageId>
   </PropertyGroup>
   <ItemGroup>
+    <EmbeddedResource Include="OpenApiUi\standalone.js" LogicalName="Elsie.Web.OpenApiUi.standalone.js" />
+    <None Include="OpenApiUi\README.md" />
+  </ItemGroup>
+  <ItemGroup>
     <ProjectReference Include="..\Elsie.Core\Elsie.Core.csproj" />
     <PackageReference Include="Microsoft.Extensions.DependencyInjection" />
     <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" />

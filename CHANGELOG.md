@@ -20,6 +20,8 @@ Elsie is **unreleased** software; prereleases may include breaking API changes.
 - `ElsieMetrics` meter version string bumped to `0.4.0`.
 
 ### Added
+- **OpenAPI 3.1** (`openapi: 3.1.0`, JSON Schema 2020-12): nullable properties and optional query parameters are emitted as type unions (`["string", "null"]`) instead of the removed `nullable` keyword
+- **Offline Scalar UI**: bundled `@scalar/api-reference` standalone bundle (embedded resource, served at `{UiPath}/standalone.js`) when `UseScalarCdn = false`; update via `tools/UpdateScalarAssets.sh`
 - **JWKS signing-key discovery** (`JwksResolver`): OIDC `/.well-known/openid-configuration` or explicit `JwksUrl` discovery via `ConfigurationManager`, refresh on `ElsieJwtBearerOptions.JwksRefreshInterval` (default 24 h), `kid` validation with rollover (previous keys kept), unreachable authority → clean 401 (never crashes); `AllowHttpMetadata` knob for dev/test
 - **Server-side sessions (A2):** `IElsieSessionStore` + bounded `InMemoryElsieSessionStore` (~100k entries, sliding TTL, `TimeProvider`, LRU eviction); cookie v2 opaque ≥128-bit session ids; `SignInAsync` stores server-side when a store is configured; `SignOutAsync` removes the entry; principal restored per request with sliding renewal
 - **Challenge/Forbid (A4):** `ElsieAuthResultExtensions.Challenge(ElsieContext)` (JWT → 401 + `WWW-Authenticate: Bearer`; cookie → 302 `ChallengeLoginPath`) and `Forbid(ElsieContext)` (302 `ForbidAccessDeniedPath` or 403); auth gates use them when configured

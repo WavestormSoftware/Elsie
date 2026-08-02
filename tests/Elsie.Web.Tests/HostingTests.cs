@@ -203,6 +203,35 @@ public class HostingTests
     }
 
     [Fact]
+    public async Task OpenApi_offline_scalar_served_from_embedded_resources()
+    {
+        await using var server = await ElsieApp.Create()
+            .QuietConsole(false)
+            .Listen(IPAddress.Loopback, 0)
+            .Configure(o => o.ScanEntryAssembly = false)
+            .Module<HelloModule>()
+            .OpenApi(o =>
+            {
+                o.Info.Title = "Test";
+                o.UiPath = "/scalar";
+                o.UseScalarCdn = false;
+            })
+            .StartAsync();
+
+        using var client = server.CreateClient();
+        var ui = await client.GetStringAsync("/scalar");
+        // Offline page references the local bundle, never the CDN.
+        Assert.DoesNotContain("jsdelivr", ui, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("./standalone.js", ui, StringComparison.Ordinal);
+
+        var js = await client.GetAsync("/scalar/standalone.js");
+        Assert.Equal(HttpStatusCode.OK, js.StatusCode);
+        Assert.Equal("application/javascript", js.Content.Headers.ContentType?.MediaType);
+        var bundle = await js.Content.ReadAsStringAsync();
+        Assert.Contains("api-reference", bundle, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
     public async Task NotFound_returns_problem()
     {
         await using var host = ElsieTestHost.Create(s => s.AddElsieModule<HelloModule>());

@@ -12,8 +12,9 @@ public sealed class ElsieOpenApiHostOptions
     public string? UiPath { get; set; }
 
     /// <summary>
-    /// When true (default), UI page loads Scalar from CDN.
-    /// When false, serves a minimal embedded HTML that fetches the OpenAPI document (no CDN).
+    /// When true (default), the UI page loads the Scalar standalone bundle from CDN.
+    /// When false, the bundled offline Scalar UI is served from embedded resources
+    /// (no external network at runtime).
     /// </summary>
     public bool UseScalarCdn { get; set; } = true;
 

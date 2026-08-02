@@ -1,6 +1,6 @@
 # OpenAPI
 
-Core builds an OpenAPI 3 document from the **`RouteTable`** + route metadata. The host serves it.
+Core builds an **OpenAPI 3.1** document (JSON Schema 2020-12) from the **`RouteTable`** + route metadata. The host serves it. Nullable properties/query params are emitted as type unions (`["string", "null"]`).
 
 ## Host
 
@@ -14,7 +14,7 @@ ElsieApp.Create(args)
         o.Info.Version = "v1";
         o.DocumentPath = "/openapi.json"; // default
         o.UiPath = "/scalar";             // optional UI page
-        o.UseScalarCdn = true;            // false → minimal embedded HTML (no CDN)
+        o.UseScalarCdn = true;            // true → Scalar from CDN; false → bundled offline Scalar (embedded, no external requests)
     })
     .Run();
 ```
@@ -54,6 +54,13 @@ await ElsieOpenApiDocument.WriteToFileAsync("openapi.json", routeTable, info);
     o.UiPath = "/scalar";
 })
 ```
+
+## Offline Scalar UI
+
+With `UseScalarCdn = false` the UI page loads a bundled copy of the Scalar standalone bundle
+(`@scalar/api-reference`, MIT) served from assembly embedded resources at `{UiPath}/standalone.js` —
+fully offline, no runtime CDN fetches. Update the bundle with `tools/UpdateScalarAssets.sh`
+(see `src/Elsie/OpenApiUi/README.md` for the pinned version and license).
 
 ## See also
 

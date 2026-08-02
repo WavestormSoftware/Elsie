@@ -5,7 +5,7 @@ using Elsie.Routing;
 
 namespace Elsie.OpenApi;
 
-/// <summary>Builds an OpenAPI 3.0 document from an Elsie <see cref="RouteTable"/> and route metadata.</summary>
+/// <summary>Builds an OpenAPI 3.1 document (JSON Schema 2020-12) from an Elsie <see cref="RouteTable"/> and route metadata.</summary>
 public static partial class ElsieOpenApiDocument
 {
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web)
@@ -133,7 +133,7 @@ public static partial class ElsieOpenApiDocument
 
         var doc = new Dictionary<string, object?>(StringComparer.Ordinal)
         {
-            ["openapi"] = "3.0.3",
+            ["openapi"] = "3.1.0",
             ["info"] = new Dictionary<string, object?>(StringComparer.Ordinal)
             {
                 ["title"] = info.Title,
@@ -266,14 +266,20 @@ public static partial class ElsieOpenApiDocument
             var name = char.ToLowerInvariant(prop.Name[0]) + prop.Name[1..];
             var required = Nullable.GetUnderlyingType(prop.PropertyType) is null
                            && prop.PropertyType.IsValueType;
+            var schema = ElsieJsonSchema.RefOrInline(
+                Nullable.GetUnderlyingType(prop.PropertyType) ?? prop.PropertyType,
+                components,
+                typeToName);
+            if (!required)
+            {
+                schema = ElsieJsonSchema.MakeNullable(schema);
+            }
+
             list.Add(Dict(
                 ("name", name),
                 ("in", "query"),
                 ("required", required),
-                ("schema", ElsieJsonSchema.RefOrInline(
-                    Nullable.GetUnderlyingType(prop.PropertyType) ?? prop.PropertyType,
-                    components,
-                    typeToName))));
+                ("schema", schema)));
         }
 
         return list;
