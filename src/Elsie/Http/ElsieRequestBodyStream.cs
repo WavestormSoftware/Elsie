@@ -5,7 +5,7 @@ namespace Elsie.Web.Http;
 /// enforces max size and idle timeout. Call <see cref="DrainAsync"/> before keep-alive reuse
 /// when the handler did not fully consume the body.
 /// </summary>
-internal sealed class ElsieRequestBodyStream : Stream
+internal sealed class ElsieRequestBodyStream : Stream, IDrainableRequestBody
 {
     private readonly Stream _network;
     private readonly long _contentLength;

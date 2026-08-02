@@ -130,7 +130,15 @@ public class ParserAdversarialTests
             giant + "\r\n";
         await using var stream = new MemoryStream(Encoding.ASCII.GetBytes(raw));
         var reader = new Http1RequestReader(stream);
-        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() => reader.ReadAsync(CancellationToken.None));
+        var req = await reader.ReadAsync(CancellationToken.None);
+        Assert.NotNull(req);
+        // Chunk framing is decoded lazily on body read.
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(
+            async () =>
+            {
+                var buf = new byte[16];
+                _ = await req!.Body.ReadAsync(buf);
+            });
         Assert.Contains("too long", ex.Message, StringComparison.OrdinalIgnoreCase);
         reader.DisposeBuffer();
     }

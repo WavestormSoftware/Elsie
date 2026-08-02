@@ -277,7 +277,7 @@ internal sealed class ConnectionHandler
                     return;
                 }
 
-                var keepAlive = parsed.KeepAlive;
+                var keepAlive = parsed.KeepAlive && response.StatusCode is not (408 or 413);
                 var isHead = HttpMethods.IsHead(parsed.Method);
                 var isSse = string.Equals(
                     response.ContentType,
@@ -318,8 +318,8 @@ internal sealed class ConnectionHandler
 
                 // Keep-alive requires a fully framed request body on the wire.
                 if (keepAlive &&
-                    parsed.Body is ElsieRequestBodyStream bodyStream &&
-                    !bodyStream.IsFullyConsumed)
+                    parsed.Body is IDrainableRequestBody drainable &&
+                    !drainable.IsFullyConsumed)
                 {
                     try
                     {
@@ -329,7 +329,7 @@ internal sealed class ConnectionHandler
                             drainCts.CancelAfter(_serverOptions.RequestBodyIdleTimeout);
                         }
 
-                        await bodyStream.DrainAsync(drainCts.Token).ConfigureAwait(false);
+                        await drainable.DrainAsync(drainCts.Token).ConfigureAwait(false);
                     }
                     catch
                     {

@@ -21,7 +21,7 @@ Elsie is **unreleased** software; prereleases may include breaking API changes.
 - Structured request logging (`Elsie.Request`), W3C `traceparent` propagation, expanded `ElsieMetrics` (duration histogram, active requests, body sizes, websockets)
 - `ElsieOptions.ShowExceptionDetails` (dev HTML exception page; auto-on in Generic Host Development)
 - OIDC PKCE helpers (`CreateCodeVerifier` / `CreateCodeChallenge`) + `code_challenge` / `code_verifier` on authorize/token exchange.
-- Streaming HTTP/1.1 request bodies (`Content-Length`) with keep-alive drain; unknown-length response `BodyWriter` uses chunked TE; static files stream with `Content-Length` (no double-buffer)
+- Streaming HTTP/1.1 request bodies (`Content-Length` + `Transfer-Encoding: chunked`) with keep-alive drain; unknown-length response `BodyWriter` uses chunked TE; static files stream with `Content-Length` (no double-buffer)
 - `ElsieRequestException` (protocol 4xx mapped by dispatcher — body idle timeout → 408)
 
 ### Fixed

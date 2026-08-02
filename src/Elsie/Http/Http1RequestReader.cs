@@ -1,4 +1,3 @@
-using System.Buffers;
 using System.Globalization;
 using System.Text;
 
@@ -10,12 +9,10 @@ internal sealed class Http1RequestReader
     private readonly Stream _stream;
     private readonly int _maxRequestLineLength;
     private readonly int _maxHeaderBytes;
-    private long _maxBodyBytes = 10 * 1024 * 1024;
+    private readonly long _maxBodyBytes;
     private readonly bool _send100Continue;
     private readonly TimeSpan _bodyIdleTimeout;
-    private byte[] _buffer;
-    private int _offset;
-    private int _count;
+    private readonly Http1ConnectionBuffer _input;
 
     public Http1RequestReader(
         Stream stream,
@@ -33,17 +30,10 @@ internal sealed class Http1RequestReader
         _bodyIdleTimeout = requestBodyIdleTimeout is { } t && t > TimeSpan.Zero
             ? t
             : Timeout.InfiniteTimeSpan;
-        _buffer = ArrayPool<byte>.Shared.Rent(16 * 1024);
+        _input = new Http1ConnectionBuffer(stream, capacity: 16 * 1024, _bodyIdleTimeout);
     }
 
-    public void DisposeBuffer()
-    {
-        if (_buffer.Length > 0)
-        {
-            ArrayPool<byte>.Shared.Return(_buffer);
-            _buffer = Array.Empty<byte>();
-        }
-    }
+    public void DisposeBuffer() => _input.Dispose();
 
     public async Task<ParsedHttpRequest?> ReadAsync(CancellationToken cancellationToken)
     {
@@ -149,9 +139,12 @@ internal sealed class Http1RequestReader
         }
         else if (chunked)
         {
-            // SC2 replaces this with streaming ChunkedReadStream.
-            body = await ReadChunkedBodyAsync(cancellationToken).ConfigureAwait(false);
-            contentLength = body.Length;
+            body = new ChunkedReadStream(
+                _input,
+                _maxBodyBytes,
+                _maxRequestLineLength,
+                maxTrailerBytes: _maxHeaderBytes);
+            contentLength = null;
         }
         else
         {
@@ -379,24 +372,19 @@ internal sealed class Http1RequestReader
 
     private async Task<byte[]?> ReadHeadersBlockAsync(CancellationToken cancellationToken)
     {
-        // Ensure we have data
-        if (_count == 0)
+        if (_input.Count == 0)
         {
-            var read = await _stream.ReadAsync(_buffer.AsMemory(0, _buffer.Length), cancellationToken)
-                .ConfigureAwait(false);
+            var read = await _input.FillAsync(cancellationToken).ConfigureAwait(false);
             if (read == 0)
             {
                 return null;
             }
-
-            _offset = 0;
-            _count = read;
         }
 
         using var ms = new MemoryStream();
         while (true)
         {
-            var available = _buffer.AsSpan(_offset, _count);
+            var available = _input.AvailableSpan;
             var idx = IndexOfDoubleCrlf(available);
             if (idx >= 0)
             {
@@ -407,27 +395,18 @@ internal sealed class Http1RequestReader
                 }
 
                 ms.Write(available[..blockLen]);
-                _offset += blockLen;
-                _count -= blockLen;
-                if (_count == 0)
-                {
-                    _offset = 0;
-                }
-
+                _input.Advance(blockLen);
                 return ms.ToArray();
             }
 
-            // Need more data
-            if (ms.Length + _count > _maxHeaderBytes)
+            if (ms.Length + available.Length > _maxHeaderBytes)
             {
                 throw new InvalidOperationException("Request headers too large.");
             }
 
             ms.Write(available);
-            _offset = 0;
-            _count = 0;
-            var n = await _stream.ReadAsync(_buffer.AsMemory(0, _buffer.Length), cancellationToken)
-                .ConfigureAwait(false);
+            _input.ClearAvailable();
+            var n = await _input.FillAsync(cancellationToken).ConfigureAwait(false);
             if (n == 0)
             {
                 if (ms.Length == 0)
@@ -437,8 +416,6 @@ internal sealed class Http1RequestReader
 
                 throw new InvalidOperationException("Unexpected EOF in headers.");
             }
-
-            _count = n;
         }
     }
 
@@ -467,178 +444,10 @@ internal sealed class Http1RequestReader
             throw new InvalidOperationException("Body too large.");
         }
 
-        byte[]? prefix = null;
-        if (_count > 0)
-        {
-            var take = (int)Math.Min(_count, contentLength);
-            if (take > 0)
-            {
-                prefix = new byte[take];
-                _buffer.AsSpan(_offset, take).CopyTo(prefix);
-                _offset += take;
-                _count -= take;
-                if (_count == 0)
-                {
-                    _offset = 0;
-                }
-            }
-        }
+        var prefix = contentLength > int.MaxValue
+            ? _input.TakePrefix(int.MaxValue)
+            : _input.TakePrefix((int)contentLength);
 
         return new ElsieRequestBodyStream(_stream, contentLength, _bodyIdleTimeout, prefix);
-    }
-
-    private async Task<Stream> ReadChunkedBodyAsync(CancellationToken cancellationToken)
-    {
-        using var ms = new MemoryStream();
-        while (true)
-        {
-            var sizeLine = await ReadLineAsync(cancellationToken).ConfigureAwait(false);
-            if (sizeLine is null)
-            {
-                throw new InvalidOperationException("Unexpected EOF in chunk size.");
-            }
-
-            var semi = sizeLine.IndexOf(';');
-            var hex = semi >= 0 ? sizeLine[..semi] : sizeLine;
-            if (!int.TryParse(hex, NumberStyles.HexNumber, CultureInfo.InvariantCulture, out var size) || size < 0)
-            {
-                throw new InvalidOperationException("Invalid chunk size.");
-            }
-
-            if (ms.Length + size > _maxBodyBytes)
-            {
-                throw new InvalidOperationException("Body too large.");
-            }
-
-            if (size == 0)
-            {
-                // Trailer headers until empty line
-                while (true)
-                {
-                    var trailer = await ReadLineAsync(cancellationToken).ConfigureAwait(false);
-                    if (trailer is null || trailer.Length == 0)
-                    {
-                        break;
-                    }
-                }
-
-                break;
-            }
-
-            var chunk = new byte[size];
-            var filled = 0;
-            while (filled < size)
-            {
-                if (_count > 0)
-                {
-                    var take = Math.Min(_count, size - filled);
-                    _buffer.AsSpan(_offset, take).CopyTo(chunk.AsSpan(filled, take));
-                    filled += take;
-                    _offset += take;
-                    _count -= take;
-                    if (_count == 0)
-                    {
-                        _offset = 0;
-                    }
-
-                    continue;
-                }
-
-                var n = await ReadSocketAsync(chunk.AsMemory(filled, size - filled), cancellationToken)
-                    .ConfigureAwait(false);
-                if (n == 0)
-                {
-                    throw new InvalidOperationException("Unexpected EOF in chunk.");
-                }
-
-                filled += n;
-            }
-
-            ms.Write(chunk, 0, size);
-            // Consume trailing CRLF
-            var crlf = await ReadLineAsync(cancellationToken).ConfigureAwait(false);
-            if (crlf is null)
-            {
-                throw new InvalidOperationException("Unexpected EOF after chunk.");
-            }
-        }
-
-        ms.Position = 0;
-        return new MemoryStream(ms.ToArray(), writable: false);
-    }
-
-    private async Task<int> ReadSocketAsync(Memory<byte> destination, CancellationToken cancellationToken)
-    {
-        if (_bodyIdleTimeout == Timeout.InfiniteTimeSpan)
-        {
-            return await _stream.ReadAsync(destination, cancellationToken).ConfigureAwait(false);
-        }
-
-        using var idleCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        idleCts.CancelAfter(_bodyIdleTimeout);
-        try
-        {
-            return await _stream.ReadAsync(destination, idleCts.Token).ConfigureAwait(false);
-        }
-        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
-        {
-            throw new InvalidOperationException("Request body read timed out.");
-        }
-    }
-
-    private async Task<string?> ReadLineAsync(CancellationToken cancellationToken)
-    {
-        using var ms = new MemoryStream();
-        while (true)
-        {
-            if (_count == 0)
-            {
-                var n = await ReadSocketAsync(_buffer.AsMemory(0, _buffer.Length), cancellationToken)
-                    .ConfigureAwait(false);
-                if (n == 0)
-                {
-                    return ms.Length == 0 ? null : Encoding.ASCII.GetString(ms.ToArray());
-                }
-
-                _offset = 0;
-                _count = n;
-            }
-
-            var span = _buffer.AsSpan(_offset, _count);
-            var crlf = span.IndexOf((byte)'\n');
-            if (crlf >= 0)
-            {
-                var end = crlf;
-                if (end > 0 && span[end - 1] == (byte)'\r')
-                {
-                    end--;
-                }
-
-                if (ms.Length + end > _maxRequestLineLength)
-                {
-                    throw new InvalidOperationException("Line too long.");
-                }
-
-                ms.Write(span[..end]);
-                var consumed = crlf + 1;
-                _offset += consumed;
-                _count -= consumed;
-                if (_count == 0)
-                {
-                    _offset = 0;
-                }
-
-                return Encoding.ASCII.GetString(ms.ToArray());
-            }
-
-            if (ms.Length + span.Length > _maxRequestLineLength)
-            {
-                throw new InvalidOperationException("Line too long.");
-            }
-
-            ms.Write(span);
-            _offset = 0;
-            _count = 0;
-        }
     }
 }

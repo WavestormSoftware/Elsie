@@ -24,6 +24,24 @@ public class StreamingScaleTests
                 return ElsieResult.Text(bytes.Length.ToString());
             });
 
+            Post("/stream-read", async (ctx, ct) =>
+            {
+                var total = 0L;
+                var buf = new byte[4096];
+                while (true)
+                {
+                    var n = await ctx.Request.Body.ReadAsync(buf, ct);
+                    if (n == 0)
+                    {
+                        break;
+                    }
+
+                    total += n;
+                }
+
+                return ElsieResult.Text(total.ToString());
+            });
+
             Post("/echo-json", async (ctx, ct) =>
             {
                 var bind = await ctx.BindJsonAsync<Msg>(ct);
@@ -117,6 +135,102 @@ public class StreamingScaleTests
         var res2 = await ReadHttpMessageAsync(ns, TimeSpan.FromSeconds(3));
         Assert.Contains("200", res2.Headers, StringComparison.Ordinal);
         Assert.Contains("pong", res2.Body, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Chunked_body_streams_without_full_buffer_and_keep_alive_works()
+    {
+        await using var server = await ElsieApp.Create()
+            .QuietConsole(false)
+            .Listen(IPAddress.Loopback, 0)
+            .Configure(o => o.ScanEntryAssembly = false)
+            .Module<StreamModule>()
+            .StartAsync();
+
+        var ep = server.Endpoints[0];
+        using var tcp = new TcpClient();
+        await tcp.ConnectAsync(ep.Address, ep.Port);
+        await using var ns = tcp.GetStream();
+
+        // 3 chunks totaling 11 bytes: "hello world"
+        var chunked =
+            "POST /stream-read HTTP/1.1\r\n" +
+            "Host: localhost\r\n" +
+            "Transfer-Encoding: chunked\r\n" +
+            "Connection: keep-alive\r\n" +
+            "\r\n" +
+            "5\r\nhello\r\n" +
+            "1\r\n \r\n" +
+            "5\r\nworld\r\n" +
+            "0\r\n\r\n";
+        await ns.WriteAsync(Encoding.ASCII.GetBytes(chunked));
+
+        var res1 = await ReadHttpMessageAsync(ns, TimeSpan.FromSeconds(3));
+        Assert.Contains("200", res1.Headers, StringComparison.Ordinal);
+        Assert.Contains("11", res1.Body, StringComparison.Ordinal);
+
+        await ns.WriteAsync(Encoding.ASCII.GetBytes(
+            "GET /ping HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n"));
+        var res2 = await ReadHttpMessageAsync(ns, TimeSpan.FromSeconds(3));
+        Assert.Contains("200", res2.Headers, StringComparison.Ordinal);
+        Assert.Contains("pong", res2.Body, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Malformed_chunk_size_returns_400()
+    {
+        await using var server = await ElsieApp.Create()
+            .QuietConsole(false)
+            .Listen(IPAddress.Loopback, 0)
+            .Configure(o => o.ScanEntryAssembly = false)
+            .Module<StreamModule>()
+            .StartAsync();
+
+        var ep = server.Endpoints[0];
+        using var tcp = new TcpClient();
+        await tcp.ConnectAsync(ep.Address, ep.Port);
+        await using var ns = tcp.GetStream();
+
+        await ns.WriteAsync(Encoding.ASCII.GetBytes(
+            "POST /stream-read HTTP/1.1\r\n" +
+            "Host: localhost\r\n" +
+            "Transfer-Encoding: chunked\r\n" +
+            "Connection: close\r\n" +
+            "\r\n" +
+            "ZZ\r\n"));
+
+        var res = await ReadHttpMessageAsync(ns, TimeSpan.FromSeconds(3));
+        Assert.Contains("400", res.Headers, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Chunked_body_over_max_returns_413()
+    {
+        await using var server = await ElsieApp.Create()
+            .QuietConsole(false)
+            .Listen(IPAddress.Loopback, 0)
+            .Server(o => o.MaxRequestBodyBytes = 16)
+            .Configure(o => o.ScanEntryAssembly = false)
+            .Module<StreamModule>()
+            .StartAsync();
+
+        var ep = server.Endpoints[0];
+        using var tcp = new TcpClient();
+        await tcp.ConnectAsync(ep.Address, ep.Port);
+        await using var ns = tcp.GetStream();
+
+        var payload = new string('x', 32);
+        await ns.WriteAsync(Encoding.ASCII.GetBytes(
+            "POST /stream-read HTTP/1.1\r\n" +
+            "Host: localhost\r\n" +
+            "Transfer-Encoding: chunked\r\n" +
+            "Connection: close\r\n" +
+            "\r\n" +
+            $"{payload.Length:X}\r\n{payload}\r\n" +
+            "0\r\n\r\n"));
+
+        var res = await ReadHttpMessageAsync(ns, TimeSpan.FromSeconds(3));
+        Assert.Contains("413", res.Headers, StringComparison.Ordinal);
     }
 
     [Fact]
