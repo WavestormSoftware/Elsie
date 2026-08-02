@@ -280,9 +280,11 @@ public class Http3ServerTests
         }
 
         using var cert = TlsAndHttp2Tests.CreateSelfSignedForTests();
+        // Fixed free port so the TCP and UDP (h3) listeners share one port.
+        var port = FindFreePort();
         await using var server = await ElsieApp.Create()
             .QuietConsole(false)
-            .Listen(IPAddress.Loopback, 0, o =>
+            .Listen(IPAddress.Loopback, port, o =>
             {
                 o.UseHttps = true;
                 o.Certificate = cert;
@@ -291,9 +293,6 @@ public class Http3ServerTests
             .Configure(o => o.ScanEntryAssembly = false)
             .Module<PingModule2>()
             .StartAsync();
-
-        // TCP listener got the port; UDP h3 listener may differ when port 0 was requested.
-        var port = server.Endpoints[0].Port;
         var quic = new System.Net.Quic.QuicClientConnectionOptions
         {
             RemoteEndPoint = new IPEndPoint(IPAddress.Loopback, port),
@@ -340,6 +339,13 @@ public class Http3ServerTests
 
         var body = System.Text.Encoding.UTF8.GetString(payload.ToArray());
         Assert.Equal("h3-pong", body);
+    }
+
+    private static int FindFreePort()
+    {
+        using var probe = new System.Net.Sockets.TcpListener(IPAddress.Loopback, 0);
+        probe.Start();
+        return ((IPEndPoint)probe.LocalEndpoint).Port;
     }
 
     private static byte[] BuildH3RequestHeaders()
