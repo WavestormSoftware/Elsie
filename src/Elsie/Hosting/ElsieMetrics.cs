@@ -14,4 +14,19 @@ internal static class ElsieMetrics
 
     public static readonly Counter<long> RequestsTotal =
         Meter.CreateCounter<long>("elsie.requests_total");
+
+    public static readonly Histogram<double> RequestDuration =
+        Meter.CreateHistogram<double>("elsie.http.server.request.duration", unit: "ms");
+
+    public static readonly UpDownCounter<long> ActiveRequests =
+        Meter.CreateUpDownCounter<long>("elsie.active_requests");
+
+    public static readonly Counter<long> RequestBytesRead =
+        Meter.CreateCounter<long>("elsie.http.server.request.body.size", unit: "By");
+
+    public static readonly Counter<long> ResponseBytesWritten =
+        Meter.CreateCounter<long>("elsie.http.server.response.body.size", unit: "By");
+
+    public static readonly Counter<long> WebSocketConnections =
+        Meter.CreateCounter<long>("elsie.websocket.connections");
 }

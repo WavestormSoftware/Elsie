@@ -62,4 +62,10 @@ public sealed class ElsieServerOptions
 
     /// <summary>Minimum body size before compression is considered (default 1 KiB).</summary>
     public int CompressionMinBodyBytes { get; set; } = 1024;
+
+    /// <summary>
+    /// When true, emit structured per-request log lines via <see cref="Microsoft.Extensions.Logging.ILogger"/>.
+    /// Default true when a non-null logger factory is configured on the host.
+    /// </summary>
+    public bool LogRequests { get; set; } = true;
 }

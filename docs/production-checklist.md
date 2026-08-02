@@ -10,7 +10,8 @@
 - [ ] `.Server(o => { o.MaxRequestBodyBytes = …; o.MaxConcurrentConnections = …; o.RequestBodyIdleTimeout = …; })`
 - [ ] Target **net10.0** (net8 dropped in 0.4.0 series)
 - [ ] Enable `.Compression()` if serving large JSON/HTML from Elsie
-- [ ] `.Logging(loggerFactory)` + ship logs/metrics (`Meter("Elsie")`, `ActivitySource("Elsie")`)
+- [ ] `.Logging(loggerFactory)` **or** Generic Host (`UseElsie`) + ship logs/metrics (`Meter("Elsie")` v0.4.0, `ActivitySource("Elsie")`, W3C traceparent)
+- [ ] Keep `ShowExceptionDetails` off outside Development
 - [ ] Health checks on `/healthz` (live/ready) for orchestrators
 - [ ] Static files: content root outside secrets; rely on path checks
 - [ ] OpenAPI: prebuild JSON for trimmed/AOT or lock down UI path

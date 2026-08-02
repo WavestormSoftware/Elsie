@@ -31,6 +31,36 @@ ElsieApp.Create(args)
 Default listen (when none specified): `http://127.0.0.1:5000`.  
 Override with `.Listen(...)` or `--urls http://…`.
 
+## Generic Host (`HostApplicationBuilder`)
+
+Package `Elsie` references `Microsoft.Extensions.Hosting`. Use when you need config composition, hosted services, or host lifetime:
+
+```csharp
+var builder = Host.CreateApplicationBuilder(args);
+// optional: appsettings / env / user-secrets already on builder.Configuration
+
+builder.UseElsie(app => app
+    .Configure(o => o.ScanEntryAssembly = false)
+    .Module<App>()
+    .HostedService<MyBackgroundWorker>() // optional IHostedService
+    .Listen("http://127.0.0.1:5000")); // or set Elsie:Urls in config
+
+await builder.Build().RunAsync();
+```
+
+| Config key | Effect |
+|------------|--------|
+| `Elsie:Urls` / `urls` | Listen URLs (`;`-separated), if no `.Listen` calls |
+| `Elsie` section | Bound onto `ElsieOptions` |
+
+Development environment enables `ElsieOptions.ShowExceptionDetails` (HTML 500 with stack). Plain `ElsieApp.Run` is unchanged.
+
+## Observability
+
+- **Request logs** (`ILogger` category `Elsie.Request`): `{Method} {Path} {StatusCode} {DurationMs}ms trace=… client=…` when `.Logging(...)` or Generic Host logging is present (`ElsieServerOptions.LogRequests`, default true).
+- **W3C**: parses request `traceparent`/`tracestate`, starts child `Activity` (`ActivitySource("Elsie")`), echoes `traceparent` on the response.
+- **Metrics** (`Meter("Elsie")` v`0.4.0`): `active_connections`, `connections_rejected`, `requests_total`, `http.server.request.duration` (ms), `active_requests`, request/response body size counters, `websocket.connections`.
+
 ## TLS and protocols
 
 ```csharp
@@ -55,6 +85,8 @@ Override with `.Listen(...)` or `--urls http://…`.
     o.MaxFrameSize = 16384;
     o.MaxConcurrentConnections = 10_000;
     o.RequestHeadersTimeout = TimeSpan.FromSeconds(30);
+    o.RequestBodyIdleTimeout = TimeSpan.FromSeconds(30);
+    o.LogRequests = true;
 })
 .Compression()
 .Logging(loggerFactory)

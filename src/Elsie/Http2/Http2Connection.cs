@@ -9,7 +9,7 @@ namespace Elsie.Web.Http2;
 internal sealed class Http2Connection
 {
     private readonly Stream _stream;
-    private readonly ServiceProvider _services;
+    private readonly IServiceProvider _services;
     private readonly ElsieListenOptions _listen;
     private readonly ElsieServerOptions _serverOptions;
     private readonly Action<string>? _log;
@@ -22,7 +22,7 @@ internal sealed class Http2Connection
 
     public Http2Connection(
         Stream stream,
-        ServiceProvider services,
+        IServiceProvider services,
         ElsieDispatcher dispatcher,
         ElsieServerFeatures features,
         ElsieListenOptions listen,

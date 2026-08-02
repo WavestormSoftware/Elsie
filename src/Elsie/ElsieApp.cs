@@ -1,9 +1,9 @@
 using System.Net;
-using System.Net.Security;
 using System.Net.Sockets;
-using System.Security.Cryptography.X509Certificates;
 using Elsie.Web.Hosting;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 
@@ -11,11 +11,13 @@ namespace Elsie.Web;
 
 /// <summary>
 /// Fluent host for Elsie apps. Prefer <see cref="Run{TModule}"/> for the smallest entrypoint.
+/// For Generic Host, use <see cref="ElsieHostingExtensions.UseElsie"/>.
 /// </summary>
 public sealed class ElsieApp
 {
     private readonly string[] _args;
-    private readonly ServiceCollection _services = new();
+    private readonly IServiceCollection _services;
+    private readonly bool _ownsServiceCollection;
     private readonly List<Action<IServiceCollection>> _serviceConfigs = new();
     private readonly List<Action<ElsieOptions>> _optionConfigs = new();
     private readonly List<ElsieListenOptions> _listen = new();
@@ -26,11 +28,41 @@ public sealed class ElsieApp
     private string _contentRoot = Directory.GetCurrentDirectory();
     private bool _quietConsole = true;
     private bool _configured;
+    private bool _hostRegistered;
+    private bool _configurationApplied;
     private ILoggerFactory? _loggerFactory;
+    private IConfiguration? _configuration;
+    private IHostEnvironment? _environment;
 
-    private ElsieApp(string[] args)
+    private ElsieApp(string[] args, IServiceCollection? externalServices = null)
     {
         _args = args;
+        if (externalServices is null)
+        {
+            _services = new ServiceCollection();
+            _ownsServiceCollection = true;
+        }
+        else
+        {
+            _services = externalServices;
+            _ownsServiceCollection = false;
+        }
+    }
+
+    /// <summary>Create an app bound to an external DI container (Generic Host).</summary>
+    internal static ElsieApp CreateForHost(
+        IServiceCollection services,
+        IConfiguration configuration,
+        IHostEnvironment? environment)
+    {
+        ArgumentNullException.ThrowIfNull(services);
+        ArgumentNullException.ThrowIfNull(configuration);
+        var app = new ElsieApp(Array.Empty<string>(), services)
+        {
+            _configuration = configuration,
+            _environment = environment
+        };
+        return app;
     }
 
     /// <summary>Build, map, and run with a single explicit module.</summary>
@@ -119,6 +151,23 @@ public sealed class ElsieApp
     {
         ArgumentNullException.ThrowIfNull(configure);
         _optionConfigs.Add(configure);
+        return this;
+    }
+
+    /// <summary>
+    /// Bind <see cref="ElsieOptions"/> from configuration (e.g. the <c>Elsie</c> section).
+    /// </summary>
+    public ElsieApp Configure(IConfiguration configuration)
+    {
+        ArgumentNullException.ThrowIfNull(configuration);
+        _optionConfigs.Add(o => configuration.Bind(o));
+        return this;
+    }
+
+    /// <summary>Register a background <see cref="IHostedService"/> with the app DI container.</summary>
+    public ElsieApp HostedService<TService>() where TService : class, IHostedService
+    {
+        _serviceConfigs.Add(s => s.AddHostedService<TService>());
         return this;
     }
 
@@ -239,12 +288,90 @@ public sealed class ElsieApp
         return new ElsieTestServer(server);
     }
 
+    /// <summary>Wire DI + hosted service into a Generic Host container (called by <see cref="ElsieHostingExtensions"/>).</summary>
+    internal void RegisterWithHost(
+        IServiceCollection services,
+        IConfiguration configuration,
+        IHostEnvironment? environment)
+    {
+        if (_hostRegistered)
+        {
+            return;
+        }
+
+        _hostRegistered = true;
+        _configuration = configuration;
+        _environment = environment;
+        ApplyConfigurationDefaults();
+
+        services.AddSingleton(this);
+        services.AddElsie(o =>
+        {
+            if (environment?.IsDevelopment() == true)
+            {
+                o.ShowExceptionDetails = true;
+            }
+
+            foreach (var cfg in _optionConfigs)
+            {
+                cfg(o);
+            }
+        });
+
+        foreach (var cfg in _serviceConfigs)
+        {
+            cfg(services);
+        }
+
+        services.AddSingleton<ElsieServerFeatures>(sp =>
+        {
+            var features = new ElsieServerFeatures
+            {
+                StaticFiles = _staticFiles,
+                OpenApi = _openApi,
+                ContentRoot = _contentRoot
+            };
+            _featureSetup?.Invoke(features, sp);
+            var routes = sp.GetRequiredService<Routing.RouteTable>();
+            features.WarmOpenApi(routes);
+            return features;
+        });
+
+        services.AddHostedService<ElsieHostedService>();
+    }
+
+    /// <summary>Build server from an already-built root <see cref="IServiceProvider"/> (Generic Host).</summary>
+    internal ElsieServer BuildServerFromProvider(IServiceProvider sp, bool ownsServices)
+    {
+        EnsureConfigured();
+        var endpoints = ResolveEndpoints();
+        var dispatcher = sp.GetRequiredService<ElsieDispatcher>();
+        var features = sp.GetRequiredService<ElsieServerFeatures>();
+
+        Action<string>? log = _quietConsole
+            ? msg => Console.WriteLine($"{DateTime.Now:HH:mm:ss} {msg}")
+            : null;
+
+        var loggerFactory = _loggerFactory
+            ?? sp.GetService<ILoggerFactory>()
+            ?? NullLoggerFactory.Instance;
+
+        return new ElsieServer(
+            sp,
+            dispatcher,
+            features,
+            endpoints,
+            _serverOptions,
+            log,
+            loggerFactory,
+            ownsServices);
+    }
+
     private ElsieServer BuildServer()
     {
         EnsureConfigured();
-        var endpoints = _listen.Count > 0
-            ? _listen
-            : new List<ElsieListenOptions> { ElsieListenOptions.Parse("http://127.0.0.1:5000") };
+        ApplyConfigurationDefaults();
+        var endpoints = ResolveEndpoints();
 
         _services.AddElsie(o =>
         {
@@ -259,7 +386,13 @@ public sealed class ElsieApp
             cfg(_services);
         }
 
-        var sp = _services.BuildServiceProvider(new ServiceProviderOptions
+        if (!_ownsServiceCollection)
+        {
+            throw new InvalidOperationException(
+                "Cannot BuildServer() on a host-bound ElsieApp. Use Generic Host RunAsync instead.");
+        }
+
+        var sp = ((ServiceCollection)_services).BuildServiceProvider(new ServiceProviderOptions
         {
             ValidateScopes = true,
             ValidateOnBuild = true
@@ -279,7 +412,47 @@ public sealed class ElsieApp
             : null;
 
         var loggerFactory = _loggerFactory ?? NullLoggerFactory.Instance;
-        return new ElsieServer(sp, dispatcher, features, endpoints, _serverOptions, log, loggerFactory);
+        return new ElsieServer(sp, dispatcher, features, endpoints, _serverOptions, log, loggerFactory, ownsServices: true);
+    }
+
+    private List<ElsieListenOptions> ResolveEndpoints()
+    {
+        if (_listen.Count > 0)
+        {
+            return _listen;
+        }
+
+        return new List<ElsieListenOptions> { ElsieListenOptions.Parse("http://127.0.0.1:5000") };
+    }
+
+    private void ApplyConfigurationDefaults()
+    {
+        if (_configurationApplied || _configuration is null)
+        {
+            return;
+        }
+
+        _configurationApplied = true;
+
+        // Bind ElsieOptions section once if present.
+        var section = _configuration.GetSection("Elsie");
+        if (section.Exists())
+        {
+            _optionConfigs.Insert(0, o => section.Bind(o));
+        }
+
+        // Listen URLs: Elsie:Urls or urls (host-style).
+        if (_listen.Count == 0)
+        {
+            var urls = _configuration["Elsie:Urls"] ?? _configuration["urls"];
+            if (!string.IsNullOrWhiteSpace(urls))
+            {
+                foreach (var url in urls.Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+                {
+                    _listen.Add(ElsieListenOptions.Parse(url));
+                }
+            }
+        }
     }
 
     private void EnsureConfigured()

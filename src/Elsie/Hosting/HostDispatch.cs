@@ -1,5 +1,7 @@
 using System.Diagnostics;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 
 namespace Elsie.Web.Hosting;
 
@@ -8,18 +10,21 @@ internal sealed class HostDispatch
 {
     private static readonly ActivitySource ActivitySource = new("Elsie");
 
-    private readonly ServiceProvider _services;
+    private readonly IServiceProvider _services;
     private readonly ElsieDispatcher _dispatcher;
     private readonly ElsieServerFeatures _features;
     private readonly ElsieServerOptions _serverOptions;
     private readonly IElsieRequestFilter[] _filters;
     private readonly IElsiePrincipalAttacher[] _attachers;
+    private readonly ILogger _logger;
+    private readonly bool _logRequests;
 
     public HostDispatch(
-        ServiceProvider services,
+        IServiceProvider services,
         ElsieDispatcher dispatcher,
         ElsieServerFeatures features,
-        ElsieServerOptions? serverOptions = null)
+        ElsieServerOptions? serverOptions = null,
+        ILoggerFactory? loggerFactory = null)
     {
         _services = services;
         _dispatcher = dispatcher;
@@ -27,6 +32,9 @@ internal sealed class HostDispatch
         _serverOptions = serverOptions ?? new ElsieServerOptions();
         _filters = services.GetServices<IElsieRequestFilter>().ToArray();
         _attachers = services.GetServices<IElsiePrincipalAttacher>().ToArray();
+        var factory = loggerFactory ?? services.GetService<ILoggerFactory>() ?? NullLoggerFactory.Instance;
+        _logger = factory.CreateLogger("Elsie.Request");
+        _logRequests = _serverOptions.LogRequests && factory is not NullLoggerFactory;
     }
 
     public async Task<ElsieHttpResponse> ProcessAsync(
@@ -34,23 +42,82 @@ internal sealed class HostDispatch
         CancellationToken cancellationToken)
     {
         EnsureTraceIdentifier(request);
-        using var activity = ActivitySource.StartActivity("Elsie.Dispatch", ActivityKind.Server);
-        activity?.SetTag("http.method", request.Method);
-        activity?.SetTag("http.route", request.Path);
-        activity?.SetTag("elsie.trace_id", request.TraceIdentifier);
+
+        ActivityContext parentContext = default;
+        var hasParent = false;
+        var traceparent = request.GetHeader("traceparent");
+        if (!string.IsNullOrWhiteSpace(traceparent))
+        {
+            var tracestate = request.GetHeader("tracestate");
+            hasParent = ActivityContext.TryParse(traceparent, tracestate, out parentContext);
+        }
+
+        using var activity = hasParent
+            ? ActivitySource.StartActivity("Elsie.Dispatch", ActivityKind.Server, parentContext)
+            : ActivitySource.StartActivity("Elsie.Dispatch", ActivityKind.Server);
+
+        if (activity is not null)
+        {
+            activity.SetTag("http.method", request.Method);
+            activity.SetTag("http.route", request.Path);
+            activity.SetTag("elsie.trace_id", activity.TraceId.ToString());
+            // Align request id with W3C when activity is parented/created.
+            if (hasParent || string.IsNullOrWhiteSpace(request.TraceIdentifier))
+            {
+                request.TraceIdentifier = activity.TraceId.ToString();
+            }
+        }
+
+        var start = Stopwatch.GetTimestamp();
+        ElsieMetrics.ActiveRequests.Add(1);
+        if (request.ContentLength is > 0)
+        {
+            ElsieMetrics.RequestBytesRead.Add(request.ContentLength.Value);
+        }
 
         ElsieHttpResponse response;
         try
         {
             response = await ProcessCoreAsync(request, cancellationToken).ConfigureAwait(false);
         }
-        catch
+        catch (Exception ex)
         {
             ElsieMetrics.RequestsTotal.Add(1, new KeyValuePair<string, object?>("status", 500));
+            var elapsedMs = Stopwatch.GetElapsedTime(start).TotalMilliseconds;
+            ElsieMetrics.RequestDuration.Record(
+                elapsedMs,
+                new KeyValuePair<string, object?>("method", request.Method),
+                new KeyValuePair<string, object?>("status", 500),
+                new KeyValuePair<string, object?>("route", request.Path));
+            if (_logRequests)
+            {
+                _logger.LogError(
+                    ex,
+                    "Unhandled exception {Method} {Path} trace={TraceId} client={Client}",
+                    request.Method,
+                    request.Path,
+                    request.TraceIdentifier,
+                    request.RemoteIp);
+            }
+
+            ElsieMetrics.ActiveRequests.Add(-1);
             throw;
         }
 
+        var durationMs = Stopwatch.GetElapsedTime(start).TotalMilliseconds;
+        ElsieMetrics.ActiveRequests.Add(-1);
         ElsieMetrics.RequestsTotal.Add(1, new KeyValuePair<string, object?>("status", response.StatusCode));
+        ElsieMetrics.RequestDuration.Record(
+            durationMs,
+            new KeyValuePair<string, object?>("method", request.Method),
+            new KeyValuePair<string, object?>("status", response.StatusCode),
+            new KeyValuePair<string, object?>("route", request.Path));
+
+        if (response.Body is { Length: var bodyLen } && bodyLen > 0)
+        {
+            ElsieMetrics.ResponseBytesWritten.Add(bodyLen);
+        }
+
         activity?.SetTag("http.status_code", response.StatusCode);
 
         if (!string.IsNullOrEmpty(request.TraceIdentifier) &&
@@ -59,9 +126,38 @@ internal sealed class HostDispatch
             response.Headers.Set("X-Request-Id", request.TraceIdentifier!);
         }
 
+        if (activity is not null)
+        {
+            // W3C response propagation
+            if (!response.Headers.Contains("traceparent"))
+            {
+                response.Headers.Set(
+                    "traceparent",
+                    $"00-{activity.TraceId}-{activity.SpanId}-{(activity.Recorded ? "01" : "00")}");
+            }
+
+            if (!string.IsNullOrEmpty(activity.TraceStateString) &&
+                !response.Headers.Contains("tracestate"))
+            {
+                response.Headers.Set("tracestate", activity.TraceStateString);
+            }
+        }
+
         if (_serverOptions.EnableResponseCompression)
         {
             response = ResponseCompression.MaybeCompress(request, response, _serverOptions.CompressionMinBodyBytes);
+        }
+
+        if (_logRequests)
+        {
+            _logger.LogInformation(
+                "{Method} {Path} {StatusCode} {DurationMs}ms trace={TraceId} client={Client}",
+                request.Method,
+                request.Path,
+                response.StatusCode,
+                (long)durationMs,
+                request.TraceIdentifier,
+                request.RemoteIp);
         }
 
         return response;

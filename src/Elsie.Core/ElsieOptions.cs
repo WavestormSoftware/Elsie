@@ -1,4 +1,6 @@
+using System.Net;
 using System.Reflection;
+using System.Text;
 using System.Text.Json;
 
 namespace Elsie;
@@ -41,14 +43,47 @@ public sealed class ElsieOptions
     public JsonSerializerOptions JsonSerializerOptions { get; set; } = new(JsonSerializerDefaults.Web);
 
     /// <summary>
+    /// When true, the default exception handler returns an HTML page with exception type/message/stack
+    /// (escaped). Keep false in production. Host Generic-Host integration enables this in Development.
+    /// </summary>
+    public bool ShowExceptionDetails { get; set; }
+
+    /// <summary>
     /// Handler for exceptions thrown by before hooks, handlers, or after hooks
     /// after typed <see cref="MapException{TException}(Func{ElsieContext, TException, ElsieResult})"/> maps and module <c>OnError</c>.
     /// Defaults to a safe 500 problem without exception detail. Set to <c>null</c> to rethrow to the host pipeline.
     /// </summary>
-    public ElsieExceptionHandler? ExceptionHandler { get; set; } = DefaultExceptionHandler;
+    public ElsieExceptionHandler? ExceptionHandler { get; set; }
 
-    private static Task<ElsieResult> DefaultExceptionHandler(ElsieContext ctx, Exception ex, CancellationToken ct)
-        => Task.FromResult(ctx.Problem(500, "Internal Server Error"));
+    /// <summary>Creates options with the built-in default exception handler.</summary>
+    public ElsieOptions()
+    {
+        ExceptionHandler = DefaultExceptionHandler;
+    }
+
+    private Task<ElsieResult> DefaultExceptionHandler(ElsieContext ctx, Exception ex, CancellationToken ct)
+    {
+        if (!ShowExceptionDetails)
+        {
+            return Task.FromResult(ctx.Problem(500, "Internal Server Error"));
+        }
+
+        var sb = new StringBuilder();
+        sb.Append("<!DOCTYPE html><html><head><meta charset=\"utf-8\"/><title>Server Error</title>");
+        sb.Append("<style>body{font-family:ui-monospace,monospace;margin:2rem;background:#1e1e1e;color:#f3f3f3}");
+        sb.Append("h1{color:#f14c4c}pre{white-space:pre-wrap;background:#111;padding:1rem;border-radius:6px}</style></head><body>");
+        sb.Append("<h1>Unhandled exception</h1>");
+        sb.Append("<p><strong>").Append(WebUtility.HtmlEncode(ex.GetType().FullName)).Append("</strong></p>");
+        sb.Append("<p>").Append(WebUtility.HtmlEncode(ex.Message)).Append("</p>");
+        if (!string.IsNullOrEmpty(ctx.Request.TraceIdentifier))
+        {
+            sb.Append("<p>traceId: ").Append(WebUtility.HtmlEncode(ctx.Request.TraceIdentifier)).Append("</p>");
+        }
+
+        sb.Append("<pre>").Append(WebUtility.HtmlEncode(ex.ToString())).Append("</pre>");
+        sb.Append("</body></html>");
+        return Task.FromResult(ElsieResult.Html(sb.ToString(), statusCode: 500));
+    }
 
     /// <summary>
     /// When true (default), a HEAD request that has no explicit HEAD route falls back to a matching GET handler.

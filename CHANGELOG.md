@@ -17,6 +17,9 @@ Elsie is **unreleased** software; prereleases may include breaking API changes.
 - `ElsieMetrics` meter version string bumped to `0.4.0`.
 
 ### Added
+- Generic Host integration: `HostApplicationBuilder.UseElsie`, `AddElsieApp`, `ElsieApp.HostedService<T>`, config `Elsie:Urls` / `Elsie` section bind
+- Structured request logging (`Elsie.Request`), W3C `traceparent` propagation, expanded `ElsieMetrics` (duration histogram, active requests, body sizes, websockets)
+- `ElsieOptions.ShowExceptionDetails` (dev HTML exception page; auto-on in Generic Host Development)
 - OIDC PKCE helpers (`CreateCodeVerifier` / `CreateCodeChallenge`) + `code_challenge` / `code_verifier` on authorize/token exchange.
 
 ### Fixed

@@ -2,20 +2,23 @@ using System.Collections.Concurrent;
 using System.Net;
 using System.Net.Sockets;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 
 namespace Elsie.Web.Hosting;
 
-internal sealed class ElsieServer : IAsyncDisposable
+internal sealed class ElsieServer : IHostedService, IAsyncDisposable
 {
-    private readonly ServiceProvider _services;
+    private readonly IServiceProvider _services;
+    private readonly bool _ownsServices;
     private readonly ElsieDispatcher _dispatcher;
     private readonly ElsieServerFeatures _features;
     private readonly IReadOnlyList<ElsieListenOptions> _endpoints;
     private readonly ElsieServerOptions _serverOptions;
     private readonly Action<string>? _log;
     private readonly ILogger _logger;
+    private readonly ILoggerFactory _loggerFactory;
     private readonly List<TcpListener> _listeners = new();
     private readonly CancellationTokenSource _cts = new();
     private readonly List<Task> _acceptLoops = new();
@@ -24,21 +27,24 @@ internal sealed class ElsieServer : IAsyncDisposable
     private int _started;
 
     public ElsieServer(
-        ServiceProvider services,
+        IServiceProvider services,
         ElsieDispatcher dispatcher,
         ElsieServerFeatures features,
         IReadOnlyList<ElsieListenOptions> endpoints,
         ElsieServerOptions serverOptions,
         Action<string>? log,
-        ILoggerFactory? loggerFactory = null)
+        ILoggerFactory? loggerFactory = null,
+        bool ownsServices = true)
     {
         _services = services;
+        _ownsServices = ownsServices;
         _dispatcher = dispatcher;
         _features = features;
         _endpoints = endpoints;
         _serverOptions = serverOptions ?? new ElsieServerOptions();
         _log = log;
-        _logger = (loggerFactory ?? NullLoggerFactory.Instance).CreateLogger("Elsie.Server");
+        _loggerFactory = loggerFactory ?? NullLoggerFactory.Instance;
+        _logger = _loggerFactory.CreateLogger("Elsie.Server");
         var max = Math.Max(1, _serverOptions.MaxConcurrentConnections);
         _connectionSlots = new SemaphoreSlim(max, max);
     }
@@ -157,12 +163,22 @@ internal sealed class ElsieServer : IAsyncDisposable
         }
     }
 
+    // IHostedService.StopAsync ignores the token — drain uses ConnectionDrainTimeout.
+    Task IHostedService.StopAsync(CancellationToken cancellationToken) => StopAsync();
+
     public async ValueTask DisposeAsync()
     {
         await StopAsync().ConfigureAwait(false);
         _cts.Dispose();
         _connectionSlots.Dispose();
-        await _services.DisposeAsync().ConfigureAwait(false);
+        if (_ownsServices && _services is IAsyncDisposable asyncDisp)
+        {
+            await asyncDisp.DisposeAsync().ConfigureAwait(false);
+        }
+        else if (_ownsServices && _services is IDisposable disp)
+        {
+            disp.Dispose();
+        }
     }
 
     private async Task AcceptLoopAsync(TcpListener listener, ElsieListenOptions options, CancellationToken ct)
@@ -217,7 +233,8 @@ internal sealed class ElsieServer : IAsyncDisposable
                 options,
                 _serverOptions,
                 _log,
-                _logger);
+                _logger,
+                _loggerFactory);
 
             var id = Guid.NewGuid();
             var connectionCts = CancellationTokenSource.CreateLinkedTokenSource(ct);

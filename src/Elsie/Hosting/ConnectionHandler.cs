@@ -13,23 +13,25 @@ namespace Elsie.Web.Hosting;
 
 internal sealed class ConnectionHandler
 {
-    private readonly ServiceProvider _services;
+    private readonly IServiceProvider _services;
     private readonly ElsieDispatcher _dispatcher;
     private readonly ElsieServerFeatures _features;
     private readonly ElsieListenOptions _listen;
     private readonly ElsieServerOptions _serverOptions;
     private readonly Action<string>? _log;
     private readonly ILogger _logger;
+    private readonly ILoggerFactory _loggerFactory;
     private readonly HostDispatch _dispatch;
 
     public ConnectionHandler(
-        ServiceProvider services,
+        IServiceProvider services,
         ElsieDispatcher dispatcher,
         ElsieServerFeatures features,
         ElsieListenOptions listen,
         ElsieServerOptions serverOptions,
         Action<string>? log,
-        ILogger? logger = null)
+        ILogger? logger = null,
+        ILoggerFactory? loggerFactory = null)
     {
         _services = services;
         _dispatcher = dispatcher;
@@ -37,8 +39,9 @@ internal sealed class ConnectionHandler
         _listen = listen;
         _serverOptions = serverOptions ?? new ElsieServerOptions();
         _log = log;
-        _logger = logger ?? NullLogger.Instance;
-        _dispatch = new HostDispatch(services, dispatcher, features, _serverOptions);
+        _loggerFactory = loggerFactory ?? NullLoggerFactory.Instance;
+        _logger = logger ?? _loggerFactory.CreateLogger("Elsie.Connection");
+        _dispatch = new HostDispatch(services, dispatcher, features, _serverOptions, _loggerFactory);
     }
 
     public async Task RunAsync(Socket socket, CancellationToken cancellationToken)
@@ -260,6 +263,7 @@ internal sealed class ConnectionHandler
                     _log?.Invoke($"{parsed.Method} {parsed.Path} → 101 {Stopwatch.GetElapsedTime(start).TotalMilliseconds:0}ms");
                     await parsed.Body.DisposeAsync().ConfigureAwait(false);
 
+                    ElsieMetrics.WebSocketConnections.Add(1);
                     await using var ws = new ElsieWebSocket(stream, leaveOpen: true);
                     try
                     {
