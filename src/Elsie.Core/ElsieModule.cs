@@ -1,5 +1,4 @@
 using Elsie.Middleware;
-using Elsie.Pipelines;
 using Elsie.Routing;
 
 namespace Elsie;
@@ -25,6 +24,13 @@ public abstract class ElsieModule
         Middleware.Use(middleware);
     }
 
+    /// <summary>Add a middleware instance directly (shared across requests), scoped to this module's routes.</summary>
+    protected void Use(IElsieMiddleware middleware)
+    {
+        ArgumentNullException.ThrowIfNull(middleware);
+        Middleware.Use(middleware);
+    }
+
     /// <summary>Add a DI-resolved middleware component scoped to this module's routes.</summary>
     protected void Use<TMiddleware>()
         where TMiddleware : class, IElsieMiddleware
@@ -37,13 +43,6 @@ public abstract class ElsieModule
     {
         ArgumentNullException.ThrowIfNull(gate);
         Middleware.Use(gate);
-    }
-
-    /// <summary>Add an async before-hook style gate scoped to this module's routes.</summary>
-    protected void Use(Pipelines.ElsieBeforeDelegate asyncGate)
-    {
-        ArgumentNullException.ThrowIfNull(asyncGate);
-        Middleware.Use(asyncGate);
     }
 
     /// <summary>Add an after-hook style transform scoped to this module's routes.</summary>

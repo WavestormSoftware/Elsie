@@ -17,7 +17,6 @@ public sealed class ElsieServerCallContext : ServerCallContext
     private readonly CancellationToken _cancellationToken;
     private readonly Metadata _requestHeaders;
     private readonly Metadata _responseTrailers = [];
-    private readonly bool _writeResponseHeaders;
     private readonly DateTime _deadline;
     private Status _status = Status.DefaultSuccess;
     private WriteOptions? _writeOptions;
@@ -30,7 +29,6 @@ public sealed class ElsieServerCallContext : ServerCallContext
     {
         _context = context ?? throw new ArgumentNullException(nameof(context));
         _fullMethodName = method;
-        _writeResponseHeaders = options.WriteResponseHeaders;
         _requestHeaders = MetadataFromHeaders(context.Request.Headers);
 
         var timeoutHeader = context.Request.GetHeader("grpc-timeout");
@@ -50,10 +48,6 @@ public sealed class ElsieServerCallContext : ServerCallContext
         _deadline != DateTime.MaxValue && DateTime.UtcNow >= _deadline;
 
     private readonly string _fullMethodName;
-
-    internal string FullMethodName => _fullMethodName;
-
-    internal string? PeerName => PeerCore;
 
     /// <inheritdoc />
     protected override string MethodCore => _fullMethodName;
@@ -101,7 +95,7 @@ public sealed class ElsieServerCallContext : ServerCallContext
     /// <inheritdoc />
     protected override Task WriteResponseHeadersAsyncCore(Metadata responseHeaders)
     {
-        if (_writeResponseHeaders && responseHeaders is not null)
+        if (responseHeaders is not null)
         {
             foreach (var entry in responseHeaders)
             {
@@ -177,7 +171,9 @@ public sealed class ElsieServerCallContext : ServerCallContext
         return metadata;
     }
 
-    /// <summary>Parses a gRPC timeout header value (e.g. "500m", "1S", "2H").</summary>
+    /// <summary>Parses a gRPC timeout header value (e.g. "500m", "1S", "2H").
+    /// The gRPC spec allows exactly 1–8 digits followed by a unit; spans outside that range
+    /// are invalid (deadline ignored) and overflow is impossible for the accepted range.</summary>
     internal static bool TryParseTimeout(string? value, out TimeSpan timeout)
     {
         timeout = TimeSpan.Zero;
@@ -186,8 +182,16 @@ public sealed class ElsieServerCallContext : ServerCallContext
             return false;
         }
 
+        var digits = value.AsSpan(0, value.Length - 1);
+        // gRPC spec (grpc-timeout): TimeoutValue is 1–8 digits — anything else is invalid.
+        // Bounding the digit count also bounds the largest TimeSpan below the overflow limit.
+        if ((uint)digits.Length > 8u)
+        {
+            return false;
+        }
+
         var unit = value[^1];
-        if (!long.TryParse(value.AsSpan(0, value.Length - 1), NumberStyles.None, CultureInfo.InvariantCulture, out var amount) ||
+        if (!long.TryParse(digits, NumberStyles.None, CultureInfo.InvariantCulture, out var amount) ||
             amount <= 0)
         {
             return false;

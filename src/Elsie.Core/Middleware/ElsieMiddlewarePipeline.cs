@@ -12,8 +12,7 @@ public sealed class ElsieMiddlewarePipeline
 {
     private readonly List<Func<IServiceProvider, IElsieMiddleware>> _components = [];
 
-    /// <summary>Number of registered components.</summary>
-    public int Count => _components.Count;
+    internal int Count => _components.Count;
 
     /// <summary>
     /// Register an inline middleware delegate.
@@ -46,29 +45,6 @@ public sealed class ElsieMiddlewarePipeline
         return Use(async (ctx, next) =>
         {
             var result = gate(ctx);
-            if (result is not null)
-            {
-                ctx.Result = result;
-                return;
-            }
-
-            await next(ctx);
-        });
-    }
-
-    /// <summary>
-    /// Register an async before-hook style gate (e.g. <c>ElsieAntiforgeryService.RequireAntiforgery()</c>,
-    /// or any <see cref="Elsie.Pipelines.ElsieBeforeDelegate"/>).
-    /// Non-null result short-circuits; null continues the pipeline.
-    /// Cancellation uses the dispatcher's linked token (<see cref="ElsieContext.DispatchCancellationToken"/>),
-    /// consistent with the rest of the pipeline.
-    /// </summary>
-    public ElsieMiddlewarePipeline Use(Elsie.Pipelines.ElsieBeforeDelegate asyncGate)
-    {
-        ArgumentNullException.ThrowIfNull(asyncGate);
-        return Use(async (ctx, next) =>
-        {
-            var result = await asyncGate(ctx, ctx.DispatchCancellationToken);
             if (result is not null)
             {
                 ctx.Result = result;

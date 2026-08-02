@@ -45,8 +45,10 @@ The proto file is compiled at build time by `Grpc.Tools` (`GrpcServices="Server"
 - **`grpc-status` / `grpc-message` trailers** via the HTTP/2 and HTTP/3 trailing-HEADERS channel
   (added during response streaming, so streaming status is accurate).
 - **`application/grpc` content-type gate** — anything else gets a 415.
-- **gRPC ↔ HTTP status mapping** — route misses (404) map to `UNIMPLEMENTED`; handler
-  `RpcException`s carry their gRPC status; deadline expiries map to `DEADLINE_EXCEEDED`.
+- **gRPC ↔ HTTP status mapping** — unknown gRPC methods hit the plain route table and get a
+  plain HTTP 404 (no gRPC-status trailer); Grpc.Net.Client maps that 404 to `UNIMPLEMENTED`
+  client-side. Handler `RpcException`s carry their gRPC status; deadline expiries map to
+  `DEADLINE_EXCEEDED`.
 - **Cancellation** — `grpc-timeout` and client disconnects cancel the handler via
   `ServerCallContext.CancellationToken`.
 - **Reflection-lite** — `grpc.reflection.v1alpha.ServerReflection` so `grpcurl` can

@@ -1,10 +1,12 @@
 using System.Net;
 using System.Net.Http;
+using System.Net.Http.Headers;
 using System.Net.Quic;
 using System.Security.Cryptography;
 using System.Security.Cryptography.X509Certificates;
 using Elsie.Test;
 using Elsie.Web;
+using Google.Protobuf;
 using Google.Protobuf.Reflection;
 using Grpc.Core;
 using Grpc.Net.Client;
@@ -352,6 +354,62 @@ public class ElsieGrpcTests
         await call.RequestStream.CompleteAsync();
         var response = await call.ResponseAsync;
         Assert.Equal("count:4:last:m3", response.Message);
+    }
+
+    [Fact]
+    public async Task Huge_grpc_timeout_value_is_ignored_not_500()
+    {
+        // Regression: a 17-digit grpc-timeout used to overflow TimeSpan inside the call-context
+        // ctor (client-sendable 500). Per the gRPC spec the value is 1–8 digits, so it must be
+        // rejected and the deadline ignored.
+        var (_, server, port, dispose) = await StartServerAsync();
+        await using var d = AsyncDisposable.Create(dispose);
+
+        using var handler = new HttpClientHandler
+        {
+            ServerCertificateCustomValidationCallback = static (_, _, _, _) => true
+        };
+        using var http = new HttpClient(handler);
+        var message = new EchoRequest { Message = "t" }.ToByteArray();
+        var payload = new byte[5 + message.Length];
+        payload[1] = (byte)(message.Length >> 24);
+        payload[2] = (byte)(message.Length >> 16);
+        payload[3] = (byte)(message.Length >> 8);
+        payload[4] = (byte)message.Length;
+        message.CopyTo(payload, 5);
+
+        using var req = new HttpRequestMessage(HttpMethod.Post, $"https://127.0.0.1:{port}/elsie.test.Echo/Unary")
+        {
+            Content = new ByteArrayContent(payload),
+            Version = HttpVersion.Version20,
+            VersionPolicy = HttpVersionPolicy.RequestVersionExact
+        };
+        req.Content.Headers.ContentType = new MediaTypeHeaderValue("application/grpc");
+        req.Headers.TryAddWithoutValidation("te", "trailers");
+        req.Headers.TryAddWithoutValidation("grpc-timeout", "99999999999999999S");
+
+        using var response = await http.SendAsync(req);
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+    }
+
+    [Theory]
+    [InlineData("99999999999999999S", false)] // 17 digits — invalid per gRPC spec, must not throw
+    [InlineData("100000000S", false)]         // 9 digits — outside the 1–8 digit span
+    [InlineData("12345678S", true)]           // 8 digits — valid maximum
+    [InlineData("1S", true)]
+    [InlineData("500m", true)]
+    [InlineData("2H", true)]
+    [InlineData("0S", false)]                 // zero amount — invalid
+    [InlineData("S", false)]                  // no digits — invalid
+    [InlineData("", false)]
+    public void TryParseTimeout_enforces_grpc_digit_range(string value, bool expected)
+    {
+        var ok = ElsieServerCallContext.TryParseTimeout(value, out var timeout);
+        Assert.Equal(expected, ok);
+        if (expected)
+        {
+            Assert.True(timeout > TimeSpan.Zero);
+        }
     }
 
     [Fact]

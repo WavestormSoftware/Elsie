@@ -14,8 +14,4 @@ public sealed class ElsieGrpcOptions
     /// tools like grpcurl can discover registered services.
     /// </summary>
     public bool EnableReflection { get; set; } = true;
-
-    /// <summary>Whether WriteResponseHeadersAsync
-    /// actually adds headers to the HTTP response (default true).</summary>
-    public bool WriteResponseHeaders { get; set; } = true;
 }

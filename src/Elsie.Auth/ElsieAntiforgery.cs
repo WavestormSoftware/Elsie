@@ -1,6 +1,6 @@
 using System.Security.Cryptography;
 using System.Text;
-using Elsie.Pipelines;
+using Elsie.Middleware;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 
@@ -114,26 +114,36 @@ public sealed class ElsieAntiforgeryService
         return !string.IsNullOrEmpty(field) && FixedTimeEquals(field, cookie);
     }
 
-    /// <summary>Forbidden when mutating method lacks valid CSRF token (header or form field).</summary>
-    public static ElsieBeforeDelegate RequireAntiforgery()
+    /// <summary>
+    /// Returns an <see cref="IElsieMiddleware"/> that forbids (403) mutating requests without
+    /// a valid CSRF token (header or form field) and lets safe methods through. Register with
+    /// <c>app.Use(...)</c> / <c>Module.Use(...)</c>.
+    /// </summary>
+    public static IElsieMiddleware RequireAntiforgery() => new AntiforgeryGate();
+
+    private sealed class AntiforgeryGate : IElsieMiddleware
     {
-        return async (ctx, ct) =>
+        public async Task InvokeAsync(ElsieContext ctx, ElsieMiddlewareDelegate next)
         {
-            if (IsSafe(ctx.Request.Method))
+            ArgumentNullException.ThrowIfNull(ctx);
+            if (!IsSafe(ctx.Request.Method))
             {
-                return null;
+                var svc = ctx.GetService<ElsieAntiforgeryService>();
+                if (svc is null)
+                {
+                    ctx.Result = ElsieResult.Problem(500, "Misconfigured", "Antiforgery is not registered.");
+                    return;
+                }
+
+                if (!await svc.IsValidAsync(ctx, ctx.RequestAborted).ConfigureAwait(false))
+                {
+                    ctx.Result = ElsieResult.Forbidden("Antiforgery token missing or invalid.");
+                    return;
+                }
             }
 
-            var svc = ctx.GetService<ElsieAntiforgeryService>();
-            if (svc is null)
-            {
-                return ElsieResult.Problem(500, "Misconfigured", "Antiforgery is not registered.");
-            }
-
-            return await svc.IsValidAsync(ctx, ct).ConfigureAwait(false)
-                ? null
-                : ElsieResult.Forbidden("Antiforgery token missing or invalid.");
-        };
+            await next(ctx);
+        }
     }
 
     private string CreateToken()
