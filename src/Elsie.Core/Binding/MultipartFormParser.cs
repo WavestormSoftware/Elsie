@@ -5,9 +5,16 @@ namespace Elsie.Binding;
 /// <summary>Minimal multipart/form-data parser for field values and file parts.</summary>
 internal static class MultipartFormParser
 {
+    public const long DefaultMemoryThresholdBytes = 1L * 1024 * 1024;
+
     public static Dictionary<string, IReadOnlyList<string>> ParseFields(byte[] body, string contentType)
     {
-        var parsed = Parse(body, contentType, maxFileBytes: long.MaxValue, maxFiles: int.MaxValue);
+        var parsed = Parse(
+            body,
+            contentType,
+            maxFileBytes: long.MaxValue,
+            maxFiles: int.MaxValue,
+            memoryThresholdBytes: long.MaxValue);
         // Dispose file buffers — caller only wanted fields
         foreach (var f in parsed.Files)
         {
@@ -21,10 +28,42 @@ internal static class MultipartFormParser
         byte[] body,
         string contentType,
         long maxFileBytes,
-        int maxFiles)
+        int maxFiles,
+        long memoryThresholdBytes = DefaultMemoryThresholdBytes) =>
+        ParseCore(body, contentType, maxFileBytes, maxFiles, memoryThresholdBytes);
+
+    /// <summary>
+    /// Read <paramref name="stream"/> to memory (caller should wrap with a size limit) then parse.
+    /// Large file parts spill to temp files per <paramref name="memoryThresholdBytes"/>.
+    /// </summary>
+    public static async Task<ElsieFormCollection> ParseAsync(
+        Stream stream,
+        string contentType,
+        long maxFileBytes,
+        int maxFiles,
+        long memoryThresholdBytes = DefaultMemoryThresholdBytes,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(stream);
+        await using var ms = new MemoryStream();
+        await stream.CopyToAsync(ms, cancellationToken).ConfigureAwait(false);
+        return ParseCore(ms.ToArray(), contentType, maxFileBytes, maxFiles, memoryThresholdBytes);
+    }
+
+    private static ElsieFormCollection ParseCore(
+        byte[] body,
+        string contentType,
+        long maxFileBytes,
+        int maxFiles,
+        long memoryThresholdBytes)
     {
         var boundary = ExtractBoundary(contentType)
             ?? throw new InvalidOperationException("multipart Content-Type is missing boundary.");
+
+        if (memoryThresholdBytes <= 0)
+        {
+            memoryThresholdBytes = DefaultMemoryThresholdBytes;
+        }
 
         var map = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
         var files = new List<ElsieFormFile>();
@@ -114,7 +153,7 @@ internal static class MultipartFormParser
                         $"Uploaded file '{fileName}' exceeds max size of {maxFileBytes} bytes.");
                 }
 
-                files.Add(new ElsieFormFile(name, fileName, partContentType, data.ToArray()));
+                files.Add(CreateFilePart(name, fileName, partContentType, data, memoryThresholdBytes));
                 continue;
             }
 
@@ -135,6 +174,52 @@ internal static class MultipartFormParser
         }
 
         return new ElsieFormCollection(fields, files);
+    }
+
+    private static ElsieFormFile CreateFilePart(
+        string name,
+        string fileName,
+        string? contentType,
+        ReadOnlySpan<byte> data,
+        long memoryThresholdBytes)
+    {
+        if (data.Length <= memoryThresholdBytes)
+        {
+            return new ElsieFormFile(name, fileName, contentType, data.ToArray());
+        }
+
+        var path = Path.Combine(Path.GetTempPath(), "elsie-upload-" + Guid.NewGuid().ToString("n") + ".part");
+        try
+        {
+            using (var fs = new FileStream(
+                       path,
+                       FileMode.CreateNew,
+                       FileAccess.Write,
+                       FileShare.None,
+                       bufferSize: 64 * 1024,
+                       options: FileOptions.SequentialScan))
+            {
+                fs.Write(data);
+            }
+
+            return ElsieFormFile.FromTempFile(name, fileName, contentType, path, data.Length);
+        }
+        catch
+        {
+            try
+            {
+                if (File.Exists(path))
+                {
+                    File.Delete(path);
+                }
+            }
+            catch
+            {
+                // ignore
+            }
+
+            throw;
+        }
     }
 
     private static string? ExtractBoundary(string contentType)

@@ -48,7 +48,8 @@ public sealed class ElsieDispatcher
             _routes,
             _options.MaxBindBodySize,
             _options.MaxFormFileBytes,
-            _options.MaxFormFiles);
+            _options.MaxFormFiles,
+            _options.MultipartMemoryThresholdBytes);
 
         CancellationToken ct;
         CancellationTokenSource? linked = null;

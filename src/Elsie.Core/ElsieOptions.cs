@@ -102,6 +102,12 @@ public sealed class ElsieOptions
     public int MaxFormFiles { get; set; } = 20;
 
     /// <summary>
+    /// Multipart file parts at or below this size stay in memory; larger parts spill to a temp file
+    /// (deleted when the <see cref="ElsieFormFile"/> / form collection is disposed). Default 1 MiB.
+    /// </summary>
+    public long MultipartMemoryThresholdBytes { get; set; } = 1L * 1024 * 1024;
+
+    /// <summary>
     /// Custom route constraints keyed by name (case-insensitive). Built-ins cannot be overwritten.
     /// Example: <c>options.RouteConstraints["slug"] = v =&gt; v.All(char.IsLetterOrDigit);</c>
     /// </summary>

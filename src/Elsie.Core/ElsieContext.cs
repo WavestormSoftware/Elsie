@@ -17,6 +17,7 @@ public sealed class ElsieContext
     private readonly long _maxBindBodySize;
     private readonly long _maxFormFileBytes;
     private readonly int _maxFormFiles;
+    private readonly long _multipartMemoryThresholdBytes;
 
     public ElsieContext(
         ElsieRequest request,
@@ -26,7 +27,8 @@ public sealed class ElsieContext
         RouteTable? routes = null,
         long maxBindBodySize = 4 * 1024 * 1024,
         long maxFormFileBytes = 20 * 1024 * 1024,
-        int maxFormFiles = 20)
+        int maxFormFiles = 20,
+        long multipartMemoryThresholdBytes = 1L * 1024 * 1024)
     {
         Request = request ?? throw new ArgumentNullException(nameof(request));
         Response = response ?? throw new ArgumentNullException(nameof(response));
@@ -36,6 +38,9 @@ public sealed class ElsieContext
         _maxBindBodySize = maxBindBodySize > 0 ? maxBindBodySize : 4 * 1024 * 1024;
         _maxFormFileBytes = maxFormFileBytes > 0 ? maxFormFileBytes : 20 * 1024 * 1024;
         _maxFormFiles = maxFormFiles > 0 ? maxFormFiles : 20;
+        _multipartMemoryThresholdBytes = multipartMemoryThresholdBytes > 0
+            ? multipartMemoryThresholdBytes
+            : 1L * 1024 * 1024;
     }
 
     public ElsieRequest Request { get; }
@@ -262,19 +267,23 @@ public sealed class ElsieContext
         var contentType = Request.ContentType ?? string.Empty;
         if (contentType.Contains("multipart/", StringComparison.OrdinalIgnoreCase))
         {
-            byte[] bytes;
             try
             {
-                bytes = await ReadBodyWithLimitAsync(cancellationToken).ConfigureAwait(false);
-            }
-            catch (InvalidOperationException ex)
-            {
-                return ElsieBindResult<ElsieFormCollection>.Fail(ElsieResult.BadRequest(ex.Message));
-            }
+                if (Request.ContentLength is { } declared && declared > _maxBindBodySize)
+                {
+                    throw new InvalidOperationException($"Body exceeds max size of {_maxBindBodySize} bytes.");
+                }
 
-            try
-            {
-                var form = MultipartFormParser.Parse(bytes, contentType, _maxFormFileBytes, _maxFormFiles);
+                // Stream parse: large file parts spill to temp files per MultipartMemoryThresholdBytes.
+                await using var limited = new SizeLimitedStream(Request.Body, _maxBindBodySize);
+                var form = await MultipartFormParser.ParseAsync(
+                        limited,
+                        contentType,
+                        _maxFormFileBytes,
+                        _maxFormFiles,
+                        _multipartMemoryThresholdBytes,
+                        cancellationToken)
+                    .ConfigureAwait(false);
                 return ElsieBindResult<ElsieFormCollection>.Success(form);
             }
             catch (InvalidOperationException ex)

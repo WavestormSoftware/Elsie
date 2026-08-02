@@ -58,6 +58,11 @@ await using var stream = file!.OpenReadStream();
 
 `ElsieFormFile` exposes `Name`, `FileName`, `ContentType`, `Length`, and stream access. Cap body size with `MaxRequestBodyBytes` / `MaxBindBodySize`.
 
+Multipart **file parts** at or below `ElsieOptions.MultipartMemoryThresholdBytes` (default **1 MiB**)
+stay in memory; larger parts spill to a temp file under `Path.GetTempPath()` and are deleted when the
+`ElsieFormFile` / `ElsieFormCollection` is disposed (`IAsyncDisposable` supported). Always dispose forms
+after use. Field parts remain in memory (bounded by `MaxBindBodySize`).
+
 ## Validation (optional package)
 
 ```bash
