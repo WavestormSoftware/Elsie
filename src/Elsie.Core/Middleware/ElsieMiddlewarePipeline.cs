@@ -49,6 +49,27 @@ public sealed class ElsieMiddlewarePipeline
     }
 
     /// <summary>
+    /// Register an async before-hook style gate (e.g. <c>ElsieAntiforgeryService.RequireAntiforgery()</c>,
+    /// or any <see cref="Elsie.Pipelines.ElsieBeforeDelegate"/>).
+    /// Non-null result short-circuits; null continues the pipeline.
+    /// </summary>
+    public ElsieMiddlewarePipeline Use(Elsie.Pipelines.ElsieBeforeDelegate asyncGate)
+    {
+        ArgumentNullException.ThrowIfNull(asyncGate);
+        return Use(async (ctx, next) =>
+        {
+            var result = await asyncGate(ctx, ctx.RequestAborted);
+            if (result is not null)
+            {
+                ctx.Result = result;
+                return;
+            }
+
+            await next(ctx);
+        });
+    }
+
+    /// <summary>
     /// Register an after-hook style transform: it runs on the way back out (after the rest of
     /// the pipeline produced a result) and may replace <see cref="ElsieContext.Result"/>.
     /// This is how <c>ElsieSecurityHeaders.DefaultAfter(...)</c> and

@@ -1,5 +1,6 @@
 using System.Text;
 using Elsie.Auth;
+using Elsie.Middleware;
 using Microsoft.Extensions.DependencyInjection;
 using Xunit;
 
@@ -7,6 +8,51 @@ namespace Elsie.Auth.Tests;
 
 public class AntiforgeryTests
 {
+    private sealed class AfModule : ElsieModule
+    {
+        public AfModule()
+        {
+            Post("/submit", () => ElsieResult.Text("ok"));
+        }
+    }
+
+    [Fact]
+    public async Task RequireAntiforgery_works_as_middleware()
+    {
+        var services = new ServiceCollection();
+        services.AddElsie(o => o.ScanEntryAssembly = false);
+        services.AddElsieAntiforgery(o => o.SigningKey = new byte[32]);
+        services.AddElsieModule<AfModule>();
+        await using var sp = services.BuildServiceProvider();
+
+        var pipeline = sp.GetRequiredService<ElsieMiddlewarePipeline>();
+        pipeline.Use(ElsieAntiforgeryService.RequireAntiforgery());
+        var dispatcher = sp.GetRequiredService<ElsieDispatcher>();
+
+        var svc = sp.GetRequiredService<ElsieAntiforgeryService>();
+        var issue = new ElsieContext(
+            new ElsieRequest("GET", "/", requestServices: sp),
+            new ElsieResponse(),
+            new Dictionary<string, string>());
+        var token = svc.GetAndStoreToken(issue);
+
+        // Valid double-submit (cookie + header) passes through to the handler.
+        var ok = await dispatcher.DispatchAsync(new ElsieRequest(
+            "POST",
+            "/submit",
+            headers: new Dictionary<string, string>
+            {
+                ["Cookie"] = $"elsie-csrf={Uri.EscapeDataString(token)}",
+                ["X-CSRF-TOKEN"] = token
+            },
+            requestServices: sp));
+        Assert.Equal(200, ok.Result!.StatusCode);
+
+        // Missing token → 403 short-circuit.
+        var denied = await dispatcher.DispatchAsync(new ElsieRequest("POST", "/submit", requestServices: sp));
+        Assert.Equal(403, denied.Result!.StatusCode);
+    }
+
     [Fact]
     public void Token_roundtrip_header_validates()
     {
