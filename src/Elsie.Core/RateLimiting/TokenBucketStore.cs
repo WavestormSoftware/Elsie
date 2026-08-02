@@ -45,6 +45,33 @@ internal sealed class TokenBucketStore : IRateLimitStore
         }
     }
 
+    public bool TryPeek(string key, out RateLimitCounters counters)
+    {
+        MaybeCleanup();
+        var now = _time.GetUtcNow();
+
+        if (!_partitions.TryGetValue(key, out var bucket))
+        {
+            counters = new RateLimitCounters((long)_capacity, (long)_capacity, now.ToUnixTimeSeconds());
+            return true;
+        }
+
+        lock (bucket.Gate)
+        {
+            Refill(bucket, now);
+            var remaining = (long)Math.Floor(bucket.Tokens);
+            var resetSeconds = now.ToUnixTimeSeconds();
+            if (remaining < 1)
+            {
+                var secondsToToken = (1d - bucket.Tokens) / _tokensPerSecond;
+                resetSeconds += (long)Math.Ceiling(secondsToToken);
+            }
+
+            counters = new RateLimitCounters((long)_capacity, Math.Max(0, remaining), resetSeconds);
+            return true;
+        }
+    }
+
     private void Refill(Bucket bucket, DateTimeOffset now)
     {
         if (bucket.LastRefill == DateTimeOffset.MinValue)

@@ -1,0 +1,8 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Elsie.Core\Elsie.Core.csproj" />
+    <ProjectReference Include="..\..\src\Elsie.Extensions.RateLimiting.Redis\Elsie.Extensions.RateLimiting.Redis.csproj" />
+    <ProjectReference Include="..\..\src\Elsie.Testing\Elsie.Testing.csproj" />
+    <PackageReference Include="Testcontainers" />
+  </ItemGroup>
+</Project>

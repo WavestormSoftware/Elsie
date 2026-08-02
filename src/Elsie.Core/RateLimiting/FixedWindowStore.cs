@@ -49,6 +49,34 @@ internal sealed class FixedWindowStore : IRateLimitStore
         }
     }
 
+    public bool TryPeek(string key, out RateLimitCounters counters)
+    {
+        MaybeCleanup();
+        var nowTicks = _time.GetUtcNow().UtcTicks;
+        var windowId = nowTicks / _windowTicks;
+        var windowEndTicks = (windowId + 1) * _windowTicks;
+        var reset = new DateTimeOffset(windowEndTicks, TimeSpan.Zero).ToUnixTimeSeconds();
+
+        if (!_partitions.TryGetValue(key, out var counter))
+        {
+            counters = new RateLimitCounters(_permitLimit, _permitLimit, reset);
+            return true;
+        }
+
+        lock (counter.Gate)
+        {
+            if (counter.WindowId != windowId)
+            {
+                counters = new RateLimitCounters(_permitLimit, _permitLimit, reset);
+                return true;
+            }
+
+            var remaining = Math.Max(0, _permitLimit - counter.Count);
+            counters = new RateLimitCounters(_permitLimit, remaining, reset);
+            return true;
+        }
+    }
+
     private void MaybeCleanup()
     {
         if (!RateLimitPartitioning.ShouldCleanup(ref _ops, _partitions.Count, _maxPartitions))

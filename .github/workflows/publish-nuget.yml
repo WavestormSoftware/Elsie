@@ -95,6 +95,7 @@ jobs:
             src/Elsie.Testing/Elsie.Testing.csproj
             src/Elsie.Views/Elsie.Views.csproj
             src/Elsie.Validation/Elsie.Validation.csproj
+            src/Elsie.Extensions.RateLimiting.Redis/Elsie.Extensions.RateLimiting.Redis.csproj
             templates/Elsie.Templates.csproj
           )
 
@@ -120,6 +121,7 @@ jobs:
             "Elsie.Testing.$version.nupkg"
             "Elsie.Views.$version.nupkg"
             "Elsie.Validation.$version.nupkg"
+            "Elsie.Extensions.RateLimiting.Redis.$version.nupkg"
             "Elsie.Templates.$version.nupkg"
           )
           missing=0

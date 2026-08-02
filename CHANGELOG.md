@@ -11,12 +11,16 @@ Elsie is **unreleased** software; prereleases may include breaking API changes.
 
 ### Breaking
 - Target framework is **net10.0 only** (net8.0 support dropped).
+- `IRateLimitStore` gained `TryPeek(string key, out RateLimitCounters counters)` (default impl throws `NotSupportedException`) — custom stores should implement it to opt into `X-RateLimit-*` headers.
 
 ### Changed
 - OIDC: `PrincipalFromIdToken` no longer accepts unvalidated id_tokens by default (`allowUnvalidated` opt-in); optional `expectedNonce` check; state/nonce are Base64Url.
 - `ElsieMetrics` meter version string bumped to `0.4.0`.
 
 ### Added
+- **Redis distributed rate limiting** — new package `Elsie.Extensions.RateLimiting.Redis`: `RedisFixedWindowStore` / `RedisSlidingWindowStore` / `RedisTokenBucketStore` (atomic Lua scripts), `RedisRateLimit.FixedWindow/SlidingWindow/TokenBucket` factories (shared multiplexer or connection-string), `RedisRateLimitOptions` (key prefix `elsie:rl:`, ~100 ms op timeout, fail-open default / optional fail-closed outage policy)
+- `RateLimitCounters` + `IRateLimitStore.TryPeek` and `ElsieRateLimitHeaders.Attach(store)` after-hook emitting `X-RateLimit-Limit` / `X-RateLimit-Remaining` / `X-RateLimit-Reset`
+- `Microsoft.Extensions.Logging.Abstractions` / `DependencyInjection.Abstractions` / `DependencyInjection` pins bumped to 10.0.5 (StackExchange.Redis 3.1.0 requires Logging.Abstractions ≥ 10.0.5)
 - Generic Host integration: `HostApplicationBuilder.UseElsie`, `AddElsieApp`, `ElsieApp.HostedService<T>`, config `Elsie:Urls` / `Elsie` section bind
 - Structured request logging (`Elsie.Request`), W3C `traceparent` propagation, expanded `ElsieMetrics` (duration histogram, active requests, body sizes, websockets)
 - `ElsieOptions.ShowExceptionDetails` (dev HTML exception page; auto-on in Generic Host Development)

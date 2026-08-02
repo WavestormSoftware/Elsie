@@ -49,6 +49,43 @@ internal sealed class SlidingWindowStore : IRateLimitStore
         }
     }
 
+    public bool TryPeek(string key, out RateLimitCounters counters)
+    {
+        MaybeCleanup();
+        var nowTicks = _time.GetUtcNow().UtcTicks;
+        var cutoff = nowTicks - _windowTicks;
+        var reset = new DateTimeOffset(nowTicks, TimeSpan.Zero).ToUnixTimeSeconds();
+
+        if (!_partitions.TryGetValue(key, out var partition))
+        {
+            counters = new RateLimitCounters(_permitLimit, _permitLimit, reset);
+            return true;
+        }
+
+        lock (partition.Gate)
+        {
+            while (partition.Timestamps.Count > 0 && partition.Timestamps.Peek() <= cutoff)
+            {
+                partition.Timestamps.Dequeue();
+            }
+
+            if (partition.Timestamps.Count == 0)
+            {
+                counters = new RateLimitCounters(_permitLimit, _permitLimit, reset);
+                return true;
+            }
+
+            var oldest = partition.Timestamps.Peek();
+            var remaining = Math.Max(0, _permitLimit - partition.Timestamps.Count);
+            var resetTicks = oldest + _windowTicks;
+            counters = new RateLimitCounters(
+                _permitLimit,
+                remaining,
+                new DateTimeOffset(resetTicks, TimeSpan.Zero).ToUnixTimeSeconds());
+            return true;
+        }
+    }
+
     private void MaybeCleanup()
     {
         if (!RateLimitPartitioning.ShouldCleanup(ref _ops, _partitions.Count, _maxPartitions))

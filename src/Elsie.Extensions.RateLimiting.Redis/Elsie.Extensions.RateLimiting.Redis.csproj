@@ -1,0 +1,19 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <Description>Redis-backed distributed rate limiting for Elsie: fixed window, sliding window, and token bucket via Lua scripts (StackExchange.Redis).</Description>
+    <RootNamespace>Elsie.Extensions.RateLimiting.Redis</RootNamespace>
+    <AssemblyName>Elsie.Extensions.RateLimiting.Redis</AssemblyName>
+    <PackageId>Elsie.Extensions.RateLimiting.Redis</PackageId>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\Elsie.Core\Elsie.Core.csproj" />
+    <PackageReference Include="StackExchange.Redis" />
+    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" />
+  </ItemGroup>
+  <ItemGroup>
+    <EmbeddedResource Include="Resources\*.lua" />
+  </ItemGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="Elsie.RateLimiting.Redis.Tests" />
+  </ItemGroup>
+</Project>
