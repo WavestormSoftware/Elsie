@@ -53,8 +53,8 @@ internal sealed class Http3Connection
         _connection = connection;
         _decoder = new QpackDecoder(
             _serverOptions.QpackMaxTableCapacity,
-            new QpackDecoderStream(connection));
-        _encoder = new QpackEncoder(new QpackEncoderStream(connection));
+            new QpackStream(connection, Http3UnidirectionalStreamType.QpackDecoder));
+        _encoder = new QpackEncoder(new QpackStream(connection, Http3UnidirectionalStreamType.QpackEncoder));
 
         // Server control stream (unidirectional): type + SETTINGS.
         try

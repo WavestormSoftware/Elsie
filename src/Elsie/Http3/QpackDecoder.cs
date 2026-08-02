@@ -43,7 +43,7 @@ internal sealed class QpackDecoder
 
     /// <summary>Creates a decoder. <paramref name="decoderStream"/> is null when capacity is 0
     /// (no decoder instructions are ever emitted).</summary>
-    public QpackDecoder(int maxCapacity, QpackDecoderStream? decoderStream)
+    public QpackDecoder(int maxCapacity, QpackStream? decoderStream)
     {
         _maxCapacity = Math.Max(0, maxCapacity);
         DecoderStream = decoderStream;
@@ -64,7 +64,7 @@ internal sealed class QpackDecoder
         }
     }
 
-    internal QpackDecoderStream? DecoderStream { get; }
+    internal QpackStream? DecoderStream { get; }
 
     /// <summary>
     /// Waits until the decoder has processed at least <paramref name="required"/> inserts

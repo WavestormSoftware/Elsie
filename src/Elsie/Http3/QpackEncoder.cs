@@ -22,7 +22,7 @@ internal sealed class QpackEncoder
     private readonly List<byte> _pendingInstructions = [];
     private readonly List<byte> _pendingIncoming = [];  // partial client decoder-stream bytes
     private readonly Dictionary<long, List<QpackTableEntry>> _streamRefs = [];
-    private readonly QpackEncoderStream? _encoderStream;
+    private readonly QpackStream? _encoderStream;
     private int _tableSize;
     private int _capacity;
     private long _insertCount;
@@ -31,7 +31,7 @@ internal sealed class QpackEncoder
 
     /// <summary>Creates an encoder. <paramref name="encoderStream"/> may be null — the encoder
     /// then never emits instructions (peer capacity stays 0).</summary>
-    public QpackEncoder(QpackEncoderStream? encoderStream)
+    public QpackEncoder(QpackStream? encoderStream)
     {
         _encoderStream = encoderStream;
     }

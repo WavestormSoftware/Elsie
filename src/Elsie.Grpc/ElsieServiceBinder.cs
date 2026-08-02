@@ -1,5 +1,3 @@
-using System.Buffers;
-using System.Globalization;
 using Elsie;
 using Grpc.Core;
 
@@ -32,6 +30,7 @@ public sealed class ElsieServiceBinder : ServiceBinderBase
     internal IReadOnlyList<ElsieGrpcMethod> Methods => _methods;
 
     internal void Add(ElsieGrpcMethod method) => _methods.Add(method);
+
     /// <inheritdoc />
     public override void AddMethod<TRequest, TResponse>(
         Method<TRequest, TResponse> method,
@@ -41,62 +40,30 @@ public sealed class ElsieServiceBinder : ServiceBinderBase
     {
         ArgumentNullException.ThrowIfNull(method);
         ArgumentNullException.ThrowIfNull(handler);
-        _methods.Add(new ElsieGrpcMethod
+        Add(method, async (ctx, requestBody, responseBody, options) =>
         {
-            FullName = method.FullName,
-            MethodType = method.Type,
-            Serialize = o => GrpcMarshaller.Serialize(method.ResponseMarshaller, (TResponse)o),
-            Deserialize = b => GrpcMarshaller.Deserialize(method.RequestMarshaller, b),
-            InvokeAsync = async (ctx, requestBody, responseBody, options) =>
+            var requestBytes = await GrpcFraming.ReadMessageAsync(
+                requestBody, options.MaxReceiveMessageSize, ctx.CancellationToken).ConfigureAwait(false);
+            if (requestBytes is null)
             {
-                try
-                {
-                    var requestBytes = await GrpcFraming.ReadMessageAsync(
-                        requestBody, options.MaxReceiveMessageSize, ctx.CancellationToken).ConfigureAwait(false);
-                    if (requestBytes is null)
-                    {
-                        return new Status(StatusCode.InvalidArgument, "Missing request message.");
-                    }
-
-                    var request = GrpcMarshaller.Deserialize(method.RequestMarshaller, requestBytes);
-                    var response = await handler(request, ctx).ConfigureAwait(false);
-                    if (response is null)
-                    {
-                        return new Status(StatusCode.Internal, "Handler returned a null response message.");
-                    }
-
-                    var payload = GrpcMarshaller.Serialize(method.ResponseMarshaller, response);
-                    if (payload.Length > options.MaxSendMessageSize)
-                    {
-                        return new Status(StatusCode.ResourceExhausted,
-                            $"Response message of {payload.Length} bytes exceeds the {options.MaxSendMessageSize}-byte limit.");
-                    }
-
-                    await GrpcFraming.WriteMessageAsync(responseBody, payload, ctx.CancellationToken)
-                        .ConfigureAwait(false);
-                    return ctx.Status;
-                }
-                catch (RpcException ex)
-                {
-                    return ex.Status;
-                }
-                catch (OperationCanceledException) when (ctx.IsDeadlineExceeded)
-                {
-                    return new Status(StatusCode.DeadlineExceeded, "Deadline exceeded.");
-                }
-                catch (OperationCanceledException)
-                {
-                    return new Status(StatusCode.Cancelled, "Call cancelled.");
-                }
-                catch (GrpcFrameException ex)
-                {
-                    return new Status(StatusCode.ResourceExhausted, ex.Message);
-                }
-                catch (Exception ex)
-                {
-                    return new Status(StatusCode.Internal, ex.Message);
-                }
+                throw new RpcException(new Status(StatusCode.InvalidArgument, "Missing request message."));
             }
+
+            var request = GrpcMarshaller.Deserialize(method.RequestMarshaller, requestBytes);
+            var response = await handler(request, ctx).ConfigureAwait(false);
+            if (response is null)
+            {
+                throw new RpcException(new Status(StatusCode.Internal, "Handler returned a null response message."));
+            }
+
+            var payload = GrpcMarshaller.Serialize(method.ResponseMarshaller, response);
+            if (payload.Length > options.MaxSendMessageSize)
+            {
+                throw new RpcException(new Status(StatusCode.ResourceExhausted,
+                    $"Response message of {payload.Length} bytes exceeds the {options.MaxSendMessageSize}-byte limit."));
+            }
+
+            await GrpcFraming.WriteMessageAsync(responseBody, payload, ctx.CancellationToken).ConfigureAwait(false);
         });
     }
 
@@ -109,50 +76,18 @@ public sealed class ElsieServiceBinder : ServiceBinderBase
     {
         ArgumentNullException.ThrowIfNull(method);
         ArgumentNullException.ThrowIfNull(handler);
-        _methods.Add(new ElsieGrpcMethod
+        Add(method, async (ctx, requestBody, responseBody, options) =>
         {
-            FullName = method.FullName,
-            MethodType = method.Type,
-            Serialize = o => GrpcMarshaller.Serialize(method.ResponseMarshaller, (TResponse)o),
-            Deserialize = b => GrpcMarshaller.Deserialize(method.RequestMarshaller, b),
-            InvokeAsync = async (ctx, requestBody, responseBody, options) =>
+            var requestStream = new ElsieRequestStreamReader<TRequest>(
+                requestBody, b => GrpcMarshaller.Deserialize(method.RequestMarshaller, b), options.MaxReceiveMessageSize, ctx);
+            var response = await handler(requestStream, ctx).ConfigureAwait(false);
+            if (response is null)
             {
-                try
-                {
-                    var requestStream = new ElsieRequestStreamReader<TRequest>(
-                        requestBody, b => GrpcMarshaller.Deserialize(method.RequestMarshaller, b), options.MaxReceiveMessageSize, ctx);
-                    var response = await handler(requestStream, ctx).ConfigureAwait(false);
-                    if (response is null)
-                    {
-                        return new Status(StatusCode.Internal, "Handler returned a null response message.");
-                    }
-
-                    var payload = GrpcMarshaller.Serialize(method.ResponseMarshaller, response);
-                    await GrpcFraming.WriteMessageAsync(responseBody, payload, ctx.CancellationToken)
-                        .ConfigureAwait(false);
-                    return ctx.Status;
-                }
-                catch (RpcException ex)
-                {
-                    return ex.Status;
-                }
-                catch (OperationCanceledException) when (ctx.IsDeadlineExceeded)
-                {
-                    return new Status(StatusCode.DeadlineExceeded, "Deadline exceeded.");
-                }
-                catch (OperationCanceledException)
-                {
-                    return new Status(StatusCode.Cancelled, "Call cancelled.");
-                }
-                catch (GrpcFrameException ex)
-                {
-                    return new Status(StatusCode.ResourceExhausted, ex.Message);
-                }
-                catch (Exception ex)
-                {
-                    return new Status(StatusCode.Internal, ex.Message);
-                }
+                throw new RpcException(new Status(StatusCode.Internal, "Handler returned a null response message."));
             }
+
+            var payload = GrpcMarshaller.Serialize(method.ResponseMarshaller, response);
+            await GrpcFraming.WriteMessageAsync(responseBody, payload, ctx.CancellationToken).ConfigureAwait(false);
         });
     }
 
@@ -165,50 +100,19 @@ public sealed class ElsieServiceBinder : ServiceBinderBase
     {
         ArgumentNullException.ThrowIfNull(method);
         ArgumentNullException.ThrowIfNull(handler);
-        _methods.Add(new ElsieGrpcMethod
+        Add(method, async (ctx, requestBody, responseBody, options) =>
         {
-            FullName = method.FullName,
-            MethodType = method.Type,
-            Serialize = o => GrpcMarshaller.Serialize(method.ResponseMarshaller, (TResponse)o),
-            Deserialize = b => GrpcMarshaller.Deserialize(method.RequestMarshaller, b),
-            InvokeAsync = async (ctx, requestBody, responseBody, options) =>
+            var requestBytes = await GrpcFraming.ReadMessageAsync(
+                requestBody, options.MaxReceiveMessageSize, ctx.CancellationToken).ConfigureAwait(false);
+            if (requestBytes is null)
             {
-                try
-                {
-                    var requestBytes = await GrpcFraming.ReadMessageAsync(
-                        requestBody, options.MaxReceiveMessageSize, ctx.CancellationToken).ConfigureAwait(false);
-                    if (requestBytes is null)
-                    {
-                        return new Status(StatusCode.InvalidArgument, "Missing request message.");
-                    }
-
-                    var request = GrpcMarshaller.Deserialize(method.RequestMarshaller, requestBytes);
-                    var responseStream = new ElsieResponseStreamWriter<TResponse>(
-                        responseBody, msg => GrpcMarshaller.Serialize(method.ResponseMarshaller, msg), options.MaxSendMessageSize, ctx);
-                    await handler(request, responseStream, ctx).ConfigureAwait(false);
-                    return ctx.Status;
-                }
-                catch (RpcException ex)
-                {
-                    return ex.Status;
-                }
-                catch (OperationCanceledException) when (ctx.IsDeadlineExceeded)
-                {
-                    return new Status(StatusCode.DeadlineExceeded, "Deadline exceeded.");
-                }
-                catch (OperationCanceledException)
-                {
-                    return new Status(StatusCode.Cancelled, "Call cancelled.");
-                }
-                catch (GrpcFrameException ex)
-                {
-                    return new Status(StatusCode.ResourceExhausted, ex.Message);
-                }
-                catch (Exception ex)
-                {
-                    return new Status(StatusCode.Internal, ex.Message);
-                }
+                throw new RpcException(new Status(StatusCode.InvalidArgument, "Missing request message."));
             }
+
+            var request = GrpcMarshaller.Deserialize(method.RequestMarshaller, requestBytes);
+            var responseStream = new ElsieResponseStreamWriter<TResponse>(
+                responseBody, msg => GrpcMarshaller.Serialize(method.ResponseMarshaller, msg), options.MaxSendMessageSize, ctx);
+            await handler(request, responseStream, ctx).ConfigureAwait(false);
         });
     }
 
@@ -221,44 +125,66 @@ public sealed class ElsieServiceBinder : ServiceBinderBase
     {
         ArgumentNullException.ThrowIfNull(method);
         ArgumentNullException.ThrowIfNull(handler);
+        Add(method, async (ctx, requestBody, responseBody, options) =>
+        {
+            var requestStream = new ElsieRequestStreamReader<TRequest>(
+                requestBody, b => GrpcMarshaller.Deserialize(method.RequestMarshaller, b), options.MaxReceiveMessageSize, ctx);
+            var responseStream = new ElsieResponseStreamWriter<TResponse>(
+                responseBody, msg => GrpcMarshaller.Serialize(method.ResponseMarshaller, msg), options.MaxSendMessageSize, ctx);
+            await handler(requestStream, responseStream, ctx).ConfigureAwait(false);
+        });
+    }
+
+    private void Add<TRequest, TResponse>(
+        Method<TRequest, TResponse> method,
+        Func<ElsieServerCallContext, Stream, Stream, ElsieGrpcOptions, Task> body)
+        where TRequest : class
+        where TResponse : class
+    {
         _methods.Add(new ElsieGrpcMethod
         {
             FullName = method.FullName,
             MethodType = method.Type,
             Serialize = o => GrpcMarshaller.Serialize(method.ResponseMarshaller, (TResponse)o),
             Deserialize = b => GrpcMarshaller.Deserialize(method.RequestMarshaller, b),
-            InvokeAsync = async (ctx, requestBody, responseBody, options) =>
-            {
-                try
-                {
-                    var requestStream = new ElsieRequestStreamReader<TRequest>(
-                        requestBody, b => GrpcMarshaller.Deserialize(method.RequestMarshaller, b), options.MaxReceiveMessageSize, ctx);
-                    var responseStream = new ElsieResponseStreamWriter<TResponse>(
-                        responseBody, msg => GrpcMarshaller.Serialize(method.ResponseMarshaller, msg), options.MaxSendMessageSize, ctx);
-                    await handler(requestStream, responseStream, ctx).ConfigureAwait(false);
-                    return ctx.Status;
-                }
-                catch (RpcException ex)
-                {
-                    return ex.Status;
-                }
-                catch (OperationCanceledException) when (ctx.IsDeadlineExceeded)
-                {
-                    return new Status(StatusCode.DeadlineExceeded, "Deadline exceeded.");
-                }
-                catch (OperationCanceledException)
-                {
-                    return new Status(StatusCode.Cancelled, "Call cancelled.");
-                }
-                catch (GrpcFrameException ex)
-                {
-                    return new Status(StatusCode.ResourceExhausted, ex.Message);
-                }
-                catch (Exception ex)
-                {
-                    return new Status(StatusCode.Internal, ex.Message);
-                }
-            }
+            InvokeAsync = (ctx, requestBody, responseBody, options) => InvokeGuardedAsync(
+                ctx,
+                () => body(ctx, requestBody, responseBody, options))
         });
+    }
+
+    /// <summary>
+    /// Runs a method invocation body and maps failures to the caller's gRPC status, shared by
+    /// all four streaming families: handler <see cref="RpcException"/>s carry their status,
+    /// deadline expiry maps to <c>DEADLINE_EXCEEDED</c>, cancellation to <c>CANCELLED</c>,
+    /// framing violations to <c>RESOURCE_EXHAUSTED</c>, and anything else to <c>INTERNAL</c>.
+    /// </summary>
+    private static async Task<Status> InvokeGuardedAsync(ElsieServerCallContext ctx, Func<Task> invoke)
+    {
+        try
+        {
+            await invoke().ConfigureAwait(false);
+            return ctx.Status;
+        }
+        catch (RpcException ex)
+        {
+            return ex.Status;
+        }
+        catch (OperationCanceledException) when (ctx.IsDeadlineExceeded)
+        {
+            return new Status(StatusCode.DeadlineExceeded, "Deadline exceeded.");
+        }
+        catch (OperationCanceledException)
+        {
+            return new Status(StatusCode.Cancelled, "Call cancelled.");
+        }
+        catch (GrpcFrameException ex)
+        {
+            return new Status(StatusCode.ResourceExhausted, ex.Message);
+        }
+        catch (Exception ex)
+        {
+            return new Status(StatusCode.Internal, ex.Message);
+        }
     }
 }
