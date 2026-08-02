@@ -105,6 +105,14 @@ internal sealed class Http3Connection
             }
 
             var response = await _dispatch.ProcessAsync(request, cancellationToken).ConfigureAwait(false);
+            if (BodyStream!.IsTooLarge)
+            {
+                response = HostDispatch.FromResult(ElsieResult.Problem(
+                    413,
+                    "Request Entity Too Large",
+                    "Request body exceeds the configured maximum."));
+            }
+
             await WriteResponseAsync(s, response, request.Method, cancellationToken).ConfigureAwait(false);
             _log?.Invoke($"H3 {request.Method} {request.Path} → {response.StatusCode}");
         }
@@ -123,6 +131,25 @@ internal sealed class Http3Connection
 
     /// <summary>Reads the HEADERS frame, decodes QPACK, and builds an <see cref="ElsieRequest"/>.</summary>
     private async Task<ElsieRequest?> ReadRequestAsync(QuicStream stream, CancellationToken cancellationToken)
+    {
+        var bodyStream = new QuicRequestBodyStream(stream, _serverOptions.MaxRequestBodyBytes);
+        var request = await ReadRequestCoreAsync(stream, bodyStream, cancellationToken).ConfigureAwait(false);
+        if (request is not null)
+        {
+            bodyStream.StartReadingAsync(cancellationToken);
+            BodyStream = bodyStream;
+        }
+
+        return request;
+    }
+
+    /// <summary>Body stream for the in-flight request (used for 413 detection).</summary>
+    private QuicRequestBodyStream? BodyStream { get; set; }
+
+    private async Task<ElsieRequest?> ReadRequestCoreAsync(
+        QuicStream stream,
+        QuicRequestBodyStream bodyStream,
+        CancellationToken cancellationToken)
     {
         // Request HEADERS frame (DATA body follows; buffered for the minimal server).
         var first = await Http3FrameReader.ReadAsync(stream, cancellationToken).ConfigureAwait(false);
@@ -211,37 +238,8 @@ internal sealed class Http3Connection
             pathOnly = "/";
         }
 
-        // Buffer request body (DATA frames) — bounded by MaxRequestBodyBytes.
-        await using var bodyStream = new MemoryStream();
-        var maxBody = _serverOptions.MaxRequestBodyBytes;
-        while (true)
-        {
-            var frame = await Http3FrameReader.ReadAsync(stream, cancellationToken).ConfigureAwait(false);
-            if (frame is null)
-            {
-                break;
-            }
-
-            if (frame.Value.Type == Http3FrameType.Data)
-            {
-                if (bodyStream.Length + frame.Value.Payload.Length > maxBody)
-                {
-                    return null; // 413 handled by the host body-limit path
-                }
-
-                bodyStream.Write(frame.Value.Payload.Span);
-                continue;
-            }
-
-            if (frame.Value.Type == Http3FrameType.Headers)
-            {
-                // Trailing headers — ignore for now.
-                continue;
-            }
-        }
-
-        bodyStream.Position = 0;
-        contentLength ??= bodyStream.Length;
+        // Request body arrives as DATA frames after the HEADERS frame and is served lazily
+        // (pump started by the caller once the request is built).
 
         var queryValues = Http1RequestReader.ParseQuery(queryString);
         var headerRo = new Dictionary<string, IReadOnlyList<string>>(headerDict.Count, StringComparer.OrdinalIgnoreCase);
