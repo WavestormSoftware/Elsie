@@ -61,15 +61,12 @@ The existing gate/after **factories plug straight into the pipeline**:
 .Use(ElsieAntiforgeryService.RequireAntiforgery())              // async gate → 403 when invalid
 ```
 
-CORS ships a dedicated middleware (`Elsie.Cors`):
+CORS ships a dedicated middleware (`Elsie.Cors`); `AddElsieCors` registers it into the app pipeline automatically:
 
 ```csharp
 .Services(s => s.AddElsieCors(o => o.AddDefaultPolicy(p => p.AllowOrigin("https://app.example"))))
-.Use<ElsieCorsMiddleware>();   // preflight 204 + ACAO on actuals
+// preflight 204 + ACAO on actuals — no extra Use call needed
 ```
-
-Register the middleware class in DI yourself if it needs dependencies (e.g.
-`UseElsieCors()` on the pipeline also works when `AddElsieCors` is registered).
 
 ## Ordering example
 
@@ -80,10 +77,11 @@ Register the middleware class in DI yourself if it needs dependencies (e.g.
 
 ## Exceptions
 
-Handler exceptions are mapped by the dispatcher: `MapException<T>` (if configured) → module
-`OnError` (if configured) → `ExceptionHandler` → rethrow to the host. Middleware exceptions
-propagate to the same chain. `ExceptionHandler` defaults to a safe 500 problem without
-exception detail (`ShowExceptionDetails` opts into the HTML page).
+The terminal `ElsieExceptionHandlerMiddleware` (registered automatically as the outermost app
+middleware) maps exceptions: `ElsieRequestException` → problem result; everything else →
+`ElsieOptions.ExceptionHandler` (default: safe 500 problem without exception detail,
+`ShowExceptionDetails` opts into the HTML page) or rethrow when the handler is `null`.
+Typed mapping is plain middleware (`try` / `catch` around `await next`).
 
 ## See also
 

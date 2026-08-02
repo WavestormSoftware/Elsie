@@ -13,7 +13,7 @@
 | `builder.Services.Add…` | `.Services(s => s.Add…)` |
 | `app.UseAuthentication` | `AddElsieAuth` / `.Auth(...)` |
 | `app.UseCors` | `AddElsieCors` |
-| `app.UseRateLimiter` | `ElsieRateLimit.FixedWindow` before-hook |
+| `app.UseRateLimiter` | `ElsieRateLimit.FixedWindow` middleware gate |
 | `IFormFile` | `ctx.ReadFormFilesAsync()` / `ElsieFormFile` |
 | `TypedResults` | plain `ElsieResult` factories |
 | `MapGroup` | `Group("/api", () => { ... })` |

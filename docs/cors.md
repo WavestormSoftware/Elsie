@@ -1,6 +1,9 @@
 # CORS
 
-Package **`Elsie.Cors`**. Preflight is handled by an **`IElsieRequestFilter`** before dispatch; actual responses get ACAO headers via an **after-hook**.
+Package **`Elsie.Cors`**. CORS is a single middleware (`ElsieCorsMiddleware`): it handles OPTIONS
+preflight (short-circuit 204 + allow headers) and applies `Access-Control-Allow-*` headers to
+actual responses on the way back out. The legacy `IElsieRequestFilter` preflight + ACAO
+after-hook wiring is removed.
 
 ## Setup
 
@@ -22,7 +25,8 @@ ElsieApp.Create(args)
     .Run();
 ```
 
-Fluent: `.Cors(o => …)` via `ElsieCorsAppExtensions`.
+`AddElsieCors` registers the middleware into the app pipeline. Fluent: `.Cors(o => …)` via
+`ElsieCorsAppExtensions`.
 
 ## Per-route policy
 
@@ -35,10 +39,11 @@ Get("/admin", () => ElsieResult.Text("x")).WithCors("tight");
 
 | Request | Behavior |
 |---------|----------|
-| Preflight `OPTIONS` + `Origin` + `Access-Control-Request-Method` | Filter short-circuits with 204 + CORS headers (or empty 204 if denied) |
-| Actual request with `Origin` | After-hook adds ACAO on the matched route’s policy (or default) |
+| Preflight `OPTIONS` + `Origin` + `Access-Control-Request-Method` | Middleware short-circuits with 204 + CORS headers (or empty 204 if denied) |
+| Actual request with `Origin` | Middleware adds ACAO on the matched route’s policy (or default) |
 
 ## See also
 
 - [hosting-and-aot.md](hosting-and-aot.md)
 - [modules.md](modules.md)
+- [middleware.md](middleware.md)

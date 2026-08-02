@@ -1,22 +1,29 @@
 # Pipelines and errors
 
+Elsie routes requests through a single **middleware pipeline** (`Elsie.Middleware`).
+The legacy `Before` / `After` / `OnError` / `MapException` hooks are removed.
+
 ## Order
 
 ```text
-app Before → module Before → handler → module After → app After
+app middleware pre  → module middleware pre → handler → module middleware post → app middleware post
 ```
 
-Short-circuit before still runs afters. After hooks may replace the result.
+Components run in registration order; pre-logic is FIFO, post-logic (after `await next`) is LIFO.
+Short-circuit by setting `ElsieContext.Result` and returning without calling `next` — outer
+middleware still runs its post-logic.
+
+Application-wide:
 
 ```csharp
-.Services(s => s.ConfigureElsiePipelines(p =>
+.Services(s => s.AddElsieMiddleware(p =>
 {
-    p.AddBefore((ctx, ct) =>
+    p.Use(ctx =>
     {
         ctx.Response.Headers["X-Request-Id"] = Guid.NewGuid().ToString("n");
-        return Task.FromResult<ElsieResult?>(null);
+        return null; // continue
     });
-    p.AddAfter((ctx, result) =>
+    p.Use((ctx, result) =>
     {
         ctx.Response.Headers["X-App"] = "1";
         return result;
@@ -24,38 +31,65 @@ Short-circuit before still runs afters. After hooks may replace the result.
 }))
 ```
 
-Module-level: `Before(...)` / `After(...)` in the module ctor.
+Or directly on the app:
 
-## Auth gates (before-hooks)
+```csharp
+var app = ElsieApp.Create()
+    .Use(async (ctx, next) => { ctx.Response.Headers["X-App"] = "1"; await next(ctx); })
+    .Module<MyModule>();
+```
+
+Module-level: `Use(...)` in the module ctor (runs for that module's routes only).
+
+## Auth gates (before-style middleware)
 
 Core header gates:
 
 ```csharp
-Before(ElsieAuth.RequireApiKey("secret"));
+Use(ElsieAuth.RequireApiKey("secret"));
 ```
 
 Package gates (`Elsie.Auth`):
 
 ```csharp
-Before(ElsieAuthGates.RequireAuthenticated());
+Use(ElsieAuthGates.RequireAuthenticated());
 ```
 
 ## Exceptions
 
+The terminal `ElsieExceptionHandlerMiddleware` (registered automatically as the outermost app
+middleware) maps exceptions. `ElsieRequestException` becomes a problem result; anything else goes
+to `ElsieOptions.ExceptionHandler` (default: safe 500 problem **without** exception detail;
+`ShowExceptionDetails` opts into the HTML page). Set `ExceptionHandler = null` to rethrow to the
+host pipeline.
+
+Typed mapping is expressed as middleware:
+
 ```csharp
-.Configure(o =>
+.Services(s => s.AddElsieMiddleware(p =>
 {
-    o.MapException<KeyNotFoundException>((_, ex) => ElsieResult.NotFound(ex.Message));
-    o.MapException<ArgumentException>((_, ex) => ElsieResult.BadRequest(ex.Message));
-    o.ExceptionHandler = (ctx, ex, _) =>
-        Task.FromResult(ElsieResult.Problem(500, "Internal Server Error"));
-});
+    p.Use(async (ctx, next) =>
+    {
+        try
+        {
+            await next(ctx);
+        }
+        catch (KeyNotFoundException ex)
+        {
+            ctx.Result = ElsieResult.NotFound(ex.Message);
+        }
+        catch (ArgumentException ex)
+        {
+            ctx.Result = ElsieResult.BadRequest(ex.Message);
+        }
+    });
+}))
 ```
 
-First match: `MapException` → module `OnError` → `ExceptionHandler` → rethrow.  
-Default handler returns 500 problem+json **without** exception detail.
+Module-scoped mapping uses the same pattern inside the module ctor.
 
 ## See also
 
+- [middleware.md](middleware.md)
 - [auth.md](auth.md)
 - [results.md](results.md)

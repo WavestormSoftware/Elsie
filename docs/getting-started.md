@@ -57,11 +57,7 @@ dotnet run
 ElsieApp.Create(args)
     .Module<TodosModule>()
     .Services(s => s.AddSingleton<ITodoStore, TodoStore>())
-    .Configure(o =>
-    {
-        o.ScanEntryAssembly = false;
-        o.MapException<KeyNotFoundException>((_, ex) => ElsieResult.NotFound(ex.Message));
-    })
+    .Configure(o => o.ScanEntryAssembly = false)
     .Listen("http://127.0.0.1:5000")
     .Logging(loggerFactory)          // optional ILoggerFactory
     .Compression()                   // optional gzip/br

@@ -13,12 +13,13 @@ Built into **Elsie.Core** (`Elsie.HealthChecks`).
 })
 ```
 
-Registers an `ElsieHealthChecksModule` with routes such as:
+Registers an `ElsieHealthCheckMiddleware` (into the app middleware pipeline) serving:
 
 - `GET /healthz`
 - `GET /healthz/live`
 - `GET /healthz/ready`
 
+Probe paths short-circuit in the middleware; anything else continues down the pipeline.
 Works on `ElsieInMemoryHost` and the real host the same way.
 
 ## See also

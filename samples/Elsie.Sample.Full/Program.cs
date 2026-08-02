@@ -50,12 +50,7 @@ ElsieApp.Create(args)
     .ContentRoot(contentRoot)
     .Logging(loggerFactory)
     .Compression()
-    .Configure(o =>
-    {
-        o.ScanEntryAssembly = false;
-        o.MapException<KeyNotFoundException>((_, ex) => ElsieResult.NotFound(ex.Message));
-        o.MapException<ArgumentException>((_, ex) => ElsieResult.BadRequest(ex.Message));
-    })
+    .Configure(o => o.ScanEntryAssembly = false)
     .Module<HomeModule>()
     .Module<AuthModule>()
     .Module<MeModule>()
@@ -94,22 +89,38 @@ ElsieApp.Create(args)
             o.ContentRoot = contentRoot;
             o.ReloadOnChange = true;
         });
-        s.ConfigureElsiePipelines(p =>
+        s.AddElsieMiddleware(p =>
         {
-            p.AddBefore((ctx, _) =>
+            // Exception mapping as middleware (MapException hooks are removed).
+            p.Use(async (ctx, next) =>
+            {
+                try
+                {
+                    await next(ctx);
+                }
+                catch (KeyNotFoundException ex)
+                {
+                    ctx.Result = ElsieResult.NotFound(ex.Message);
+                }
+                catch (ArgumentException ex)
+                {
+                    ctx.Result = ElsieResult.BadRequest(ex.Message);
+                }
+            });
+            p.Use(ctx =>
             {
                 var id = ctx.Request.GetHeader("X-Request-Id");
                 ctx.Response.Headers["X-Request-Id"] = string.IsNullOrEmpty(id)
                     ? Guid.NewGuid().ToString("n")
                     : id!;
-                return Task.FromResult<ElsieResult?>(null);
+                return null;
             });
-            p.AddAfter((ctx, result) =>
+            p.Use((Func<ElsieContext, ElsieResult, ElsieResult>)((ctx, result) =>
             {
                 ctx.Response.Headers["X-Elsie-Sample"] = "full";
                 return result;
-            });
-            p.AddAfter(ElsieSecurityHeaders.DefaultAfter());
+            }));
+            p.Use(ElsieSecurityHeaders.DefaultAfter());
         });
     })
     .StaticFiles(s =>
@@ -219,7 +230,7 @@ namespace Elsie.Sample.Full
     {
         public AuthModule()
         {
-            Before(ElsieAntiforgeryService.RequireAntiforgery());
+            Use(ElsieAntiforgeryService.RequireAntiforgery());
 
             Get("/csrf", ctx =>
             {
@@ -263,7 +274,7 @@ namespace Elsie.Sample.Full
     {
         public MeModule()
         {
-            Before(ElsieAuthGates.RequireAuthenticated());
+            Use(ElsieAuthGates.RequireAuthenticated());
 
             Get("/me", ctx =>
             {
@@ -288,10 +299,10 @@ namespace Elsie.Sample.Full
         public NotesModule(INoteStore store)
         {
             Path("/api");
-            Before(ElsieAuthGates.RequireAuthenticated());
-            Before(ElsieAntiforgeryService.RequireAntiforgery());
+            Use(ElsieAuthGates.RequireAuthenticated());
+            Use(ElsieAntiforgeryService.RequireAntiforgery());
             // Burst 20, steady ~5/s; FixedWindow/SlidingWindow also available.
-            Before(ElsieRateLimit.TokenBucket(capacity: 20, tokensPerSecond: 5));
+            Use(ElsieRateLimit.TokenBucket(capacity: 20, tokensPerSecond: 5));
 
             Group("/notes", () =>
             {

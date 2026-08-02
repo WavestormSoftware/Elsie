@@ -20,14 +20,13 @@ Elsie is a **host-agnostic core** plus a **custom HTTP host** (no ASP.NET).
 TCP accept (+ optional TLS/ALPN)
   → HTTP/1.1 parse  or  HTTP/2 streams (experimental subset)
   → HostDispatch
-       OpenAPI / static files (short-circuit)
+       OpenAPI (short-circuit)
        Principal attachers (Auth)
-       IElsieRequestFilter (CORS preflight, …)
        ElsieDispatcher
-         RouteTable.Lookup
-         app Before → module Before → handler
-         module After → app After
-         exception maps / OnError / ExceptionHandler
+         RouteTable.Lookup (populates RouteValues)
+         app middleware pipeline → module middleware → handler
+         terminal ElsieExceptionHandlerMiddleware (ElsieRequestException → problem,
+         ExceptionHandler → safe 500, or rethrow)
   → ElsieHttpResponse.FromDispatch
   → optional compression, X-Request-Id
   → write status/headers/body (or WebSocket upgrade)

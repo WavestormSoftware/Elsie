@@ -29,8 +29,6 @@ ElsieApp.Create(args)
     .Configure(o =>
     {
         o.ScanEntryAssembly = false;
-        o.MapException<KeyNotFoundException>((_, ex) => ElsieResult.NotFound(ex.Message));
-        o.MapException<ArgumentException>((_, ex) => ElsieResult.BadRequest(ex.Message));
         o.ExceptionHandler = (ctx, ex, _) =>
         {
             ctx.Response.Headers["X-Elsie-Error"] = ex.GetType().Name;
@@ -44,28 +42,39 @@ ElsieApp.Create(args)
         s.AddSingleton<ITodoStore, InMemoryTodoStore>();
         s.AddSingleton<IRequestClock, SystemRequestClock>();
         s.AddElsieDataAnnotationsValidation();
-        s.ConfigureElsiePipelines(p =>
+        s.AddElsieMiddleware(p =>
         {
-            p.AddBefore((ctx, _) =>
+            // Request-id on every response.
+            p.Use(ctx =>
             {
-                if (string.IsNullOrEmpty(ctx.Request.GetHeader("X-Request-Id")))
-                {
-                    ctx.Response.Headers["X-Request-Id"] = Guid.NewGuid().ToString("n");
-                }
-                else
-                {
-                    ctx.Response.Headers["X-Request-Id"] = ctx.Request.GetHeader("X-Request-Id")!;
-                }
-
-                return Task.FromResult<ElsieResult?>(null);
+                var incoming = ctx.Request.GetHeader("X-Request-Id");
+                ctx.Response.Headers["X-Request-Id"] =
+                    string.IsNullOrEmpty(incoming) ? Guid.NewGuid().ToString("n") : incoming;
+                return null;
             });
-            p.AddAfter((ctx, result) =>
+            // Exception mapping as middleware (MapException hooks are removed).
+            p.Use(async (ctx, next) =>
+            {
+                try
+                {
+                    await next(ctx);
+                }
+                catch (KeyNotFoundException ex)
+                {
+                    ctx.Result = ElsieResult.NotFound(ex.Message);
+                }
+                catch (ArgumentException ex)
+                {
+                    ctx.Result = ElsieResult.BadRequest(ex.Message);
+                }
+            });
+            p.Use((Func<ElsieContext, ElsieResult, ElsieResult>)((ctx, result) =>
             {
                 ctx.Response.Headers["X-Elsie-Sample"] = "api";
                 ctx.Response.Headers["X-Elsie-Status"] = result.StatusCode.ToString();
                 return result;
-            });
-            p.AddAfter(ElsieSecurityHeaders.DefaultAfter());
+            }));
+            p.Use(ElsieSecurityHeaders.DefaultAfter());
         });
     })
     .OpenApi(o =>
@@ -215,7 +224,7 @@ namespace Elsie.Sample.Api
         public TodosModule(ITodoStore store)
         {
             Path("/api");
-            Before(ElsieAuth.RequireApiKey("dev-secret", onlyMutatingMethods: true));
+            Use(ElsieAuth.RequireApiKey("dev-secret", onlyMutatingMethods: true));
 
             Group("/todos", () =>
             {

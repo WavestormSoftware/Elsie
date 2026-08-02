@@ -2,16 +2,18 @@
 
 Two layers:
 
-1. **`ElsieAuth`** (core) — header / API-key / bearer-string before-hooks (no crypto)
+1. **`ElsieAuth`** (core) — header / API-key / bearer-string gates (no crypto)
 2. **`Elsie.Auth`** — cookie session tickets + JWT validation + principal gates + antiforgery + minimal OIDC helpers
 
 ## Header / API key (core)
 
+Gates plug into the middleware pipeline (module-scoped or app-wide):
+
 ```csharp
-Before(ElsieAuth.RequireApiKey("dev-secret", onlyMutatingMethods: true));
-Before(ElsieAuth.RequireHeader("X-Tenant", "acme"));
-Before(ElsieAuth.RequireBearer(token => token == "ok"));
-Before(ElsieAuth.RequireCookie("sid")); // cookie present
+Use(ElsieAuth.RequireApiKey("dev-secret", onlyMutatingMethods: true));
+Use(ElsieAuth.RequireHeader("X-Tenant", "acme"));
+Use(ElsieAuth.RequireBearer(token => token == "ok"));
+Use(ElsieAuth.RequireCookie("sid")); // cookie present
 ```
 
 ## Cookie + JWT package
@@ -72,10 +74,10 @@ The host attaches a principal before dispatch (`IElsiePrincipalAttacher`): JWT b
 ## Gates
 
 ```csharp
-Before(ElsieAuthGates.RequireAuthenticated());
-Before(ElsieAuthGates.RequireRole("admin"));
-Before(ElsieAuthGates.RequireClaim(ClaimTypes.Name, "ada"));
-Before(ElsieAuthGates.RequirePolicy("admin")); // named policy, see below
+Use(ElsieAuthGates.RequireAuthenticated());
+Use(ElsieAuthGates.RequireRole("admin"));
+Use(ElsieAuthGates.RequireClaim(ClaimTypes.Name, "ada"));
+Use(ElsieAuthGates.RequirePolicy("admin")); // named policy, see below
 ```
 
 When auth options are configured the gates shape their responses through Challenge/Forbid:
@@ -93,7 +95,7 @@ s.AddElsieAuth(o =>
     o.AddElsiePolicy("staff", p => p.RequireRole("staff", "admin").RequireClaim("tenant", "acme"));
 });
 // module:
-Before(ElsieAuthGates.RequirePolicy("admin"));
+Use(ElsieAuthGates.RequirePolicy("admin"));
 ```
 
 Policies are `IReadOnlyList<Func<ClaimsPrincipal, bool>>` requirements with `RequireRole` / `RequireClaim` / `AddRequirement` shortcuts. An unknown policy name throws at **startup** (module constructors run during app build). For deterministic multi-app setups use `ElsieAuthGates.RequirePolicy(options, name)`.
@@ -126,7 +128,7 @@ s.AddElsieAuth(...);
 s.AddElsieAntiforgery(); // optional configure cookie name / SameSite
 
 // module:
-Before(ElsieAntiforgeryService.RequireAntiforgery());
+Use(ElsieAntiforgeryService.RequireAntiforgery());
 
 // JSON SPA / API clients:
 // GET a route that calls ctx.GetAntiforgeryToken() then send X-CSRF-TOKEN

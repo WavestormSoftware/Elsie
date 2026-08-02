@@ -43,7 +43,7 @@ Elsie is a small HTTP stack. Treat production like any other custom host.
 
 - `ElsieAuth.RequireApiKey` / `RequireHeader` use constant-time compare.
 - Prefer TLS (proxy or Elsie HTTPS) for anything sensitive.
-- Baseline browser headers: `ElsieSecurityHeaders.DefaultAfter()` after-hook.
+- Baseline browser headers: `ElsieSecurityHeaders.DefaultAfter()` (after-style middleware transform).
 
 ## Reverse proxy
 
@@ -62,7 +62,7 @@ Recommended: terminate TLS on the proxy; Elsie listens on loopback HTTP/1.1.
 
 ## Antiforgery
 
-Browser cookie apps should register `AddElsieAntiforgery` and `Before(ElsieAntiforgeryService.RequireAntiforgery())` on mutating routes. Double-submit cookie + `X-CSRF-TOKEN` header **or** form field `__RequestVerificationToken` (Base64Url tokens; see Dashboard sample).
+Browser cookie apps should register `AddElsieAntiforgery` and `Use(ElsieAntiforgeryService.RequireAntiforgery())` on mutating routes. Double-submit cookie + `X-CSRF-TOKEN` header **or** form field `__RequestVerificationToken` (Base64Url tokens; see Dashboard sample).
 
 ## What we test
 
@@ -90,7 +90,7 @@ Repo CI runs `dotnet list package --vulnerable` and packs all package IDs. Depen
 
 - Full HTTP/2 adversarial fuzzing / h2spec CI
 - Full OIDC middleware (helpers + PKCE only; `PrincipalFromIdToken` requires JWT validation unless `allowUnvalidated: true`)
-- WAF / rate limit at the edge (use proxy + Elsie rate-limit hooks)
+- WAF / rate limit at the edge (use proxy + Elsie rate-limit middleware)
 
 ## See also
 

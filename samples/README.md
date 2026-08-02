@@ -1,6 +1,6 @@
 # Elsie samples
 
-Standalone demo apps. Each folder is **self-contained**: NuGet package references only (no `src/` project links). Copy a folder anywhere and run.
+Standalone demo apps. During development each folder builds against the repo `src/` projects (project references) so samples always exercise the current API. When releasing, swap the `ProjectReference` entries back to `PackageReference` pins to publish self-contained copies.
 
 ```bash
 # requires .NET 8 SDK + nuget.org
@@ -17,6 +17,6 @@ dotnet run
 | [Elsie.Sample.Dashboard](Elsie.Sample.Dashboard) | + Auth, Validation, Views | Cookie login, form CSRF (`ada@elsie.dev` / `pass`) |
 | [Elsie.Sample.Full](Elsie.Sample.Full) | + Auth, Cors, Validation, Views | Kitchen sink (`ada` / `pass`, `GET /csrf`) |
 
-Package version is pinned in each `.csproj` (currently **0.3.0-beta.2**). Bump the `PackageReference` versions when you want a newer Elsie release.
+For a published, self-contained copy, replace the `ProjectReference` entries with `PackageReference Include="Elsie" Version="0.4.0-beta" />` (and per-sample packages) — see the `Elsie.Templates` output for a reference shape.
 
 Copy **the whole sample directory** (including `Views/` / `wwwroot/` when present).

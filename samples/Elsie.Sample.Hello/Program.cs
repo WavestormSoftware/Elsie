@@ -11,13 +11,13 @@ ElsieApp.Create(args)
     .Services(s =>
     {
         s.AddSingleton<IGreeter, Greeter>();
-        s.ConfigureElsiePipelines(p =>
+        s.AddElsieMiddleware(p =>
         {
-            p.AddAfter((ctx, result) =>
+            p.Use((Func<ElsieContext, ElsieResult, ElsieResult>)((ctx, result) =>
             {
                 ctx.Response.Headers["X-Elsie-Sample"] = "hello";
                 return result;
-            });
+            }));
         });
     })
     .Run();

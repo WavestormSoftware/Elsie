@@ -47,11 +47,7 @@ ElsieApp.Create(args)
     .ContentRoot(contentRoot)
     .Logging(loggerFactory)
     .Compression()
-    .Configure(o =>
-    {
-        o.ScanEntryAssembly = false;
-        o.MapException<ArgumentException>((_, ex) => ElsieResult.BadRequest(ex.Message));
-    })
+    .Configure(o => o.ScanEntryAssembly = false)
     .Module<HomeModule>()
     .Module<AccountModule>()
     .Module<DashboardModule>()
@@ -76,7 +72,7 @@ ElsieApp.Create(args)
             o.ContentRoot = contentRoot;
             o.ReloadOnChange = true;
         });
-        s.ConfigureElsiePipelines(p => p.AddAfter(ElsieSecurityHeaders.DefaultAfter()));
+        s.AddElsieMiddleware(p => p.Use(ElsieSecurityHeaders.DefaultAfter()));
     })
     .StaticFiles(s =>
     {
@@ -291,7 +287,7 @@ namespace Elsie.Sample.Dashboard
         public HomeModule()
         {
             // Logout form lives in layout when signed in.
-            Before(ElsieAntiforgeryService.RequireAntiforgery());
+            Use(ElsieAntiforgeryService.RequireAntiforgery());
 
             Get("/", async (ctx, ct) =>
             {
@@ -316,7 +312,7 @@ namespace Elsie.Sample.Dashboard
     {
         public AccountModule(IUserStore users, IActivityStore activity)
         {
-            Before(ElsieAntiforgeryService.RequireAntiforgery());
+            Use(ElsieAntiforgeryService.RequireAntiforgery());
 
             Get("/login", async (ctx, ct) =>
             {
@@ -478,8 +474,8 @@ namespace Elsie.Sample.Dashboard
         public DashboardModule(IUserStore users, IActivityStore activity)
         {
             Path("/dashboard");
-            Before(PageAuth.RequirePageUser());
-            Before(ElsieAntiforgeryService.RequireAntiforgery());
+            Use(PageAuth.RequirePageUser());
+            Use(ElsieAntiforgeryService.RequireAntiforgery());
 
             Get("/", async (ctx, ct) =>
             {

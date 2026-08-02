@@ -8,7 +8,7 @@
     <ManagePackageVersionsCentrally>false</ManagePackageVersionsCentrally>
   </PropertyGroup>
   <ItemGroup>
-    <PackageReference Include="Elsie" Version="0.3.0-beta.2" />
-    <PackageReference Include="Elsie.Views" Version="0.3.0-beta.2" />
+    <ProjectReference Include="../../src/Elsie/Elsie.csproj" />
+    <ProjectReference Include="../../src/Elsie.Views/Elsie.Views.csproj" />
   </ItemGroup>
 </Project>

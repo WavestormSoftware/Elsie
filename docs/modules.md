@@ -34,7 +34,7 @@ public sealed class TodosModule : ElsieModule
     public TodosModule(ITodoStore store)
     {
         Path("/api");
-        Before(ElsieAuth.RequireApiKey("secret", onlyMutatingMethods: true));
+        Use(ElsieAuth.RequireApiKey("secret", onlyMutatingMethods: true));
 
         Group("/todos", () =>
         {
@@ -47,7 +47,7 @@ public sealed class TodosModule : ElsieModule
 ```
 
 - `Path` / `Group` compose prefixes  
-- `Before` / `After` are module pipelines  
+- `Use(...)` adds module-scoped middleware (gates, transforms, full middleware)  
 - Handlers: sync `Func<ElsieContext, ElsieResult>` or async with `CancellationToken`  
 - Ctor DI for singletons; `ctx.GetRequiredService<T>()` for scoped  
 

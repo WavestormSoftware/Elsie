@@ -29,7 +29,7 @@ Streams file content (not fully buffered). Supports:
 - **If-Modified-Since** → **304**
 - Single-range **Range** requests
 
-Optional security headers on dynamic responses via `ElsieSecurityHeaders.DefaultAfter()` (static short-circuit may not run app after-hooks — set cache/`MaxAge` deliberately).
+Optional security headers on dynamic responses via `ElsieSecurityHeaders.DefaultAfter()` (static files short-circuit inside the pipeline, so register header middleware before `.StaticFiles(...)` or set cache/`MaxAge` deliberately).
 
 ## See also
 

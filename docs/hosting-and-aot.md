@@ -177,13 +177,16 @@ Get("/ws", () => ElsieResult.WebSocket(async (ws, ct) =>
 
 HTTP/1.1 upgrade only (H2 extended CONNECT later).
 
-## Pipeline features (no middleware order)
+## Pipeline features
 
-Features register on the host / DI — not as `UseX` ordering:
+Features register middleware / host features; registration order in the pipeline matters
+(see [middleware.md](middleware.md)):
 
-- CORS: `AddElsieCors` → preflight filter + after-hook ACAO  
-- Auth: `AddElsieAuth` → principal attacher + cookie/JWT  
-- Static / OpenAPI: `.StaticFiles` / `.OpenApi` on `ElsieApp`
+- CORS: `AddElsieCors` → `ElsieCorsMiddleware` (preflight + ACAO)  
+- Auth: `AddElsieAuth` → principal attacher + cookie/JWT gates  
+- Static: `.StaticFiles` → `StaticFileMiddleware` (short-circuits before routes)  
+- OpenAPI: `.OpenApi` on `ElsieApp` (served by the host before dispatch)  
+- Health: `AddElsieHealthChecks` → `ElsieHealthCheckMiddleware`
 
 ## JSON source generation
 

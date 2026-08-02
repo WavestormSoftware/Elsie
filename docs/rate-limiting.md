@@ -1,14 +1,14 @@
 # Rate limiting
 
-Built into **Elsie.Core** (`Elsie.RateLimiting`) as **before-hooks**.
+Built into **Elsie.Core** (`Elsie.RateLimiting`). Rate-limit gates are middleware factories.
 
 ```csharp
-Before(ElsieRateLimit.FixedWindow(permitLimit: 30, window: TimeSpan.FromMinutes(1)));
-Before(ElsieRateLimit.SlidingWindow(permitLimit: 30, window: TimeSpan.FromMinutes(1)));
-Before(ElsieRateLimit.TokenBucket(capacity: 20, tokensPerSecond: 5));
+Use(ElsieRateLimit.FixedWindow(permitLimit: 30, window: TimeSpan.FromMinutes(1)));
+Use(ElsieRateLimit.SlidingWindow(permitLimit: 30, window: TimeSpan.FromMinutes(1)));
+Use(ElsieRateLimit.TokenBucket(capacity: 20, tokensPerSecond: 5));
 
 // Custom partition (e.g. API key):
-Before(ElsieRateLimit.FixedWindow(100, TimeSpan.FromMinutes(1),
+Use(ElsieRateLimit.FixedWindow(100, TimeSpan.FromMinutes(1),
     partitionKey: ctx => ctx.Request.GetHeader("X-Api-Key") ?? "anon"));
 ```
 
@@ -27,16 +27,16 @@ Returns **429** problem+json + **`Retry-After`** when exceeded. Uses `TimeProvid
 
 ## Rate-limit response headers
 
-`ElsieRateLimitHeaders.Attach(store)` is an **after-hook** that adds `X-RateLimit-Limit`,
+`ElsieRateLimitHeaders.Attach(store)` is an after-style transform that adds `X-RateLimit-Limit`,
 `X-RateLimit-Remaining` and `X-RateLimit-Reset` (unix seconds) to every response. It requires
 `IRateLimitStore.TryPeek` (implemented by all built-in stores); unsupported stores simply
 skip the headers.
 
 ```csharp
 var store = new FixedWindowStore(permitLimit: 30, window: TimeSpan.FromMinutes(1));
-Before(ctx => store.TryAcquire(ctx.Request.RemoteIp ?? "unknown", out var retryAfter)
+Use(ctx => store.TryAcquire(ctx.Request.RemoteIp ?? "unknown", out var retryAfter)
     ? null : ElsieResult.Problem(429, "Too Many Requests", "limited"));
-After(ElsieRateLimitHeaders.Attach(store));
+Use(ElsieRateLimitHeaders.Attach(store));
 ```
 
 ## Custom store
@@ -55,11 +55,11 @@ using StackExchange.Redis;
 var redis = ConnectionMultiplexer.Connect("localhost:6379");
 
 // Shared multiplexer (recommended — reuse one mux per app)
-Before(RedisRateLimit.FixedWindow(redis, permitLimit: 1000, window: TimeSpan.FromMinutes(1)));
-After(ElsieRateLimitHeaders.Attach(new RedisFixedWindowStore(redis, 1000, TimeSpan.FromMinutes(1))));
+Use(RedisRateLimit.FixedWindow(redis, permitLimit: 1000, window: TimeSpan.FromMinutes(1)));
+Use(ElsieRateLimitHeaders.Attach(new RedisFixedWindowStore(redis, 1000, TimeSpan.FromMinutes(1))));
 
 // Or a dedicated connection string (the store owns the connection):
-Before(RedisRateLimit.SlidingWindow("localhost:6379", 1000, TimeSpan.FromMinutes(1)));
+Use(RedisRateLimit.SlidingWindow("localhost:6379", 1000, TimeSpan.FromMinutes(1)));
 ```
 
 ### Keys
@@ -79,7 +79,7 @@ warning). Set `RedisOutageMode.FailClosed` to reject with 429 until Redis recove
 
 ```csharp
 var options = new RedisRateLimitOptions { OutageMode = RedisOutageMode.FailClosed };
-Before(RedisRateLimit.FixedWindow(redis, 1000, TimeSpan.FromMinutes(1), options: options));
+Use(RedisRateLimit.FixedWindow(redis, 1000, TimeSpan.FromMinutes(1), options: options));
 ```
 
 ## See also

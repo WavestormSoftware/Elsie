@@ -73,7 +73,7 @@ sealed class PublicModule : ElsieModule
 {
     public PublicModule()
     {
-        Before(ElsieAntiforgeryService.RequireAntiforgery());
+        Use(ElsieAntiforgeryService.RequireAntiforgery());
 
         Get("/", () => ElsieResult.Json(new
         {
@@ -131,8 +131,8 @@ sealed class TodosModule : ElsieModule
     public TodosModule(ITodoStore store)
     {
         Path("/api");
-        Before(ElsieAuthGates.RequireAuthenticated());
-        Before(ElsieAntiforgeryService.RequireAntiforgery());
+        Use(ElsieAuthGates.RequireAuthenticated());
+        Use(ElsieAntiforgeryService.RequireAntiforgery());
 
         Group("/todos", () =>
         {
