@@ -55,6 +55,11 @@ Elsie is **unreleased** software; prereleases may include breaking API changes.
 - **h2/h3 response streaming:** `BodyWriter` responses (SSE, static files, gRPC) stream as DATA frames instead of being buffered; trailers are re-read after the body writer completes so `grpc-status` is emitted correctly.
 
 ### Fixed
+- HTTP/3 request-body byte-order corruption: `QuicRequestBodyStream` no longer pushes the unconsumed remainder of a split DATA frame back onto the channel (frames are served strictly in wire order; the old push-back reordered bytes behind later frames and, via the channel's SingleWriter contract, dropped data). Any frame larger than the consumer's read buffer (CopyToAsync 81920-byte reads, gRPC 5-byte header reads) used to trigger it.
+- HTTP/3 QPACK violations now terminate the connection with the RFC 9114 §8.1 error codes (`H3_QPACK_DECOMPRESSION_FAILED` 0x200, `H3_QPACK_ENCODER_STREAM_ERROR` 0x201, `H3_QPACK_DECODER_STREAM_ERROR` 0x202) instead of being swallowed (a poisoned decoder buffer failed every later stream).
+- QPACK decoder no longer overflows the `int` accumulator on long integer continuation runs (fuzz-found; now raises `QpackException` instead of `ArgumentOutOfRangeException`).
+- gRPC `grpc-timeout` values are validated against the spec's 1–8 digit span; a client-sendable 17-digit value no longer throws `OverflowException` (500) — the deadline is ignored.
+- Deleted the hook-era `ElsieBeforeDelegate` named delegate type and dead members (`ElsieMiddlewarePipeline.Count` is internal, `ElsieServerCallContext.FullMethodName`/`PeerName`, `ElsieGrpcOptions.WriteResponseHeaders`); `RequireAntiforgery()` returns an `IElsieMiddleware`.
 - HTTP/3 QPACK conformance: literal-name Huffman flag at bit 4 (not bit 7), post-base `0001`/`0000` vs `001` prefixes, correct QPACK static table (RFC 9204 Appendix A, 99 entries).
 - HTTP/3 per-stream body state (removed the shared `BodyStream` 413 race) and `QuicVarInt.Read` returns a protocol-error sentinel (no `OverflowException`) for >2 GiB frame lengths; frame reader caps payload sizes.
 - README documents the middleware model and the **NO-KESTREL** constraint; stale `MapException` / `ConfigureElsiePipelines` / `Before(...)` examples removed.
