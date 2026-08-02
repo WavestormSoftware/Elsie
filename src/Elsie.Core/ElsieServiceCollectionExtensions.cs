@@ -1,3 +1,4 @@
+using System.Diagnostics.CodeAnalysis;
 using System.Reflection;
 using Elsie.Pipelines;
 using Elsie.Routing;
@@ -61,7 +62,8 @@ public static class ElsieServiceCollectionExtensions
         return services;
     }
 
-    public static IServiceCollection AddElsieModule<TModule>(this IServiceCollection services)
+    public static IServiceCollection AddElsieModule<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicConstructors)] TModule>(
+        this IServiceCollection services)
         where TModule : ElsieModule
     {
         ArgumentNullException.ThrowIfNull(services);
@@ -99,6 +101,13 @@ public static class ElsieServiceCollectionExtensions
         return options;
     }
 
+    /// <summary>
+    /// Scans assemblies for <see cref="ElsieModule"/> subclasses. Assembly scanning is inherently
+    /// incompatible with trimming/AOT; AOT apps should set <see cref="ElsieOptions.ScanEntryAssembly"/>
+    /// to false and register modules explicitly. The suppression is scoped to this opt-in path.
+    /// </summary>
+    [UnconditionalSuppressMessage("Trimming", "IL2026", Justification = "Assembly scanning is opt-in; AOT apps register modules explicitly.")]
+    [UnconditionalSuppressMessage("Trimming", "IL2072", Justification = "Assembly scanning is opt-in; AOT apps register modules explicitly.")]
     private static void RegisterScannedModules(IServiceCollection services, ElsieOptions options)
     {
         var assemblies = new List<Assembly>(options.AssembliesToScan);
