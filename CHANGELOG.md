@@ -21,8 +21,11 @@ Elsie is **unreleased** software; prereleases may include breaking API changes.
 - Structured request logging (`Elsie.Request`), W3C `traceparent` propagation, expanded `ElsieMetrics` (duration histogram, active requests, body sizes, websockets)
 - `ElsieOptions.ShowExceptionDetails` (dev HTML exception page; auto-on in Generic Host Development)
 - OIDC PKCE helpers (`CreateCodeVerifier` / `CreateCodeChallenge`) + `code_challenge` / `code_verifier` on authorize/token exchange.
+- Streaming HTTP/1.1 request bodies (`Content-Length`) with keep-alive drain; unknown-length response `BodyWriter` uses chunked TE; static files stream with `Content-Length` (no double-buffer)
+- `ElsieRequestException` (protocol 4xx mapped by dispatcher — body idle timeout → 408)
 
 ### Fixed
+- Response writer no longer buffers `BodyWriter` when `Content-Length` is already set (static files / known-length streams)
 - HTTP/1.1 smuggling defenses: reject CL+TE, differing duplicate Content-Length, non-`chunked` Transfer-Encoding; cap chunk-size/line length
 - `Expect: 100-continue` interim response (disable via `ElsieServerOptions.DisableContinue`)
 - Canonicalize request paths at host boundary (`//`, `.`/`..`; reject root escape / `\\` / NUL)

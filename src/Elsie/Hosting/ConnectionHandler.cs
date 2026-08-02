@@ -279,19 +279,27 @@ internal sealed class ConnectionHandler
 
                 var keepAlive = parsed.KeepAlive;
                 var isHead = HttpMethods.IsHead(parsed.Method);
-                var isStreaming = response.BodyWriter is not null &&
-                                  string.Equals(response.ContentType, "text/event-stream", StringComparison.OrdinalIgnoreCase);
+                var isSse = string.Equals(
+                    response.ContentType,
+                    "text/event-stream",
+                    StringComparison.OrdinalIgnoreCase);
+                var hasContentLength = response.Headers.Contains("Content-Length");
+                // Unknown-length BodyWriter → chunked (SSE always chunked + close).
+                var useChunked = response.BodyWriter is not null && !isHead && (!hasContentLength || isSse);
 
-                if (isStreaming && !isHead)
+                if (useChunked)
                 {
                     await Http1ResponseWriter.WriteChunkedAsync(
                             stream,
                             response,
                             parsed.Protocol,
-                            keepAlive: false,
+                            keepAlive: isSse ? false : keepAlive,
                             cancellationToken)
                         .ConfigureAwait(false);
-                    keepAlive = false;
+                    if (isSse)
+                    {
+                        keepAlive = false;
+                    }
                 }
                 else
                 {
@@ -307,6 +315,27 @@ internal sealed class ConnectionHandler
 
                 _log?.Invoke(
                     $"{parsed.Method} {parsed.Path} → {response.StatusCode} {Stopwatch.GetElapsedTime(start).TotalMilliseconds:0}ms");
+
+                // Keep-alive requires a fully framed request body on the wire.
+                if (keepAlive &&
+                    parsed.Body is ElsieRequestBodyStream bodyStream &&
+                    !bodyStream.IsFullyConsumed)
+                {
+                    try
+                    {
+                        using var drainCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+                        if (_serverOptions.RequestBodyIdleTimeout > TimeSpan.Zero)
+                        {
+                            drainCts.CancelAfter(_serverOptions.RequestBodyIdleTimeout);
+                        }
+
+                        await bodyStream.DrainAsync(drainCts.Token).ConfigureAwait(false);
+                    }
+                    catch
+                    {
+                        keepAlive = false;
+                    }
+                }
 
                 await parsed.Body.DisposeAsync().ConfigureAwait(false);
 

@@ -94,6 +94,12 @@ Development environment enables `ElsieOptions.ShowExceptionDetails` (HTML 500 wi
 
 Bodies over the limit return **413** problem+json and close the connection.
 
+HTTP/1.1 **Content-Length** bodies are streamed (not pre-buffered). Handlers that only
+partially read the body still keep-alive — the host drains the remainder after the
+response. Unknown-length `BodyWriter` responses use **chunked** transfer encoding;
+known-length writers (e.g. static files with `Content-Length`) stream directly.
+Body idle timeout during a handler read surfaces as **408** via `ElsieRequestException`.
+
 ## Reverse proxy / forwarded headers
 
 Deploy TLS at nginx/Caddy and speak cleartext HTTP/1.1 to Elsie, **or** terminate TLS on Elsie.

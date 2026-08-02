@@ -145,10 +145,11 @@ internal sealed class Http1RequestReader
         Stream body;
         if (contentLength is > 0)
         {
-            body = await ReadBodyAsync(contentLength.Value, cancellationToken).ConfigureAwait(false);
+            body = CreateContentLengthBody(contentLength.Value);
         }
         else if (chunked)
         {
+            // SC2 replaces this with streaming ChunkedReadStream.
             body = await ReadChunkedBodyAsync(cancellationToken).ConfigureAwait(false);
             contentLength = body.Length;
         }
@@ -455,44 +456,35 @@ internal sealed class Http1RequestReader
         return -1;
     }
 
-    private async Task<Stream> ReadBodyAsync(long contentLength, CancellationToken cancellationToken)
+    /// <summary>
+    /// Build a streaming Content-Length body. Does not read from the network yet;
+    /// leftover header-buffer bytes are captured as a prefix.
+    /// </summary>
+    private Stream CreateContentLengthBody(long contentLength)
     {
-        if (contentLength > int.MaxValue || contentLength > _maxBodyBytes)
+        if (contentLength > _maxBodyBytes)
         {
             throw new InvalidOperationException("Body too large.");
         }
 
-        var length = (int)contentLength;
-        var body = new byte[length];
-        var filled = 0;
-
-        // Consume leftover buffer first
+        byte[]? prefix = null;
         if (_count > 0)
         {
-            var take = Math.Min(_count, length);
-            _buffer.AsSpan(_offset, take).CopyTo(body.AsSpan(0, take));
-            filled = take;
-            _offset += take;
-            _count -= take;
-            if (_count == 0)
+            var take = (int)Math.Min(_count, contentLength);
+            if (take > 0)
             {
-                _offset = 0;
+                prefix = new byte[take];
+                _buffer.AsSpan(_offset, take).CopyTo(prefix);
+                _offset += take;
+                _count -= take;
+                if (_count == 0)
+                {
+                    _offset = 0;
+                }
             }
         }
 
-        while (filled < length)
-        {
-            var n = await ReadSocketAsync(body.AsMemory(filled, length - filled), cancellationToken)
-                .ConfigureAwait(false);
-            if (n == 0)
-            {
-                throw new InvalidOperationException("Unexpected EOF in body.");
-            }
-
-            filled += n;
-        }
-
-        return new MemoryStream(body, writable: false);
+        return new ElsieRequestBodyStream(_stream, contentLength, _bodyIdleTimeout, prefix);
     }
 
     private async Task<Stream> ReadChunkedBodyAsync(CancellationToken cancellationToken)

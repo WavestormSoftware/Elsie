@@ -142,6 +142,11 @@ public sealed class ElsieDispatcher
         Exception exception,
         CancellationToken cancellationToken)
     {
+        if (exception is ElsieRequestException protocol)
+        {
+            return ElsieResult.Problem(protocol.StatusCode, protocol.Title, protocol.Message);
+        }
+
         var mapped = await _options.TryMapExceptionAsync(context, exception, cancellationToken).ConfigureAwait(false);
         if (mapped is not null)
         {

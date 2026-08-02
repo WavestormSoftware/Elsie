@@ -88,6 +88,7 @@ internal static class Http1ResponseWriter
         var noBodyStatus = response.StatusCode is 204 or 304;
 
         byte[]? buffered = null;
+        var streamBodyWriter = false;
         if (noBodyStatus)
         {
             buffered = Array.Empty<byte>();
@@ -98,11 +99,19 @@ internal static class Http1ResponseWriter
         }
         else if (response.BodyWriter is not null && !headRequest)
         {
-            // Buffer streaming writers so we can set Content-Length (simpler than chunked for v1).
-            // SSE / long streams: use chunked when Content-Length unknown — detect via flag later.
-            await using var ms = new MemoryStream();
-            await response.BodyWriter(ms, cancellationToken).ConfigureAwait(false);
-            buffered = ms.ToArray();
+            // Known Content-Length (e.g. static files): stream without buffering.
+            // Unknown length: buffer so we can emit CL (callers that want true streaming
+            // should use WriteChunkedAsync).
+            if (hasContentLength)
+            {
+                streamBodyWriter = true;
+            }
+            else
+            {
+                await using var ms = new MemoryStream();
+                await response.BodyWriter(ms, cancellationToken).ConfigureAwait(false);
+                buffered = ms.ToArray();
+            }
         }
         else if (response.BodyWriter is not null && headRequest)
         {
@@ -119,16 +128,23 @@ internal static class Http1ResponseWriter
                     cancellationToken)
                 .ConfigureAwait(false);
         }
-        else if (buffered is null && !hasContentLength && !hasTransferEncoding)
+        else if (buffered is null && !streamBodyWriter && !hasContentLength && !hasTransferEncoding)
         {
             await WriteHeaderAsync(stream, "Content-Length", "0", cancellationToken).ConfigureAwait(false);
         }
 
         await stream.WriteAsync(Crlf, cancellationToken).ConfigureAwait(false);
 
-        if (!headRequest && !noBodyStatus && buffered is { Length: > 0 })
+        if (!headRequest && !noBodyStatus)
         {
-            await stream.WriteAsync(buffered, cancellationToken).ConfigureAwait(false);
+            if (streamBodyWriter && response.BodyWriter is not null)
+            {
+                await response.BodyWriter(stream, cancellationToken).ConfigureAwait(false);
+            }
+            else if (buffered is { Length: > 0 })
+            {
+                await stream.WriteAsync(buffered, cancellationToken).ConfigureAwait(false);
+            }
         }
 
         await stream.FlushAsync(cancellationToken).ConfigureAwait(false);

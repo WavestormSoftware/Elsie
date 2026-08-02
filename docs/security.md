@@ -27,6 +27,7 @@ Elsie is a small HTTP stack. Treat production like any other custom host.
 - Request paths canonicalized at the host boundary (`//`, `.`/`..`); root-escaping `..`, `\\`, and NUL → **400**.
 - Responses include RFC 7231 `Date` unless the app set one.
 - Compression honors `Accept-Encoding` q-values and sets `Vary: Accept-Encoding`.
+- Request bodies stream; idle timeout on body reads → **408** (`ElsieRequestException`).
 
 ## Cookie sessions
 
