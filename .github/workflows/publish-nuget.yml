@@ -14,7 +14,7 @@
 # Package IDs:
 #   Elsie (host → Elsie.Core), Elsie.Core,
 #   Elsie.Auth, Elsie.Cors, Elsie.Testing, Elsie.Views, Elsie.Templates,
-#   Elsie.Extensions.RateLimiting.Redis, Elsie.Extensions.Auth.Redis
+#   Elsie.Extensions.RateLimiting.Redis, Elsie.Extensions.Auth.Redis, Elsie.Grpc
 #
 # Docs: https://learn.microsoft.com/nuget/nuget-org/trusted-publishing
 
@@ -98,6 +98,7 @@ jobs:
             src/Elsie.Validation/Elsie.Validation.csproj
             src/Elsie.Extensions.RateLimiting.Redis/Elsie.Extensions.RateLimiting.Redis.csproj
             src/Elsie.Extensions.Auth.Redis/Elsie.Extensions.Auth.Redis.csproj
+            src/Elsie.Grpc/Elsie.Grpc.csproj
             templates/Elsie.Templates.csproj
           )
 
@@ -125,6 +126,7 @@ jobs:
             "Elsie.Validation.$version.nupkg"
             "Elsie.Extensions.RateLimiting.Redis.$version.nupkg"
             "Elsie.Extensions.Auth.Redis.$version.nupkg"
+            "Elsie.Grpc.$version.nupkg"
             "Elsie.Templates.$version.nupkg"
           )
           missing=0

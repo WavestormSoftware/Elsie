@@ -449,7 +449,6 @@ internal sealed class Http3Connection
             // Unknown-length BodyWriter: DATA frames delimit the body (no chunked needed on h3).
         }
 
-        var hasTrailers = response.Trailers.Count > 0;
         var headerBlock = _encoder.EncodeResponse(response.StatusCode, respHeaders, stream.Id);
         await _encoder.FlushEncoderInstructionsAsync(cancellationToken).ConfigureAwait(false);
         await Http3FrameWriter.WriteAsync(
@@ -478,10 +477,12 @@ internal sealed class Http3Connection
             await dataStream.FinishAsync(cancellationToken).ConfigureAwait(false);
         }
 
-        if (hasTrailers)
+        // Trailers may have been added while a streaming writer ran (gRPC grpc-status) — re-check.
+        var finalTrailers = response.Trailers;
+        if (finalTrailers.Count > 0)
         {
             var trailerBlock = _encoder.EncodeTrailers(
-                response.Trailers.Select(static t => (t.Key, t.Value)),
+                finalTrailers.Select(static t => (t.Key, t.Value)),
                 stream.Id);
             await _encoder.FlushEncoderInstructionsAsync(cancellationToken).ConfigureAwait(false);
             await Http3FrameWriter.WriteAsync(

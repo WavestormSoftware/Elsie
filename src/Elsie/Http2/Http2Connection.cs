@@ -690,61 +690,93 @@ internal sealed class Http2Connection
             }
         }
 
-        byte[] body;
-        if (string.Equals(method, "HEAD", StringComparison.OrdinalIgnoreCase))
+        var isHead = string.Equals(method, "HEAD", StringComparison.OrdinalIgnoreCase);
+        ReadOnlyMemory<byte>? bufferedBody = null;
+        if (!isHead && response.Body is { Length: > 0 } bufferedMem)
         {
-            body = Array.Empty<byte>();
+            bufferedBody = bufferedMem;
         }
-        else if (response.Body is { } mem)
-        {
-            body = mem.ToArray();
-        }
-        else if (response.BodyWriter is not null)
-        {
-            await using var ms = new MemoryStream();
-            await response.BodyWriter(ms, cancellationToken).ConfigureAwait(false);
-            body = ms.ToArray();
-        }
-        else
-        {
-            body = Array.Empty<byte>();
-        }
+
+        var hasStreamingBody = !isHead && response.BodyWriter is not null;
+        var hasTrailers = response.Trailers.Count > 0;
 
         if (!respHeaders.Any(h => h.Item1.Equals("content-length", StringComparison.OrdinalIgnoreCase)))
         {
-            respHeaders.Add(("content-length", body.Length.ToString()));
+            if (bufferedBody is { } body)
+            {
+                respHeaders.Add(("content-length", body.Length.ToString()));
+            }
+            else if (isHead && response.Body is { Length: > 0 } headBody)
+            {
+                // HEAD mirrors the GET body length.
+                respHeaders.Add(("content-length", headBody.Length.ToString()));
+            }
+            // Unknown-length BodyWriter: DATA frames delimit the body (streamed below).
         }
 
         var hpack = HpackCodec.EncodeResponse(response.StatusCode, respHeaders);
-        var hasTrailers = response.Trailers.Count > 0;
-        var headerFlags = body.Length == 0 && !hasTrailers
+        // For streaming bodies the trailer set is not known until the writer completes
+        // (grpc-status is added during gRPC response writing), so HEADERS never carries
+        // END_STREAM for those.
+        var headerEndStream = bufferedBody is null && !hasStreamingBody && !hasTrailers;
+        var headerFlags = headerEndStream
             ? Http2FrameFlags.EndStream | Http2FrameFlags.EndHeaders
             : Http2FrameFlags.EndHeaders;
 
         await WriteFrameAsync(Http2FrameType.Headers, headerFlags, streamId, hpack, cancellationToken)
             .ConfigureAwait(false);
 
-        if (body.Length > 0)
+        if (bufferedBody is { } buffered)
         {
             // Split into max frame size chunks
             var offset = 0;
-            while (offset < body.Length)
+            while (offset < buffered.Length)
             {
-                var take = Math.Min(_serverOptions.MaxFrameSize, body.Length - offset);
-                var end = offset + take >= body.Length;
+                var take = Math.Min(_serverOptions.MaxFrameSize, buffered.Length - offset);
+                var end = offset + take >= buffered.Length;
                 // With trailers pending, END_STREAM moves to the trailing HEADERS frame.
                 await WriteFrameAsync(
                         Http2FrameType.Data,
                         end && !hasTrailers ? Http2FrameFlags.EndStream : Http2FrameFlags.None,
                         streamId,
-                        body.AsMemory(offset, take),
+                        buffered.Slice(offset, take),
                         cancellationToken)
                     .ConfigureAwait(false);
                 offset += take;
             }
         }
+        else if (hasStreamingBody)
+        {
+            await using var dataStream = new Http2ResponseBodyStream(this, streamId, _serverOptions.MaxFrameSize, cancellationToken);
+            await response.BodyWriter!(dataStream, cancellationToken).ConfigureAwait(false);
+            await dataStream.FlushAsync(cancellationToken).ConfigureAwait(false);
 
-        if (hasTrailers)
+            // Trailers may have been added while the writer ran (grpc-status) — check now.
+            if (response.Trailers.Count > 0)
+            {
+                var trailerBlock = HpackCodec.EncodeTrailers(
+                    response.Trailers.Select(static t => (t.Key, t.Value)));
+                await WriteFrameAsync(
+                        Http2FrameType.Headers,
+                        Http2FrameFlags.EndStream | Http2FrameFlags.EndHeaders,
+                        streamId,
+                        trailerBlock,
+                        cancellationToken)
+                    .ConfigureAwait(false);
+            }
+            else
+            {
+                await WriteFrameAsync(
+                        Http2FrameType.Data,
+                        Http2FrameFlags.EndStream,
+                        streamId,
+                        ReadOnlyMemory<byte>.Empty,
+                        cancellationToken)
+                    .ConfigureAwait(false);
+            }
+        }
+
+        if (hasTrailers && !hasStreamingBody)
         {
             var trailerBlock = HpackCodec.EncodeTrailers(
                 response.Trailers.Select(static t => (t.Key, t.Value)));
@@ -806,6 +838,10 @@ internal sealed class Http2Connection
             _writeLock.Release();
         }
     }
+
+    /// <summary>Writes a DATA frame (no END_STREAM); used by the streaming response body adapter.</summary>
+    internal Task WriteDataFrameAsync(int streamId, ReadOnlyMemory<byte> payload, CancellationToken cancellationToken) =>
+        WriteFrameAsync(Http2FrameType.Data, Http2FrameFlags.None, streamId, payload, cancellationToken);
 
     private async Task RstAsync(int streamId, int errorCode, CancellationToken cancellationToken)
     {

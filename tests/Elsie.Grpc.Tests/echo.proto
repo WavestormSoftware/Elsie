@@ -1,0 +1,20 @@
+syntax = "proto3";
+package elsie.test;
+
+service Echo {
+  rpc Unary(EchoRequest) returns (EchoResponse);
+  rpc ServerStream(EchoRequest) returns (stream EchoResponse);
+  rpc ClientStream(stream EchoRequest) returns (EchoResponse);
+  rpc Bidi(stream EchoRequest) returns (stream EchoResponse);
+  rpc Fail(EchoRequest) returns (EchoResponse);
+  rpc Slow(EchoRequest) returns (EchoResponse);
+}
+
+message EchoRequest {
+  string message = 1;
+  int32 count = 2;
+}
+
+message EchoResponse {
+  string message = 1;
+}

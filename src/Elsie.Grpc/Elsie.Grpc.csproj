@@ -1,0 +1,21 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <Description>Native gRPC server support for Elsie: ServiceBinderBase implementation, ServerCallContext wrapper, 5-byte framing, grpc-status trailers, deadline/cancellation, and reflection-lite over the Elsie HTTP/2 and HTTP/3 transports.</Description>
+    <RootNamespace>Elsie.Grpc</RootNamespace>
+    <AssemblyName>Elsie.Grpc</AssemblyName>
+    <PackageId>Elsie.Grpc</PackageId>
+    <PackageTags>Elsie;web-framework;HTTP;gRPC;RPC;net10</PackageTags>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\Elsie\Elsie.csproj" />
+    <PackageReference Include="Google.Protobuf" />
+    <PackageReference Include="Grpc.Core.Api" />
+    <PackageReference Include="Grpc.Tools" PrivateAssets="all" />
+  </ItemGroup>
+  <ItemGroup>
+    <Protobuf Include="Protos/reflection.proto" GrpcServices="Server" />
+  </ItemGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="Elsie.Grpc.Tests" />
+  </ItemGroup>
+</Project>

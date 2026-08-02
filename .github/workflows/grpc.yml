@@ -1,0 +1,71 @@
+name: grpc
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  grpc-interop:
+    name: gRPC interop (grpcurl + Elsie.Sample.Grpc)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: |
+            10.0.x
+
+      - name: Build gRPC sample
+        run: dotnet build samples/Elsie.Sample.Grpc/Elsie.Sample.Grpc.csproj -c Release
+
+      - name: Install grpcurl
+        run: |
+          curl -sL https://github.com/fullstorydev/grpcurl/releases/download/v1.9.3/grpcurl_1.9.3_linux_x86_64.tar.gz -o /tmp/grpcurl.tar.gz
+          tar -xzf /tmp/grpcurl.tar.gz -C /usr/local/bin grpcurl
+
+      - name: Start sample (gRPC on 8443)
+        run: |
+          nohup dotnet run --project samples/Elsie.Sample.Grpc -c Release --no-build -- \
+            --urls https://127.0.0.1:8443 > /tmp/grpc-sample.log 2>&1 &
+          echo $! > /tmp/grpc-sample.pid
+          for i in $(seq 1 40); do
+            if grpcurl -insecure -max-time 2 127.0.0.1:8443 list 2>/dev/null | grep -q greet.Greeter; then
+              break
+            fi
+            sleep 1
+          done
+          cat /tmp/grpc-sample.log
+
+      - name: grpcurl unary call
+        run: |
+          set -euo pipefail
+          reply=$(grpcurl -insecure -d '{"name":"Elsie"}' 127.0.0.1:8443 greet.Greeter/SayHello)
+          echo "reply=$reply"
+          grep -q '"message": "Hello Elsie"' <<< "$reply"
+
+      - name: grpcurl server streaming
+        run: |
+          set -euo pipefail
+          replies=$(grpcurl -insecure -d '{"name":"Elsie"}' 127.0.0.1:8443 greet.Greeter/SayHelloStream)
+          echo "replies=$replies"
+          test "$(grep -c '"message"' <<< "$replies")" -eq 3
+
+      - name: grpcurl reflection (list + describe)
+        run: |
+          set -euo pipefail
+          services=$(grpcurl -insecure 127.0.0.1:8443 list)
+          echo "services=$services"
+          grep -q 'greet.Greeter' <<< "$services"
+          grpcurl -insecure 127.0.0.1:8443 describe greet.Greeter > /tmp/describe.txt
+          grep -q 'SayHello' /tmp/describe.txt
+
+      - name: Stop sample
+        if: always()
+        run: |
+          kill "$(cat /tmp/grpc-sample.pid)" 2>/dev/null || true
