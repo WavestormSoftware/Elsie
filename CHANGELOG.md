@@ -11,11 +11,13 @@ Elsie is **unreleased** software; prereleases may include breaking API changes.
 
 ### Breaking
 - Target framework is **net10.0 only** (net8.0 support dropped).
+- **Middleware pipeline (Phase D, in progress):** `IElsieMiddleware` / `ElsieMiddlewareDelegate` / `ElsieMiddlewarePipeline` in Core (`Elsie.Middleware`); `ElsieApp.Use(delegate)` / `Use<T>()` (DI, per-request scope); `ElsieModule.Use(...)` module-scoped middleware (module routes only); ordering FIFO pre / LIFO post; short-circuit via `ElsieContext.Result`. Legacy `Before` / `After` / `OnError` / `MapException` hooks are **deprecated** and will be removed — built-ins (auth gates, rate limiting, CORS, security headers, antiforgery, health, static files, exception handler) are becoming first-class middleware.
 - `IRateLimitStore` gained `TryPeek(string key, out RateLimitCounters counters)` (default impl throws `NotSupportedException`) — custom stores should implement it to opt into `X-RateLimit-*` headers.
 - **Cookie hardening (breaking):** `ElsieCookieAuthOptions.Secure` now defaults to **true**; `MaxAge` defaults to 8 h (emitted in `Set-Cookie`); a `CookiePrefix` is enforced at startup (`__Host-` requires `Secure`, `Path=/`, no `Domain`, and the cookie name must start with the prefix).
 - `IElsiePrincipalAttacher` is now async: `Task AttachAsync(ElsieRequest, CancellationToken)` (host-side principal restore now supports sessions/JWKS lookups).
 
 ### Changed
+- **Middleware (Phase D):** dispatcher runs a middleware pipeline; gate/after factories plug in directly — `Use(ElsieAuth.RequireApiKey(...))`, `Use(ElsieRateLimit.FixedWindow(...))`, `Use(ElsieSecurityHeaders.DefaultAfter())`, `Use(ElsieRateLimitHeaders.Attach(store))`, `Use(ElsieAntiforgeryService.RequireAntiforgery())`. New `ElsieCorsMiddleware` in `Elsie.Cors` (preflight 204 + ACAO on actuals; `UseElsieCors()` pipeline extension). New `docs/middleware.md`.
 - OIDC: `PrincipalFromIdToken` no longer accepts unvalidated id_tokens by default (`allowUnvalidated` opt-in); optional `expectedNonce` check; state/nonce are Base64Url.
 - `ElsieMetrics` meter version string bumped to `0.4.0`.
 

@@ -6,6 +6,24 @@ Instructions for coding agents working on this repository.
 
 **Elsie** is a greenfield, MIT-licensed, lightweight HTTP module framework for .NET (**net10.0**). Core is **host-agnostic**; package **`Elsie`** is the custom HTTP host (`ElsieApp`, assembly/namespaces `Elsie.Web`). Inspired by Sinatra-style DX — **not** a NancyFx fork.
 
+## No Kestrel / no ASP.NET (mandatory, user-mandated)
+
+Elsie is a **standalone** HTTP framework with its **own** transport stack (`System.Net.Sockets`, `System.Net.Security`, `System.Net.Quic`). It never uses or depends on Kestrel, and there is **no ASP.NET adapter — ever**. This is a hard product constraint, not a temporary state:
+- Do **not** add `Microsoft.AspNetCore.*` packages or types anywhere (Core or host).
+- Do **not** add an adapter/backplane that bridges Elsie to ASP.NET hosts.
+- Host-only Microsoft.Extensions.* and System.Net.* are allowed.
+
+## Middleware model
+
+Requests flow through a **single middleware pipeline** (Core `Elsie.Middleware`): `IElsieMiddleware`
+(`Task InvokeAsync(ElsieContext ctx, ElsieMiddlewareDelegate next)`), `ElsieMiddlewareDelegate =
+Func<ElsieContext, Task>`, `ElsieMiddlewarePipeline`. App-wide: `ElsieApp.Use(delegate)` / `Use<T>()`
+(DI, per-request scope); module-scoped: `ElsieModule.Use(...)` (module routes only). Ordering is
+FIFO pre / LIFO post; short-circuit by setting `ElsieContext.Result`. Legacy `Before/After/OnError`
+hooks and `MapException` are deprecated and being removed — built-ins (auth gates, rate limiting,
+CORS, security headers, antiforgery, health, static files, exception handler) are first-class
+middleware.
+
 ## Clean-room (mandatory)
 
 - Do **not** copy third-party framework source into this repo.
@@ -64,6 +82,7 @@ Changelog: `CHANGELOG.md`.
 - App DX: prefer `ElsieApp.Run` / `ElsieApp.Create` / `ElsieWeb.Run` (`quietConsole: true` default).
 - Tests: `ElsieInMemoryHost` or `ElsieTestHost` (loopback); `IServiceCollection.AddElsie`.
 - Auth: `ElsieAuth.*` header gates + `Elsie.Auth` cookie/JWT principal.
+- Middleware: single pipeline in Core (`Elsie.Middleware`); `ElsieApp.Use` / `ElsieModule.Use`; gates/transforms plug in as middleware (see `docs/middleware.md`).
 - OpenAPI: core `ElsieOpenApiDocument`; host `.OpenApi(...)`.
 - Dispatch bake: `ElsieHttpResponse.FromDispatch` — single materialize path (host + in-memory).
 - Routing: `RouteTable.Lookup` owns matcher (`RouteMatcher` internal).
