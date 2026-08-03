@@ -133,7 +133,7 @@ internal sealed class ElsieServer : IHostedService, IAsyncDisposable
                     ApplicationProtocols = [SslApplicationProtocol.Http3]
                 },
                 MaxInboundBidirectionalStreams = _serverOptions.MaxConcurrentStreams > 0 ? _serverOptions.MaxConcurrentStreams : 100,
-                MaxInboundUnidirectionalStreams = 10,
+                MaxInboundUnidirectionalStreams = Math.Max(3, _serverOptions.Http3MaxInboundUnidirectionalStreams),
                 DefaultStreamErrorCode = 0x0100, // H3_NO_ERROR
                 DefaultCloseErrorCode = 0x0100  // H3_NO_ERROR
             })

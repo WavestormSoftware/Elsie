@@ -7,13 +7,16 @@ namespace Elsie.Web.Http3;
 /// Lazy request-body stream for HTTP/3: DATA frames are read from the QUIC stream in the
 /// background and surfaced through a bounded channel, so handlers can stream request bodies
 /// without waiting for the client to finish sending. Total size is capped at
-/// <c>MaxRequestBodyBytes</c> (overflow marks the stream failed → 413 by the host).
+/// <c>MaxRequestBodyBytes</c> (overflow marks the stream failed → 413 by the host). When
+/// <c>RequestBodyIdleTimeout</c> elapses between DATA frames the body faults with a 408
+/// <see cref="ElsieRequestException"/>, mirroring the HTTP/1.1 body idle timeout.
 /// </summary>
 internal sealed class QuicRequestBodyStream : Stream
 {
     private readonly Channel<byte[]> _frames;
     private readonly Stream _stream;
     private readonly long _maxBody;
+    private readonly TimeSpan _idleTimeout;
     private long _readTotal;
     private bool _tooLarge;
     // Unconsumed remainder of a frame that did not fit the caller's buffer. Served FIRST on
@@ -23,10 +26,11 @@ internal sealed class QuicRequestBodyStream : Stream
     private int _pendingOffset;
     private int _pendingLength;
 
-    public QuicRequestBodyStream(Stream stream, long maxBody)
+    public QuicRequestBodyStream(Stream stream, long maxBody, TimeSpan? idleTimeout = null)
     {
         _stream = stream ?? throw new ArgumentNullException(nameof(stream));
         _maxBody = maxBody > 0 ? maxBody : long.MaxValue;
+        _idleTimeout = idleTimeout is { } t && t > TimeSpan.Zero ? t : Timeout.InfiniteTimeSpan;
         _frames = Channel.CreateBounded<byte[]>(new BoundedChannelOptions(16)
         {
             SingleReader = true,
@@ -47,7 +51,7 @@ internal sealed class QuicRequestBodyStream : Stream
         {
             while (!cancellationToken.IsCancellationRequested)
             {
-                var frame = await Http3FrameReader.ReadAsync(_stream, cancellationToken).ConfigureAwait(false);
+                var frame = await ReadNextFrameAsync(cancellationToken).ConfigureAwait(false);
                 if (frame is null)
                 {
                     break; // stream FIN
@@ -76,7 +80,31 @@ internal sealed class QuicRequestBodyStream : Stream
             // Client aborted the stream — surface end-of-body.
         }
 
-        _frames.Writer.TryComplete();
+        _frames.Writer.TryComplete(_pumpError);
+    }
+
+    private Exception? _pumpError;
+
+    /// <summary>Reads the next frame, enforcing the per-frame idle timeout: a stalled client
+    /// faults the body with a 408 instead of hanging the handler (and the connection) forever.</summary>
+    private async Task<Http3Frame?> ReadNextFrameAsync(CancellationToken cancellationToken)
+    {
+        if (_idleTimeout == Timeout.InfiniteTimeSpan)
+        {
+            return await Http3FrameReader.ReadAsync(_stream, cancellationToken).ConfigureAwait(false);
+        }
+
+        using var idleCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        idleCts.CancelAfter(_idleTimeout);
+        try
+        {
+            return await Http3FrameReader.ReadAsync(_stream, idleCts.Token).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+        {
+            _pumpError = new ElsieRequestException(408, "Request body read timed out.");
+            return null;
+        }
     }
 
     /// <summary>True when the body exceeded the configured maximum (caller should 413).</summary>

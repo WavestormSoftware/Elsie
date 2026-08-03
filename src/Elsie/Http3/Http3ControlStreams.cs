@@ -47,7 +47,7 @@ internal static class Http3ControlStreams
         using var payload = new MemoryStream();
         WriteSetting(payload, SettingsQpackMaxTableCapacity, (ulong)Math.Max(0, serverOptions.QpackMaxTableCapacity));
         WriteSetting(payload, SettingsQpackBlockedStreams, (ulong)Math.Max(0, serverOptions.QpackBlockedStreams));
-        WriteSetting(payload, SettingsMaxFieldSectionSize, 16 * 1024);
+        WriteSetting(payload, SettingsMaxFieldSectionSize, (ulong)Math.Max(0, serverOptions.Http3MaxFieldSectionBytes));
         // RFC 9220 §3: Extended CONNECT (WebSocket over HTTP/3).
         WriteSetting(payload, SettingsEnableConnectProtocol, 1);
 

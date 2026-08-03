@@ -21,7 +21,18 @@ internal sealed class Http2Connection
     private readonly HostDispatch _dispatch;
     private readonly ConcurrentDictionary<int, StreamState> _streams = new();
     private int _activeStreams;
-    private int _serverWindow = 65535;
+
+    // Receive-side flow control (what WE advertised): decremented as DATA arrives, replenished
+    // by the WINDOW_UPDATEs we write after consuming it.
+    private int _connectionRecvWindow = 65535;
+
+    // Send-side flow control (what the PEER advertised): connection-level window plus per-stream
+    // StreamState.SendWindow. Guarded by _windowGate; _windowAvailable is pulsed whenever a
+    // WINDOW_UPDATE (or stream removal) may have unblocked a writer. RFC 9113 §6.9.
+    private readonly object _windowGate = new();
+    private TaskCompletionSource _windowAvailable = new(TaskCreationOptions.RunContinuationsAsynchronously);
+    private long _connectionSendWindow = 65535;
+
     private int _initialStreamWindow = 65535;
     private int _lastStreamId;
     private readonly HashSet<int> _seenSettingsIds = new();
@@ -135,6 +146,12 @@ internal sealed class Http2Connection
                         if (_streams.TryRemove(frame.StreamId, out _))
                         {
                             Interlocked.Decrement(ref _activeStreams);
+                            lock (_windowGate)
+                            {
+                                // Wake a response writer blocked on send-window credit so it
+                                // observes the stream is gone instead of hanging.
+                                PulseWindowAvailableLocked();
+                            }
                         }
                     }
                     else if (frame.Payload.Length != 4)
@@ -317,20 +334,89 @@ internal sealed class Http2Connection
 
         if (frame.StreamId == 0)
         {
-            _serverWindow += inc;
-            if (_serverWindow < 0)
+            lock (_windowGate)
             {
-                await GoAwayAsync(ErrFlowControl, cancellationToken).ConfigureAwait(false);
-                return false;
+                _connectionSendWindow += inc;
+                if (_connectionSendWindow > int.MaxValue)
+                {
+                    // RFC 9113 §6.9.1: window overflow is a connection FLOW_CONTROL_ERROR.
+                    GoAwaySync(ErrFlowControl, cancellationToken);
+                    return false;
+                }
+
+                PulseWindowAvailableLocked();
             }
         }
         else if (_streams.TryGetValue(frame.StreamId, out var state))
         {
-            state.SendWindow += inc;
+            var overflow = false;
+            lock (_windowGate)
+            {
+                state.SendWindow += inc;
+                overflow = state.SendWindow > int.MaxValue;
+                PulseWindowAvailableLocked();
+            }
+
+            if (overflow)
+            {
+                // RFC 9113 §6.9.1: stream window overflow is a stream FLOW_CONTROL_ERROR.
+                await RstAsync(frame.StreamId, ErrFlowControl, cancellationToken).ConfigureAwait(false);
+            }
         }
 
         return true;
     }
+
+    /// <summary>Wakes every writer waiting on send-window credit (a WINDOW_UPDATE arrived or a
+    /// stream went away). Call with <see cref="_windowGate"/> held.</summary>
+    private void PulseWindowAvailableLocked()
+    {
+        var tcs = _windowAvailable;
+        _windowAvailable = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        tcs.TrySetResult();
+    }
+
+    /// <summary>Waits until the stream may send DATA (both the connection and the stream window
+    /// have credit), returning the credit size. Returns 0 when the stream went away (RST /
+    /// connection teardown) — the caller stops the response quietly.</summary>
+    private async Task<int> WaitForSendWindowAsync(StreamState state, CancellationToken cancellationToken)
+    {
+        while (true)
+        {
+            Task wait;
+            lock (_windowGate)
+            {
+                if (!_streams.ContainsKey(state.StreamId))
+                {
+                    return 0;
+                }
+
+                var available = Math.Min(_connectionSendWindow, state.SendWindow);
+                if (available > 0)
+                {
+                    return (int)Math.Min(int.MaxValue, available);
+                }
+
+                wait = _windowAvailable.Task;
+            }
+
+            await wait.WaitAsync(cancellationToken).ConfigureAwait(false);
+        }
+    }
+
+    /// <summary>Charges <paramref name="bytes"/> against the connection and stream send windows.</summary>
+    private void ConsumeSendWindow(StreamState state, int bytes)
+    {
+        lock (_windowGate)
+        {
+            _connectionSendWindow -= bytes;
+            state.SendWindow -= bytes;
+        }
+    }
+
+    /// <summary>Fire-and-forget GOAWAY from inside a window-gate lock (best effort).</summary>
+    private void GoAwaySync(int errorCode, CancellationToken cancellationToken) =>
+        _ = GoAwayAsync(errorCode, cancellationToken);
 
     private async Task OnHeadersAsync(Http2Frame frame, CancellationToken cancellationToken)
     {
@@ -369,7 +455,9 @@ internal sealed class Http2Connection
             return;
         }
 
-        var state = new StreamState(frame.StreamId, _initialStreamWindow);
+        // RecvWindow is what WE advertised (our SETTINGS_INITIAL_WINDOW_SIZE, 65535);
+        // SendWindow is the PEER's advertised initial window.
+        var state = new StreamState(frame.StreamId, 65535, _initialStreamWindow);
         state.HeaderBuffer.Write(payload);
         state.EndStreamOnHeaders = (frame.Flags & Http2FrameFlags.EndStream) != 0;
         state.HeadersComplete = (frame.Flags & Http2FrameFlags.EndHeaders) != 0;
@@ -406,8 +494,10 @@ internal sealed class Http2Connection
                 finally
                 {
                     state.Dispose();
-                    _streams.TryRemove(state.StreamId, out _);
-                    Interlocked.Decrement(ref _activeStreams);
+                    if (_streams.TryRemove(state.StreamId, out _))
+                    {
+                        Interlocked.Decrement(ref _activeStreams);
+                    }
                 }
             });
             return;
@@ -450,14 +540,14 @@ internal sealed class Http2Connection
 
         // Connection + stream receive window (simple: decrement by full frame payload incl pad).
         var frameLen = frame.Payload.Length;
-        if (frameLen > state.RecvWindow || frameLen > _serverWindow)
+        if (frameLen > state.RecvWindow || frameLen > _connectionRecvWindow)
         {
             await GoAwayAsync(ErrFlowControl, cancellationToken).ConfigureAwait(false);
             return;
         }
 
         state.RecvWindow -= frameLen;
-        _serverWindow -= frameLen;
+        _connectionRecvWindow -= frameLen;
 
         var payload = frame.Payload.AsSpan();
         if ((frame.Flags & Http2FrameFlags.Padded) != 0)
@@ -501,7 +591,7 @@ internal sealed class Http2Connection
                 await WriteWindowUpdateAsync(0, frameLen, cancellationToken).ConfigureAwait(false);
                 await WriteWindowUpdateAsync(frame.StreamId, frameLen, cancellationToken).ConfigureAwait(false);
                 state.RecvWindow += frameLen;
-                _serverWindow += frameLen;
+                _connectionRecvWindow += frameLen;
             }
 
             if ((frame.Flags & Http2FrameFlags.EndStream) != 0)
@@ -529,7 +619,7 @@ internal sealed class Http2Connection
             await WriteWindowUpdateAsync(0, frameLen, cancellationToken).ConfigureAwait(false);
             await WriteWindowUpdateAsync(frame.StreamId, frameLen, cancellationToken).ConfigureAwait(false);
             state.RecvWindow += frameLen;
-            _serverWindow += frameLen;
+            _connectionRecvWindow += frameLen;
         }
 
         if ((frame.Flags & Http2FrameFlags.EndStream) != 0)
@@ -607,50 +697,57 @@ internal sealed class Http2Connection
         return false;
     }
 
-    private async Task MaybeDispatchAsync(StreamState state, CancellationToken cancellationToken)
+    /// <summary>Starts dispatch on a background task once the request is complete. The
+    /// connection read loop never awaits a dispatch — concurrent streams are served in
+    /// parallel (HTTP/2 multiplexing, RFC 9113 §5.1).</summary>
+    private Task MaybeDispatchAsync(StreamState state, CancellationToken cancellationToken)
     {
         if (!state.HeadersComplete)
         {
-            return;
+            return Task.CompletedTask;
         }
 
         // Need END_STREAM either on headers or after DATA (or empty body with end on headers)
         if (!state.EndStream && !state.EndStreamOnHeaders)
         {
-            return; // wait for DATA
+            return Task.CompletedTask; // wait for DATA
         }
 
         if (state.Dispatched)
         {
-            return;
+            return Task.CompletedTask;
         }
 
         state.Dispatched = true;
         state.EndStream = state.EndStream || state.EndStreamOnHeaders;
 
-        try
+        _ = Task.Run(async () =>
         {
-            await DispatchStreamAsync(state, cancellationToken).ConfigureAwait(false);
-        }
-        finally
-        {
-            state.Dispose();
-            _streams.TryRemove(state.StreamId, out _);
-            Interlocked.Decrement(ref _activeStreams);
-        }
+            try
+            {
+                await DispatchStreamAsync(state, cancellationToken).ConfigureAwait(false);
+            }
+            finally
+            {
+                state.Dispose();
+                if (_streams.TryRemove(state.StreamId, out _))
+                {
+                    Interlocked.Decrement(ref _activeStreams);
+                }
+            }
+        }, CancellationToken.None);
+        return Task.CompletedTask;
     }
 
     private async Task DispatchStreamAsync(StreamState state, CancellationToken cancellationToken)
     {
-        List<(string Name, string Value)> decoded;
-        try
+        // Headers were decoded on the connection loop (HPACK decode is strictly ordered and
+        // must not run concurrently on dispatch threads). A null here means the block was
+        // malformed — the decode error already happened on the loop.
+        if (state.DecodedHeaders is not { } decoded)
         {
-            decoded = state.DecodedHeaders ?? (state.DecodedHeaders = _hpack.Decode(state.HeaderBuffer.ToArray()));
-        }
-        catch (Exception ex)
-        {
-            _log?.Invoke($"HPACK error: {ex.Message}");
-            await RstAsync(state.StreamId, 0x1, cancellationToken).ConfigureAwait(false);
+            _log?.Invoke("HPACK error: malformed header block.");
+            await RstAsync(state.StreamId, ErrProtocol, cancellationToken).ConfigureAwait(false);
             return;
         }
 
@@ -811,16 +908,17 @@ internal sealed class Http2Connection
             useForwardedHeaders: _serverOptions.UseForwardedHeaders);
 
         var response = await _dispatch.ProcessAsync(request, cancellationToken).ConfigureAwait(false);
-        await WriteResponseAsync(state.StreamId, response, method, cancellationToken).ConfigureAwait(false);
+        await WriteResponseAsync(state, response, method, cancellationToken).ConfigureAwait(false);
         _log?.Invoke($"H2 {method} {pathOnly} → {response.StatusCode}");
     }
 
     private async Task WriteResponseAsync(
-        int streamId,
+        StreamState state,
         ElsieHttpResponse response,
         string method,
         CancellationToken cancellationToken)
     {
+        var streamId = state.StreamId;
         var respHeaders = new List<(string, string)>();
         if (!string.IsNullOrEmpty(response.ContentType))
         {
@@ -873,11 +971,19 @@ internal sealed class Http2Connection
 
         if (bufferedBody is { } buffered)
         {
-            // Split into max frame size chunks
+            // Split into chunks bounded by the max frame size AND the peer's flow-control
+            // windows (RFC 9113 §6.9): never send more than the connection/stream credit.
             var offset = 0;
             while (offset < buffered.Length)
             {
-                var take = Math.Min(_serverOptions.MaxFrameSize, buffered.Length - offset);
+                var window = await WaitForSendWindowAsync(state, cancellationToken).ConfigureAwait(false);
+                if (window == 0)
+                {
+                    return; // stream reset / connection teardown while sending
+                }
+
+                var take = Math.Min(Math.Min(_serverOptions.MaxFrameSize, window), buffered.Length - offset);
+                ConsumeSendWindow(state, take);
                 var end = offset + take >= buffered.Length;
                 // With trailers pending, END_STREAM moves to the trailing HEADERS frame.
                 await WriteFrameAsync(
@@ -984,9 +1090,38 @@ internal sealed class Http2Connection
         }
     }
 
-    /// <summary>Writes a DATA frame (no END_STREAM); used by the streaming response body adapter.</summary>
-    internal Task WriteDataFrameAsync(int streamId, ReadOnlyMemory<byte> payload, CancellationToken cancellationToken) =>
-        WriteFrameAsync(Http2FrameType.Data, Http2FrameFlags.None, streamId, payload, cancellationToken);
+    /// <summary>Writes a DATA frame (no END_STREAM) within the peer's flow-control windows
+    /// (RFC 9113 §6.9); used by the streaming response body adapter. Splits the payload when
+    /// the available credit is smaller than the frame and drops the remainder when the stream
+    /// went away mid-write.</summary>
+    internal async Task WriteDataFrameAsync(int streamId, ReadOnlyMemory<byte> payload, CancellationToken cancellationToken)
+    {
+        var offset = 0;
+        while (offset < payload.Length)
+        {
+            if (!_streams.TryGetValue(streamId, out var state))
+            {
+                return; // stream gone — nothing left to send to
+            }
+
+            var window = await WaitForSendWindowAsync(state, cancellationToken).ConfigureAwait(false);
+            if (window == 0)
+            {
+                return;
+            }
+
+            var take = Math.Min(window, payload.Length - offset);
+            ConsumeSendWindow(state, take);
+            await WriteFrameAsync(
+                    Http2FrameType.Data,
+                    Http2FrameFlags.None,
+                    streamId,
+                    payload.Slice(offset, take),
+                    cancellationToken)
+                .ConfigureAwait(false);
+            offset += take;
+        }
+    }
 
     private async Task RstAsync(int streamId, int errorCode, CancellationToken cancellationToken)
     {
@@ -1081,11 +1216,11 @@ internal sealed class Http2Connection
 
     private sealed class StreamState : IDisposable
     {
-        public StreamState(int streamId, int initialWindow)
+        public StreamState(int streamId, int recvWindow, long sendWindow)
         {
             StreamId = streamId;
-            RecvWindow = initialWindow;
-            SendWindow = initialWindow;
+            RecvWindow = recvWindow;
+            SendWindow = sendWindow;
         }
 
         public int StreamId { get; }
@@ -1096,7 +1231,7 @@ internal sealed class Http2Connection
         public bool EndStream { get; set; }
         public bool Dispatched { get; set; }
         public int RecvWindow { get; set; }
-        public int SendWindow { get; set; }
+        public long SendWindow { get; set; }
 
         /// <summary>Optional <c>Content-Length</c> from the request headers; lets the server dispatch
         /// a request once its body is fully received even if the client never sends END_STREAM

@@ -191,7 +191,10 @@ internal sealed class Http3Connection
         try
         {
             // Body state is per-stream (never shared across concurrent request streams).
-            var bodyStream = new QuicRequestBodyStream(stream, _serverOptions.MaxRequestBodyBytes);
+            var bodyStream = new QuicRequestBodyStream(
+                stream,
+                _serverOptions.MaxRequestBodyBytes,
+                _serverOptions.RequestBodyIdleTimeout);
 
             // The request scope must span dispatch and response writing (the handler and
             // DI middleware resolve from RequestServices), mirroring the HTTP/2 path.
@@ -323,6 +326,15 @@ internal sealed class Http3Connection
         }
 
         var block = first.Payload;
+        if (block.Length > Math.Max(0, _serverOptions.Http3MaxFieldSectionBytes))
+        {
+            // RFC 9114 §4.2.2: a field section larger than the advertised
+            // SETTINGS_MAX_FIELD_SECTION_SIZE is an H3_EXCESSIVE_LOAD connection error.
+            throw new Http3ProtocolException(
+                $"HTTP/3 request field section ({block.Length} bytes) exceeds the advertised {Math.Max(0, _serverOptions.Http3MaxFieldSectionBytes)}-byte limit.",
+                Http3ErrorCodes.ExcessiveLoad);
+        }
+
         QpackDecodeResult result;
         try
         {

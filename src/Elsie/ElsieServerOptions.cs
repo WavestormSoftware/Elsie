@@ -61,6 +61,19 @@ public sealed class ElsieServerOptions
     /// </summary>
     public int QpackBlockedStreams { get; set; } = 100;
 
+    /// <summary>
+    /// Max inbound unidirectional QUIC streams per HTTP/3 connection (client control + QPACK
+    /// encoder/decoder + push/unknown streams, RFC 9114 §6.2). Default 10.
+    /// </summary>
+    public int Http3MaxInboundUnidirectionalStreams { get; set; } = 10;
+
+    /// <summary>
+    /// Max bytes of an HTTP/3 request field section we accept (advertised via
+    /// SETTINGS_MAX_FIELD_SECTION_SIZE, RFC 9114 §7.2.4.2; larger sections are an
+    /// H3_EXCESSIVE_LOAD connection error). Default 16 KiB.
+    /// </summary>
+    public int Http3MaxFieldSectionBytes { get; set; } = 16 * 1024;
+
     /// <summary>Max HTTP/2 frame payload size we accept.</summary>
     public int MaxFrameSize { get; set; } = 16384;
 
@@ -117,6 +130,8 @@ public sealed class ElsieServerOptions
         MaxConcurrentStreams = source.MaxConcurrentStreams;
         QpackMaxTableCapacity = source.QpackMaxTableCapacity;
         QpackBlockedStreams = source.QpackBlockedStreams;
+        Http3MaxInboundUnidirectionalStreams = source.Http3MaxInboundUnidirectionalStreams;
+        Http3MaxFieldSectionBytes = source.Http3MaxFieldSectionBytes;
         MaxFrameSize = source.MaxFrameSize;
         UseForwardedHeaders = source.UseForwardedHeaders;
         EnableResponseCompression = source.EnableResponseCompression;
