@@ -103,11 +103,11 @@ internal sealed class ElsieServer : IHostedService, IAsyncDisposable
     /// Starts the HTTP/3 (QUIC) listener for <paramref name="ep"/> when enabled and the
     /// platform has QUIC support (libmsquic). Silently skipped otherwise.
     /// </summary>
-#pragma warning disable CA1416 // guarded by QuicListener.IsSupported + OS checks at runtime
-    /// <param name="ep"></param>
+    /// <param name="ep">The listen options.</param>
     /// <param name="tcpPort">The TCP listener's actual bound port, so HTTP/3 (UDP) shares the
     /// same numeric port — required for ephemeral (port 0) listens and for clients that resolve
     /// one endpoint for both transports.</param>
+#pragma warning disable CA1416 // guarded by QuicListener.IsSupported + OS checks at runtime
     private void StartHttp3ListenerIfSupported(ElsieListenOptions ep, int tcpPort)
     {
         if (!ep.EnableHttp3 || !ep.UseHttps || ep.Certificate is null || !QuicListener.IsSupported)
