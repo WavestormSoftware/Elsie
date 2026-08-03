@@ -124,7 +124,7 @@ public class RedisStoreIntegrationTests : IAsyncLifetime
         var store = new RedisFixedWindowStore(mux, permitLimit: 5, TimeSpan.FromMinutes(1));
         await using var host = Elsie.Testing.ElsieInMemoryHost.Create(s =>
         {
-            s.AddSingleton(store);
+            s.AddSingleton<IRateLimitStore>(store);
             s.AddElsieModule<HeaderModule>();
         });
 

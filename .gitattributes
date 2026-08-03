@@ -1,0 +1,11 @@
+# Normalize all text to LF on every platform (including Windows CI checkouts).
+# dotnet format enforces end_of_line=lf via .editorconfig; without this,
+# git-for-windows converts to CRLF on checkout and the CI format gate fails.
+* text=auto eol=lf
+
+# Explicitly binary (never touched by EOL normalization)
+*.png binary
+*.jpg binary
+*.ico binary
+*.snupkg binary
+*.nupkg binary

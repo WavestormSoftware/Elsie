@@ -17,6 +17,7 @@ else
         current = 0
     end
 end
+current = tonumber(current)
 local ttl = redis.call('TTL', KEYS[1])
 local limited = 0
 if current > tonumber(ARGV[1]) then
