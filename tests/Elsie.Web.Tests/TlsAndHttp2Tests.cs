@@ -271,7 +271,11 @@ public class TlsAndHttp2Tests
 
 public class Http3ServerTests
 {
+    /// <summary>QUIC is platform-guarded; the test gates on <see cref="System.Net.Quic.QuicListener.IsSupported"/>.</summary>
     [Fact]
+    [System.Runtime.Versioning.SupportedOSPlatform("linux")]
+    [System.Runtime.Versioning.SupportedOSPlatform("macOS")]
+    [System.Runtime.Versioning.SupportedOSPlatform("windows")]
     public async Task Https3_ping_when_supported()
     {
         if (!System.Net.Quic.QuicListener.IsSupported)
@@ -279,66 +283,84 @@ public class Http3ServerTests
             return; // libmsquic absent (e.g. local dev) — exercised in CI http3.yml
         }
 
-        using var cert = TlsAndHttp2Tests.CreateSelfSignedForTests();
-        // Fixed free port so the TCP and UDP (h3) listeners share one port.
-        var port = FindFreePort();
-        await using var server = await ElsieApp.Create()
-            .QuietConsole(false)
-            .Listen(IPAddress.Loopback, port, o =>
-            {
-                o.UseHttps = true;
-                o.Certificate = cert;
-                o.EnableHttp3 = true;
-            })
-            .Configure(o => o.ScanEntryAssembly = false)
-            .Module<PingModule2>()
-            .StartAsync();
-        var quic = new System.Net.Quic.QuicClientConnectionOptions
+        await H3TestDeadline.RunAsync(async ct =>
         {
-            RemoteEndPoint = new IPEndPoint(IPAddress.Loopback, port),
-            ClientAuthenticationOptions = new System.Net.Security.SslClientAuthenticationOptions
+            using var cert = TlsAndHttp2Tests.CreateSelfSignedForTests();
+            // Fixed free port so the TCP and UDP (h3) listeners share one port.
+            var port = FindFreePort();
+            await using var server = await ElsieApp.Create()
+                .QuietConsole(false)
+                .Listen(IPAddress.Loopback, port, o =>
+                {
+                    o.UseHttps = true;
+                    o.Certificate = cert;
+                    o.EnableHttp3 = true;
+                })
+                .Configure(o => o.ScanEntryAssembly = false)
+                .Module<PingModule2>()
+                .StartAsync();
+            var quic = new System.Net.Quic.QuicClientConnectionOptions
             {
-                ApplicationProtocols = [System.Net.Security.SslApplicationProtocol.Http3],
-                RemoteCertificateValidationCallback = static (_, _, _, _) => true
-            },
-            DefaultStreamErrorCode = 0x0100,
-            DefaultCloseErrorCode = 0x0100
-        };
+                RemoteEndPoint = new IPEndPoint(IPAddress.Loopback, port),
+                ClientAuthenticationOptions = new System.Net.Security.SslClientAuthenticationOptions
+                {
+                    ApplicationProtocols = [System.Net.Security.SslApplicationProtocol.Http3],
+                    RemoteCertificateValidationCallback = static (_, _, _, _) => true
+                },
+                DefaultStreamErrorCode = 0x0100,
+                DefaultCloseErrorCode = 0x0100
+            };
 
-        await using var connection = await System.Net.Quic.QuicConnection.ConnectAsync(quic);
-        await using var control = await connection.OpenOutboundStreamAsync(System.Net.Quic.QuicStreamType.Unidirectional);
-        await control.WriteAsync(new byte[] { 0x00 });
-        await using var request = await connection.OpenOutboundStreamAsync(System.Net.Quic.QuicStreamType.Bidirectional);
-        // Minimal request: HEADERS frame with QPACK-encoded :method GET / :scheme https / :path /ping.
-        await request.WriteAsync(BuildH3RequestHeaders());
-        await request.WriteAsync(new byte[] { 0x00, 0x00 }); // empty DATA frame
-        await request.FlushAsync();
-        request.CompleteWrites();
+            await using var connection = await System.Net.Quic.QuicConnection.ConnectAsync(quic, ct);
+            await using var control = await connection.OpenOutboundStreamAsync(System.Net.Quic.QuicStreamType.Unidirectional, ct);
+            await control.WriteAsync(new byte[] { 0x00 }, ct);
+            await using var request = await connection.OpenOutboundStreamAsync(System.Net.Quic.QuicStreamType.Bidirectional, ct);
+            // Standards-correct request: HEADERS frame carrying a QPACK field section produced
+            // by the framework's own encoder (RFC 9204).
+            var encoder = new Elsie.Web.Http3.QpackEncoder(encoderStream: null);
+            var block = encoder.EncodeFieldSection(
+                [
+                    (":method", "GET"),
+                    (":scheme", "https"),
+                    (":path", "/ping"),
+                    (":authority", $"127.0.0.1:{port}")
+                ],
+                streamId: 0);
+            await Elsie.Web.Http3.Http3FrameWriter.WriteAsync(
+                request,
+                new Elsie.Web.Http3.Http3Frame(Elsie.Web.Http3.Http3FrameType.Headers, block),
+                ct);
+            await request.WriteAsync(new byte[] { 0x00, 0x00 }, ct); // empty DATA frame
+            await request.FlushAsync(ct);
+            request.CompleteWrites();
 
-        // Read response frames until a DATA frame arrives.
-        var payload = new MemoryStream();
-        while (true)
-        {
-            var frame = await Elsie.Web.Http3.Http3FrameReader.ReadAsync(request, CancellationToken.None);
-            if (frame is null)
+            // Read response frames until the stream ends; capture :status and the DATA payload.
+            string? status = null;
+            var payload = new MemoryStream();
+            var decoder = new Elsie.Web.Http3.QpackDecoder(maxCapacity: 0, decoderStream: null);
+            while (true)
             {
-                break;
+                var frame = await Elsie.Web.Http3.Http3FrameReader.ReadAsync(request, ct);
+                if (frame is null)
+                {
+                    break;
+                }
+
+                if (frame.Value.Type == Elsie.Web.Http3.Http3FrameType.Headers && status is null)
+                {
+                    var fields = decoder.DecodeHeaderBlock(frame.Value.Payload.Span).Fields!;
+                    status = fields.FirstOrDefault(f => f.Item1 == ":status").Item2;
+                }
+                else if (frame.Value.Type == Elsie.Web.Http3.Http3FrameType.Data)
+                {
+                    payload.Write(frame.Value.Payload.Span);
+                }
             }
 
-            if (frame.Value.Type == Elsie.Web.Http3.Http3FrameType.Data)
-            {
-                payload.Write(frame.Value.Payload.Span);
-            }
-
-            if (frame.Value.Type == Elsie.Web.Http3.Http3FrameType.Headers &&
-                payload.Length > 0)
-            {
-                break;
-            }
-        }
-
-        var body = System.Text.Encoding.UTF8.GetString(payload.ToArray());
-        Assert.Equal("h3-pong", body);
+            Assert.Equal("200", status);
+            var body = System.Text.Encoding.UTF8.GetString(payload.ToArray());
+            Assert.Equal("h3-pong", body);
+        });
     }
 
     private static int FindFreePort()
@@ -346,22 +368,6 @@ public class Http3ServerTests
         using var probe = new System.Net.Sockets.TcpListener(IPAddress.Loopback, 0);
         probe.Start();
         return ((IPEndPoint)probe.LocalEndpoint).Port;
-    }
-
-    private static byte[] BuildH3RequestHeaders()
-    {
-        using var ms = new MemoryStream();
-        ms.WriteByte(0x00); // required insert count
-        ms.WriteByte(0x00); // delta base
-        // :method GET → indexed (QPACK static 1)
-        ms.WriteByte(0x81);
-        // :scheme https → indexed (QPACK static 10)
-        ms.WriteByte(0x8A);
-        // :path /ping → literal name ref (:path QPACK static 3) + value "/ping"
-        ms.WriteByte(0x23);
-        ms.WriteByte(0x05);
-        ms.Write(System.Text.Encoding.ASCII.GetBytes("/ping"));
-        return ms.ToArray();
     }
 
     private sealed class PingModule2 : ElsieModule

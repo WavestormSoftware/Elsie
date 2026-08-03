@@ -30,29 +30,32 @@ public class Http3QpackErrorTests
             return; // libmsquic absent locally — CI installs it (http3.yml)
         }
 
-        using var cert = CreateSelfSigned();
-        var port = FindFreePort();
-        await using var server = await ElsieApp.Create()
-            .QuietConsole(false)
-            .Listen(IPAddress.Loopback, port, o =>
-            {
-                o.UseHttps = true;
-                o.Certificate = cert;
-                o.EnableHttp3 = true;
-            })
-            .Configure(o => o.ScanEntryAssembly = false)
-            .StartAsync();
+        await H3TestDeadline.RunAsync(async ct =>
+        {
+            using var cert = CreateSelfSigned();
+            var port = FindFreePort();
+            await using var server = await ElsieApp.Create()
+                .QuietConsole(false)
+                .Listen(IPAddress.Loopback, port, o =>
+                {
+                    o.UseHttps = true;
+                    o.Certificate = cert;
+                    o.EnableHttp3 = true;
+                })
+                .Configure(o => o.ScanEntryAssembly = false)
+                .StartAsync();
 
-        await using var connection = await ConnectAsync(port);
+            await using var connection = await ConnectAsync(port, ct);
 
-        // A QPACK encoder stream (type 0x02) carrying Set Dynamic Table Capacity = 5000 —
-        // above the server's advertised 4096-byte maximum → the decoder must reject it and the
-        // server must close the connection with H3_QPACK_ENCODER_STREAM_ERROR.
-        await using var stream = await connection.OpenOutboundStreamAsync(QuicStreamType.Unidirectional);
-        await stream.WriteAsync(new byte[] { 0x02, 0x3F, 0xE9, 0x26 }, CancellationToken.None);
-        stream.CompleteWrites();
+            // A QPACK encoder stream (type 0x02) carrying Set Dynamic Table Capacity = 5000 —
+            // above the server's advertised 4096-byte maximum → the decoder must reject it and the
+            // server must close the connection with H3_QPACK_ENCODER_STREAM_ERROR.
+            await using var stream = await connection.OpenOutboundStreamAsync(QuicStreamType.Unidirectional, ct);
+            await stream.WriteAsync(new byte[] { 0x02, 0x3F, 0xE9, 0x26 }, ct);
+            stream.CompleteWrites();
 
-        await AssertConnectionClosedWithErrorAsync(connection, 0x201, port);
+            await AssertConnectionClosedWithErrorAsync(connection, 0x201, port, ct);
+        });
     }
 
     [Fact]
@@ -66,43 +69,46 @@ public class Http3QpackErrorTests
             return; // libmsquic absent locally — CI installs it (http3.yml)
         }
 
-        using var cert = CreateSelfSigned();
-        var port = FindFreePort();
-        await using var server = await ElsieApp.Create()
-            .QuietConsole(false)
-            .Listen(IPAddress.Loopback, port, o =>
-            {
-                o.UseHttps = true;
-                o.Certificate = cert;
-                o.EnableHttp3 = true;
-            })
-            .Configure(o => o.ScanEntryAssembly = false)
-            .StartAsync();
+        await H3TestDeadline.RunAsync(async ct =>
+        {
+            using var cert = CreateSelfSigned();
+            var port = FindFreePort();
+            await using var server = await ElsieApp.Create()
+                .QuietConsole(false)
+                .Listen(IPAddress.Loopback, port, o =>
+                {
+                    o.UseHttps = true;
+                    o.Certificate = cert;
+                    o.EnableHttp3 = true;
+                })
+                .Configure(o => o.ScanEntryAssembly = false)
+                .StartAsync();
 
-        await using var connection = await ConnectAsync(port);
+            await using var connection = await ConnectAsync(port, ct);
 
-        // A request HEADERS frame whose QPACK block encodes Required Insert Count = 1 while the
-        // decoder has zero inserts: reconstruction must fail → H3_QPACK_DECOMPRESSION_FAILED.
-        await using var stream = await connection.OpenOutboundStreamAsync(QuicStreamType.Bidirectional);
-        await Http3FrameWriter.WriteAsync(
-            stream,
-            new Http3Frame(Http3FrameType.Headers, new byte[] { 0x01, 0x00 }),
-            CancellationToken.None);
-        await stream.FlushAsync();
-        stream.CompleteWrites();
+            // A request HEADERS frame whose QPACK block encodes Required Insert Count = 1 while the
+            // decoder has zero inserts: reconstruction must fail → H3_QPACK_DECOMPRESSION_FAILED.
+            await using var stream = await connection.OpenOutboundStreamAsync(QuicStreamType.Bidirectional, ct);
+            await Http3FrameWriter.WriteAsync(
+                stream,
+                new Http3Frame(Http3FrameType.Headers, new byte[] { 0x01, 0x00 }),
+                ct);
+            await stream.FlushAsync(ct);
+            stream.CompleteWrites();
 
-        // Reading on the request stream surfaces the peer's connection close (0x200).
-        var ex = await Assert.ThrowsAsync<QuicException>(async () =>
-            await ReadUntilConnectionClosedAsync(stream, new byte[4096], CancellationToken.None));
-        Assert.Equal(QuicError.ConnectionAborted, ex.QuicError);
-        Assert.Equal(0x200, ex.ApplicationErrorCode);
+            // Reading on the request stream surfaces the peer's connection close (0x200).
+            var ex = await Assert.ThrowsAsync<QuicException>(async () =>
+                await ReadUntilConnectionClosedAsync(stream, new byte[4096], ct));
+            Assert.Equal(QuicError.ConnectionAborted, ex.QuicError);
+            Assert.Equal(0x200, ex.ApplicationErrorCode);
+        });
     }
 
     /// <summary>QUIC is platform-guarded; the callers gate on <see cref="QuicListener.IsSupported"/>.</summary>
     [SupportedOSPlatform("linux")]
     [SupportedOSPlatform("macOS")]
     [SupportedOSPlatform("windows")]
-    private static async Task<QuicConnection> ConnectAsync(int port)
+    private static async Task<QuicConnection> ConnectAsync(int port, CancellationToken cancellationToken)
     {
         return await QuicConnection.ConnectAsync(new QuicClientConnectionOptions
         {
@@ -114,7 +120,7 @@ public class Http3QpackErrorTests
                 ApplicationProtocols = [SslApplicationProtocol.Http3],
                 RemoteCertificateValidationCallback = static (_, _, _, _) => true
             }
-        });
+        }, cancellationToken);
     }
 
     /// <summary>Probes with valid requests until the peer's connection close surfaces as a
@@ -126,14 +132,15 @@ public class Http3QpackErrorTests
     private static async Task AssertConnectionClosedWithErrorAsync(
         QuicConnection connection,
         long expectedErrorCode,
-        int port)
+        int port,
+        CancellationToken cancellationToken)
     {
         var deadline = DateTime.UtcNow.AddSeconds(10);
         while (DateTime.UtcNow < deadline)
         {
             try
             {
-                await using var probe = await connection.OpenOutboundStreamAsync(QuicStreamType.Bidirectional);
+                await using var probe = await connection.OpenOutboundStreamAsync(QuicStreamType.Bidirectional, cancellationToken);
                 var encoder = new QpackEncoder(encoderStream: null);
                 var block = encoder.EncodeFieldSection(
                     [
@@ -143,11 +150,11 @@ public class Http3QpackErrorTests
                         (":authority", $"127.0.0.1:{port}")
                     ],
                     streamId: 0);
-                await Http3FrameWriter.WriteAsync(probe, new Http3Frame(Http3FrameType.Headers, block), CancellationToken.None);
-                await probe.FlushAsync();
+                await Http3FrameWriter.WriteAsync(probe, new Http3Frame(Http3FrameType.Headers, block), cancellationToken);
+                await probe.FlushAsync(cancellationToken);
                 probe.CompleteWrites();
 
-                await ReadUntilConnectionClosedAsync(probe, new byte[4096], CancellationToken.None);
+                await ReadUntilConnectionClosedAsync(probe, new byte[4096], cancellationToken);
             }
             catch (QuicException ex) when (ex.ApplicationErrorCode == expectedErrorCode)
             {
@@ -156,7 +163,7 @@ public class Http3QpackErrorTests
             }
             catch (QuicException)
             {
-                await Task.Delay(50);
+                await Task.Delay(50, cancellationToken);
             }
         }
 

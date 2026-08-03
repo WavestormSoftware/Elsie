@@ -39,7 +39,11 @@ public class Http3WebSocketTests
         }
     }
 
+    /// <summary>QUIC is platform-guarded; the test gates on <see cref="QuicListener.IsSupported"/>.</summary>
     [Fact]
+    [System.Runtime.Versioning.SupportedOSPlatform("linux")]
+    [System.Runtime.Versioning.SupportedOSPlatform("macOS")]
+    [System.Runtime.Versioning.SupportedOSPlatform("windows")]
     public async Task Echo_websocket_over_http3()
     {
         if (!QuicListener.IsSupported)
@@ -47,75 +51,81 @@ public class Http3WebSocketTests
             return; // libmsquic absent locally — CI installs it (http3.yml)
         }
 
-        using var cert = CreateSelfSigned();
-        await using var server = await ElsieApp.Create()
-            .QuietConsole(false)
-            .Listen(IPAddress.Loopback, 0, o =>
-            {
-                o.UseHttps = true;
-                o.Certificate = cert;
-                o.Protocols = ElsieHttpProtocols.Http1AndHttp2;
-                o.EnableHttp3 = true;
-            })
-            .Configure(o => o.ScanEntryAssembly = false)
-            .Module<WsModule>()
-            .StartAsync();
-
-        var port = server.Endpoints[0].Port;
-        await using var connection = await QuicConnection.ConnectAsync(new QuicClientConnectionOptions
+        await H3TestDeadline.RunAsync(async ct =>
         {
-            RemoteEndPoint = new IPEndPoint(IPAddress.Loopback, port),
-            DefaultStreamErrorCode = 0x0100,
-            DefaultCloseErrorCode = 0,
-            ClientAuthenticationOptions = new SslClientAuthenticationOptions
+            using var cert = CreateSelfSigned();
+            await using var server = await ElsieApp.Create()
+                .QuietConsole(false)
+                .Listen(IPAddress.Loopback, 0, o =>
+                {
+                    o.UseHttps = true;
+                    o.Certificate = cert;
+                    o.Protocols = ElsieHttpProtocols.Http1AndHttp2;
+                    o.EnableHttp3 = true;
+                })
+                .Configure(o => o.ScanEntryAssembly = false)
+                .Module<WsModule>()
+                .StartAsync();
+
+            var port = server.Endpoints[0].Port;
+            await using var connection = await QuicConnection.ConnectAsync(new QuicClientConnectionOptions
             {
-                ApplicationProtocols = new List<SslApplicationProtocol> { SslApplicationProtocol.Http3 },
-                RemoteCertificateValidationCallback = static (_, _, _, _) => true
-            }
+                RemoteEndPoint = new IPEndPoint(IPAddress.Loopback, port),
+                DefaultStreamErrorCode = 0x0100,
+                DefaultCloseErrorCode = 0,
+                ClientAuthenticationOptions = new SslClientAuthenticationOptions
+                {
+                    ApplicationProtocols = new List<SslApplicationProtocol> { SslApplicationProtocol.Http3 },
+                    RemoteCertificateValidationCallback = static (_, _, _, _) => true
+                }
+            }, ct);
+
+            await using var stream = await connection.OpenOutboundStreamAsync(QuicStreamType.Bidirectional, ct);
+            var encoder = new QpackEncoder(encoderStream: null);
+            var block = encoder.EncodeFieldSection(
+                [
+                    (":method", "CONNECT"),
+                    (":protocol", "websocket"),
+                    (":scheme", "https"),
+                    (":path", "/ws"),
+                    (":authority", $"127.0.0.1:{port}")
+                ],
+                streamId: 0);
+            await Http3FrameWriter.WriteAsync(stream, new Http3Frame(Http3FrameType.Headers, block), ct);
+
+            // Read the 2xx handshake response.
+            var decoder = new QpackDecoder(maxCapacity: 0, decoderStream: null);
+            var responseFrame = await Http3FrameReader.ReadAsync(stream, ct);
+            Assert.NotNull(responseFrame);
+            Assert.Equal(Http3FrameType.Headers, responseFrame!.Value.Type);
+            var fields = decoder.DecodeHeaderBlock(responseFrame.Value.Payload.Span).Fields!;
+            Assert.Contains((":status", "200"), fields);
+
+            // Send a masked client text frame (RFC 6455).
+            var clientFrame = BuildMaskedTextFrame("hello");
+            await Http3FrameWriter.WriteAsync(stream, new Http3Frame(Http3FrameType.Data, clientFrame), ct);
+
+            // Read the echoed text frame (server frames are unmasked).
+            var echo = await ReadWebSocketTextAsync(stream, ct);
+            Assert.Equal("echo:hello", echo);
+
+            // Close handshake: client sends close frame, server echoes it.
+            var closePayload = new byte[] { 0x03, 0xE8 }; // 1000
+            var closeFrame = BuildMaskedFrame(0x8, closePayload);
+            await Http3FrameWriter.WriteAsync(stream, new Http3Frame(Http3FrameType.Data, closeFrame), ct);
+            await Task.Delay(200, ct);
         });
-
-        await using var stream = await connection.OpenOutboundStreamAsync(QuicStreamType.Bidirectional);
-        var encoder = new QpackEncoder(encoderStream: null);
-        var block = encoder.EncodeFieldSection(
-            [
-                (":method", "CONNECT"),
-                (":protocol", "websocket"),
-                (":scheme", "https"),
-                (":path", "/ws"),
-                (":authority", $"127.0.0.1:{port}")
-            ],
-            streamId: 0);
-        await Http3FrameWriter.WriteAsync(stream, new Http3Frame(Http3FrameType.Headers, block), CancellationToken.None);
-
-        // Read the 2xx handshake response.
-        var decoder = new QpackDecoder(maxCapacity: 0, decoderStream: null);
-        var responseFrame = await Http3FrameReader.ReadAsync(stream, CancellationToken.None);
-        Assert.NotNull(responseFrame);
-        Assert.Equal(Http3FrameType.Headers, responseFrame!.Value.Type);
-        var fields = decoder.DecodeHeaderBlock(responseFrame.Value.Payload.Span).Fields!;
-        Assert.Contains((":status", "200"), fields);
-
-        // Send a masked client text frame (RFC 6455).
-        var clientFrame = BuildMaskedTextFrame("hello");
-        await Http3FrameWriter.WriteAsync(stream, new Http3Frame(Http3FrameType.Data, clientFrame), CancellationToken.None);
-
-        // Read the echoed text frame (server frames are unmasked).
-        var echo = await ReadWebSocketTextAsync(stream);
-        Assert.Equal("echo:hello", echo);
-
-        // Close handshake: client sends close frame, server echoes it.
-        var closePayload = new byte[] { 0x03, 0xE8 }; // 1000
-        var closeFrame = BuildMaskedFrame(0x8, closePayload);
-        await Http3FrameWriter.WriteAsync(stream, new Http3Frame(Http3FrameType.Data, closeFrame), CancellationToken.None);
-        await Task.Delay(200);
     }
 
-    private static async Task<string> ReadWebSocketTextAsync(QuicStream stream)
+    [System.Runtime.Versioning.SupportedOSPlatform("linux")]
+    [System.Runtime.Versioning.SupportedOSPlatform("macOS")]
+    [System.Runtime.Versioning.SupportedOSPlatform("windows")]
+    private static async Task<string> ReadWebSocketTextAsync(QuicStream stream, CancellationToken cancellationToken)
     {
         var payload = new List<byte>();
         while (true)
         {
-            var frame = await Http3FrameReader.ReadAsync(stream, CancellationToken.None);
+            var frame = await Http3FrameReader.ReadAsync(stream, cancellationToken);
             Assert.NotNull(frame);
             if (frame!.Value.Type != Http3FrameType.Data)
             {

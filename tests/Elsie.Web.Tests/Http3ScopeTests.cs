@@ -35,7 +35,11 @@ public class Http3ScopeTests
         }
     }
 
+    /// <summary>QUIC is platform-guarded; the test gates on <see cref="QuicListener.IsSupported"/>.</summary>
     [Fact]
+    [SupportedOSPlatform("linux")]
+    [SupportedOSPlatform("macOS")]
+    [SupportedOSPlatform("windows")]
     public async Task Request_scope_is_alive_during_h3_dispatch()
     {
         if (!QuicListener.IsSupported)
@@ -43,43 +47,46 @@ public class Http3ScopeTests
             return; // libmsquic absent locally — CI installs it (http3.yml)
         }
 
-        using var cert = CreateSelfSigned();
-        var port = FindFreePort();
-        await using var server = await ElsieApp.Create()
-            .QuietConsole(false)
-            .Listen(IPAddress.Loopback, port, o =>
-            {
-                o.UseHttps = true;
-                o.Certificate = cert;
-                o.EnableHttp3 = true;
-            })
-            .Configure(o => o.ScanEntryAssembly = false)
-            .Services(s => s.AddScoped<RequestScopedMarker>())
-            .Module<ScopedModule>()
-            .StartAsync();
-
-        await using var connection = await QuicConnection.ConnectAsync(new QuicClientConnectionOptions
+        await H3TestDeadline.RunAsync(async ct =>
         {
-            RemoteEndPoint = new IPEndPoint(IPAddress.Loopback, port),
-            DefaultStreamErrorCode = 0x0100,
-            DefaultCloseErrorCode = 0x0100,
-            ClientAuthenticationOptions = new SslClientAuthenticationOptions
+            using var cert = CreateSelfSigned();
+            var port = FindFreePort();
+            await using var server = await ElsieApp.Create()
+                .QuietConsole(false)
+                .Listen(IPAddress.Loopback, port, o =>
+                {
+                    o.UseHttps = true;
+                    o.Certificate = cert;
+                    o.EnableHttp3 = true;
+                })
+                .Configure(o => o.ScanEntryAssembly = false)
+                .Services(s => s.AddScoped<RequestScopedMarker>())
+                .Module<ScopedModule>()
+                .StartAsync();
+
+            await using var connection = await QuicConnection.ConnectAsync(new QuicClientConnectionOptions
             {
-                ApplicationProtocols = [SslApplicationProtocol.Http3],
-                RemoteCertificateValidationCallback = static (_, _, _, _) => true
-            }
+                RemoteEndPoint = new IPEndPoint(IPAddress.Loopback, port),
+                DefaultStreamErrorCode = 0x0100,
+                DefaultCloseErrorCode = 0x0100,
+                ClientAuthenticationOptions = new SslClientAuthenticationOptions
+                {
+                    ApplicationProtocols = [SslApplicationProtocol.Http3],
+                    RemoteCertificateValidationCallback = static (_, _, _, _) => true
+                }
+            }, ct);
+
+            await using var control = await connection.OpenOutboundStreamAsync(QuicStreamType.Unidirectional, ct);
+            await control.WriteAsync(new byte[] { 0x00 }, ct); // control stream type
+
+            var (status, body) = await RoundTripAsync(connection, port, "/scoped", ct);
+            Assert.Equal("200", status);
+            Assert.Equal("scoped:resolved", body);
+
+            var (status2, body2) = await RoundTripAsync(connection, port, "/services", ct);
+            Assert.Equal("200", status2);
+            Assert.Equal("services:resolved", body2);
         });
-
-        await using var control = await connection.OpenOutboundStreamAsync(QuicStreamType.Unidirectional);
-        await control.WriteAsync(new byte[] { 0x00 }); // control stream type
-
-        var (status, body) = await RoundTripAsync(connection, port, "/scoped");
-        Assert.Equal("200", status);
-        Assert.Equal("scoped:resolved", body);
-
-        var (status2, body2) = await RoundTripAsync(connection, port, "/services");
-        Assert.Equal("200", status2);
-        Assert.Equal("services:resolved", body2);
     }
 
     /// <summary>QUIC is platform-guarded; the caller gates on <see cref="QuicListener.IsSupported"/>.</summary>
@@ -89,9 +96,10 @@ public class Http3ScopeTests
     private static async Task<(string Status, string Body)> RoundTripAsync(
         QuicConnection connection,
         int port,
-        string path)
+        string path,
+        CancellationToken cancellationToken)
     {
-        await using var stream = await connection.OpenOutboundStreamAsync(QuicStreamType.Bidirectional);
+        await using var stream = await connection.OpenOutboundStreamAsync(QuicStreamType.Bidirectional, cancellationToken);
         var encoder = new QpackEncoder(encoderStream: null);
         var block = encoder.EncodeFieldSection(
             [
@@ -101,16 +109,16 @@ public class Http3ScopeTests
                 (":authority", $"127.0.0.1:{port}")
             ],
             streamId: 0);
-        await Http3FrameWriter.WriteAsync(stream, new Http3Frame(Http3FrameType.Headers, block), CancellationToken.None);
-        await stream.WriteAsync(new byte[] { 0x00, 0x00 }); // empty DATA frame (end of request body)
-        await stream.FlushAsync();
+        await Http3FrameWriter.WriteAsync(stream, new Http3Frame(Http3FrameType.Headers, block), cancellationToken);
+        await stream.WriteAsync(new byte[] { 0x00, 0x00 }, cancellationToken); // empty DATA frame (end of request body)
+        await stream.FlushAsync(cancellationToken);
         stream.CompleteWrites();
 
         string? status = null;
         using var payload = new MemoryStream();
         while (true)
         {
-            var frame = await Http3FrameReader.ReadAsync(stream, CancellationToken.None);
+            var frame = await Http3FrameReader.ReadAsync(stream, cancellationToken);
             if (frame is null)
             {
                 break;

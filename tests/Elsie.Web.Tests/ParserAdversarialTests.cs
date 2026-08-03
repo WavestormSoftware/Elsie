@@ -7,7 +7,7 @@ using Xunit;
 namespace Elsie.Web.Tests;
 
 /// <summary>
-/// Phase 1 security hardening specs. Skipped until each S-task lands; unskip with the fix.
+/// Parser/transport adversarial hardening specs (smuggling, disconnects, idle timeouts).
 /// </summary>
 public class ParserAdversarialTests
 {
@@ -280,15 +280,18 @@ public class ParserAdversarialTests
         Assert.Matches(@"(?im)^Date:\s+.+$", response);
     }
 
-    // --- S6: body idle timeout (placeholder; needs trickle client) ---
+    // --- S6: body idle timeout ---
 
     [Fact]
     public async Task Body_idle_timeout_returns_408()
     {
+        // Generous margin: the trickle gap stays well under the idle timeout even when the
+        // test host is heavily loaded (xUnit runs suites in parallel).
+        const int idleTimeoutMs = 1000;
         await using var server = await ElsieApp.Create()
             .QuietConsole(false)
             .Listen(IPAddress.Loopback, 0)
-            .Server(o => o.RequestBodyIdleTimeout = TimeSpan.FromMilliseconds(200))
+            .Server(o => o.RequestBodyIdleTimeout = TimeSpan.FromMilliseconds(idleTimeoutMs))
             .Configure(o => o.ScanEntryAssembly = false)
             .Module<PathModule>()
             .StartAsync();
@@ -297,16 +300,33 @@ public class ParserAdversarialTests
         using var tcp = new TcpClient();
         await tcp.ConnectAsync(ep.Address, ep.Port);
         await using var ns = tcp.GetStream();
-        await ns.WriteAsync(Encoding.ASCII.GetBytes(
-            "POST /echo HTTP/1.1\r\n" +
-            "Host: localhost\r\n" +
-            "Content-Length: 10\r\n" +
-            "Connection: close\r\n" +
-            "\r\n" +
-            "ab")); // incomplete body; wait for idle timeout
-        await Task.Delay(800);
-        var response = await ReadAvailableAsync(ns, TimeSpan.FromSeconds(10));
-        Assert.Contains("408", response, StringComparison.Ordinal);
+
+        // Trickle: 8 of 10 declared bytes arrive in pairs spaced well under the idle timeout
+        // (each write resets the timer), then the client stalls — the final pair never comes.
+        try
+        {
+            await ns.WriteAsync(Encoding.ASCII.GetBytes(
+                "POST /echo HTTP/1.1\r\n" +
+                "Host: localhost\r\n" +
+                "Content-Length: 10\r\n" +
+                "Connection: close\r\n" +
+                "\r\n"));
+            for (var i = 0; i < 4; i++)
+            {
+                await ns.WriteAsync(Encoding.ASCII.GetBytes("ab"));
+                await Task.Delay(idleTimeoutMs / 5);
+            }
+        }
+        catch (Exception ex) when (ex is IOException or SocketException)
+        {
+            // The server already timed the body out and closed the socket mid-trickle —
+            // the 408 response is what matters; read it below.
+        }
+
+        // No more bytes: the next read must hit the idle timeout and produce a 408 response.
+        var response = await ReadUntilAsync(ns, "\r\n\r\n", TimeSpan.FromSeconds(10));
+        var statusLine = response.Split("\r\n", 2)[0];
+        Assert.Contains(" 408 ", statusLine, StringComparison.Ordinal);
     }
 
     // --- S7: shutdown aborts open sockets ---
@@ -366,40 +386,6 @@ public class ParserAdversarialTests
                 {
                     return text;
                 }
-            }
-        }
-        catch (OperationCanceledException)
-        {
-            // timeout
-        }
-
-        return Encoding.ASCII.GetString(ms.ToArray());
-    }
-
-    private static async Task<string> ReadAvailableAsync(NetworkStream ns, TimeSpan timeout)
-    {
-        using var cts = new CancellationTokenSource(timeout);
-        var ms = new MemoryStream();
-        var buf = new byte[1024];
-        try
-        {
-            // First byte may block until server responds (or timeout).
-            var n = await ns.ReadAsync(buf.AsMemory(0, buf.Length), cts.Token);
-            if (n == 0)
-            {
-                return string.Empty;
-            }
-
-            ms.Write(buf, 0, n);
-            while (ns.DataAvailable && !cts.IsCancellationRequested)
-            {
-                n = await ns.ReadAsync(buf.AsMemory(0, buf.Length), cts.Token);
-                if (n == 0)
-                {
-                    break;
-                }
-
-                ms.Write(buf, 0, n);
             }
         }
         catch (OperationCanceledException)

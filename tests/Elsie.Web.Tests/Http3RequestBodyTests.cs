@@ -95,7 +95,11 @@ public class Http3RequestBodyTests
         Assert.Equal(partA.Concat(partB).ToArray(), all.ToArray());
     }
 
+    /// <summary>QUIC is platform-guarded; the test gates on <see cref="QuicListener.IsSupported"/>.</summary>
     [Fact]
+    [System.Runtime.Versioning.SupportedOSPlatform("linux")]
+    [System.Runtime.Versioning.SupportedOSPlatform("macOS")]
+    [System.Runtime.Versioning.SupportedOSPlatform("windows")]
     public async Task Large_request_body_preserves_byte_order_across_split_data_frames()
     {
         if (!QuicListener.IsSupported)
@@ -103,90 +107,93 @@ public class Http3RequestBodyTests
             return; // libmsquic absent locally — CI installs it (http3.yml)
         }
 
-        using var cert = CreateSelfSigned();
-        var port = FindFreePort();
-        await using var server = await ElsieApp.Create()
-            .QuietConsole(false)
-            .Listen(IPAddress.Loopback, port, o =>
-            {
-                o.UseHttps = true;
-                o.Certificate = cert;
-                o.EnableHttp3 = true;
-            })
-            .Configure(o => o.ScanEntryAssembly = false)
-            .Module<EchoModule>()
-            .StartAsync();
-
-        await using var connection = await QuicConnection.ConnectAsync(new QuicClientConnectionOptions
+        await H3TestDeadline.RunAsync(async ct =>
         {
-            RemoteEndPoint = new IPEndPoint(IPAddress.Loopback, port),
-            DefaultStreamErrorCode = 0x0100,
-            DefaultCloseErrorCode = 0x0100,
-            ClientAuthenticationOptions = new SslClientAuthenticationOptions
+            using var cert = CreateSelfSigned();
+            var port = FindFreePort();
+            await using var server = await ElsieApp.Create()
+                .QuietConsole(false)
+                .Listen(IPAddress.Loopback, port, o =>
+                {
+                    o.UseHttps = true;
+                    o.Certificate = cert;
+                    o.EnableHttp3 = true;
+                })
+                .Configure(o => o.ScanEntryAssembly = false)
+                .Module<EchoModule>()
+                .StartAsync();
+
+            await using var connection = await QuicConnection.ConnectAsync(new QuicClientConnectionOptions
             {
-                ApplicationProtocols = [SslApplicationProtocol.Http3],
-                RemoteCertificateValidationCallback = static (_, _, _, _) => true
+                RemoteEndPoint = new IPEndPoint(IPAddress.Loopback, port),
+                DefaultStreamErrorCode = 0x0100,
+                DefaultCloseErrorCode = 0x0100,
+                ClientAuthenticationOptions = new SslClientAuthenticationOptions
+                {
+                    ApplicationProtocols = [SslApplicationProtocol.Http3],
+                    RemoteCertificateValidationCallback = static (_, _, _, _) => true
+                }
+            }, ct);
+
+            await using var stream = await connection.OpenOutboundStreamAsync(QuicStreamType.Bidirectional, ct);
+            var encoder = new QpackEncoder(encoderStream: null);
+            var block = encoder.EncodeFieldSection(
+                [
+                    (":method", "POST"),
+                    (":scheme", "https"),
+                    (":path", "/echo"),
+                    (":authority", $"127.0.0.1:{port}"),
+                    ("content-type", "application/octet-stream")
+                ],
+                streamId: 0);
+            await Http3FrameWriter.WriteAsync(stream, new Http3Frame(Http3FrameType.Headers, block), ct);
+
+            // Two DATA frames whose combined payload (300 KB) is far larger than the handler's
+            // 8 KB read buffer. The first frame alone (200 KB) exceeds the framework CopyToAsync
+            // read size (81920 bytes), so every consumer read splits it.
+            var partA = new byte[200_000];
+            var partB = new byte[100_000];
+            for (var i = 0; i < partA.Length; i++)
+            {
+                partA[i] = (byte)(i % 251);
             }
+
+            for (var i = 0; i < partB.Length; i++)
+            {
+                partB[i] = (byte)(200 + (i % 50));
+            }
+
+            await Http3FrameWriter.WriteAsync(stream, new Http3Frame(Http3FrameType.Data, partA), ct);
+            await Http3FrameWriter.WriteAsync(stream, new Http3Frame(Http3FrameType.Data, partB), ct);
+            await stream.FlushAsync(ct);
+            stream.CompleteWrites();
+
+            using var response = new MemoryStream();
+            string? status = null;
+            while (true)
+            {
+                var frame = await Http3FrameReader.ReadAsync(stream, ct);
+                if (frame is null)
+                {
+                    break;
+                }
+
+                if (frame.Value.Type == Http3FrameType.Headers && status is null)
+                {
+                    var decoder = new QpackDecoder(maxCapacity: 0, decoderStream: null);
+                    var fields = decoder.DecodeHeaderBlock(frame.Value.Payload.Span).Fields!;
+                    status = fields.FirstOrDefault(f => f.Item1 == ":status").Item2;
+                }
+                else if (frame.Value.Type == Http3FrameType.Data)
+                {
+                    response.Write(frame.Value.Payload.Span);
+                }
+            }
+
+            Assert.Equal("200", status);
+            var expected = partA.Concat(partB).ToArray();
+            Assert.Equal(expected, response.ToArray());
         });
-
-        await using var stream = await connection.OpenOutboundStreamAsync(QuicStreamType.Bidirectional);
-        var encoder = new QpackEncoder(encoderStream: null);
-        var block = encoder.EncodeFieldSection(
-            [
-                (":method", "POST"),
-                (":scheme", "https"),
-                (":path", "/echo"),
-                (":authority", $"127.0.0.1:{port}"),
-                ("content-type", "application/octet-stream")
-            ],
-            streamId: 0);
-        await Http3FrameWriter.WriteAsync(stream, new Http3Frame(Http3FrameType.Headers, block), CancellationToken.None);
-
-        // Two DATA frames whose combined payload (300 KB) is far larger than the handler's
-        // 8 KB read buffer. The first frame alone (200 KB) exceeds the framework CopyToAsync
-        // read size (81920 bytes), so every consumer read splits it.
-        var partA = new byte[200_000];
-        var partB = new byte[100_000];
-        for (var i = 0; i < partA.Length; i++)
-        {
-            partA[i] = (byte)(i % 251);
-        }
-
-        for (var i = 0; i < partB.Length; i++)
-        {
-            partB[i] = (byte)(200 + (i % 50));
-        }
-
-        await Http3FrameWriter.WriteAsync(stream, new Http3Frame(Http3FrameType.Data, partA), CancellationToken.None);
-        await Http3FrameWriter.WriteAsync(stream, new Http3Frame(Http3FrameType.Data, partB), CancellationToken.None);
-        await stream.FlushAsync();
-        stream.CompleteWrites();
-
-        using var response = new MemoryStream();
-        string? status = null;
-        while (true)
-        {
-            var frame = await Http3FrameReader.ReadAsync(stream, CancellationToken.None);
-            if (frame is null)
-            {
-                break;
-            }
-
-            if (frame.Value.Type == Http3FrameType.Headers && status is null)
-            {
-                var decoder = new QpackDecoder(maxCapacity: 0, decoderStream: null);
-                var fields = decoder.DecodeHeaderBlock(frame.Value.Payload.Span).Fields!;
-                status = fields.FirstOrDefault(f => f.Item1 == ":status").Item2;
-            }
-            else if (frame.Value.Type == Http3FrameType.Data)
-            {
-                response.Write(frame.Value.Payload.Span);
-            }
-        }
-
-        Assert.Equal("200", status);
-        var expected = partA.Concat(partB).ToArray();
-        Assert.Equal(expected, response.ToArray());
     }
 
     /// <summary>Test stream that blocks on empty reads (unlike MemoryStream, which returns EOF).</summary>
