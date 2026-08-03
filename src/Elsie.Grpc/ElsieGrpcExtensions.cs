@@ -107,13 +107,12 @@ public static class ElsieGrpcExtensions
 
             foreach (var method in binder.Methods)
             {
-                var serviceName = method.FullName;
-                var dot = serviceName.LastIndexOf('.');
-                if (dot > 0)
-                {
-                    serviceName = serviceName[..dot];
-                }
-
+                // FullName is "package.Service/Method"; the reflection service name is the part
+                // before the last '/'. (Do NOT split on '.', which would strip the service name
+                // and leave only the package.)
+                var fullName = method.FullName;
+                var slash = fullName.LastIndexOf('/');
+                var serviceName = slash > 0 ? fullName[..slash] : fullName;
                 host.AddDescriptor(serviceName, fileDescriptor);
             }
         });

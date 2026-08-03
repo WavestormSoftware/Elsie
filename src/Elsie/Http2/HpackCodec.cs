@@ -231,7 +231,7 @@ internal static class HpackCodec
         ms.WriteByte((byte)value);
     }
 
-    private static (int Value, int Next) ReadInteger(ReadOnlySpan<byte> data, int offset, int n)
+    internal static (int Value, int Next) ReadInteger(ReadOnlySpan<byte> data, int offset, int n)
     {
         var max = (1 << n) - 1;
         var value = data[offset] & max;
@@ -256,7 +256,7 @@ internal static class HpackCodec
         return (value, offset);
     }
 
-    private static (string Value, int Next) ReadString(ReadOnlySpan<byte> data, int offset)
+    internal static (string Value, int Next) ReadString(ReadOnlySpan<byte> data, int offset)
     {
         var huffman = (data[offset] & 0x80) != 0;
         var (length, next) = ReadInteger(data, offset, 7);

@@ -14,6 +14,10 @@ internal sealed class Http2Connection
     private readonly ElsieServerOptions _serverOptions;
     private readonly Action<string>? _log;
     private readonly EndPoint? _remote;
+
+    /// <summary>Per-connection HPACK decoder (dynamic table shared across request streams).</summary>
+    private readonly HpackDecoder _hpack = new();
+
     private readonly HostDispatch _dispatch;
     private readonly ConcurrentDictionary<int, StreamState> _streams = new();
     private int _activeStreams;
@@ -208,7 +212,8 @@ internal sealed class Http2Connection
 
             switch (id)
             {
-                case 0x1: // HEADER_TABLE_SIZE — accept, HPACK dynamic table not fully applied yet
+                case 0x1: // HEADER_TABLE_SIZE
+                    _hpack.SetMaxDynamicTableSize(value);
                     break;
                 case 0x2: // ENABLE_PUSH
                     if (value is not (0 or 1))
@@ -372,8 +377,43 @@ internal sealed class Http2Connection
 
         if (state.HeadersComplete)
         {
-            await MaybeDispatchAsync(state, cancellationToken).ConfigureAwait(false);
+            await OnHeadersCompleteAsync(state, cancellationToken).ConfigureAwait(false);
         }
+    }
+
+    /// <summary>Shared post-HEADERS handling: decode once, then either dispatch immediately with a
+    /// streaming body (gRPC — grpc clients neither half-close nor send Content-Length for unary)
+    /// or wait for END_STREAM under the buffered model (with Content-Length early-dispatch).</summary>
+    private async Task OnHeadersCompleteAsync(StreamState state, CancellationToken cancellationToken)
+    {
+        state.DecodedHeaders = TryDecodeHeaders(state.HeaderBuffer.ToArray()); state.ContentLength = ExtractContentLength(state.DecodedHeaders);
+        if (IsGrpcRequest(state.DecodedHeaders))
+        {
+            state.IsStreaming = true;
+            state.BodyStream = new Http2RequestBodyStream(_serverOptions.MaxRequestBodyBytes);
+            if (state.EndStreamOnHeaders)
+            {
+                state.BodyStream.Complete();
+            }
+
+            state.Dispatched = true;
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    await DispatchStreamAsync(state, cancellationToken).ConfigureAwait(false);
+                }
+                finally
+                {
+                    state.Dispose();
+                    _streams.TryRemove(state.StreamId, out _);
+                    Interlocked.Decrement(ref _activeStreams);
+                }
+            });
+            return;
+        }
+
+        await MaybeDispatchAsync(state, cancellationToken).ConfigureAwait(false);
     }
 
     private async Task OnContinuationAsync(Http2Frame frame, CancellationToken cancellationToken)
@@ -396,7 +436,7 @@ internal sealed class Http2Connection
         if ((frame.Flags & Http2FrameFlags.EndHeaders) != 0)
         {
             state.HeadersComplete = true;
-            await MaybeDispatchAsync(state, cancellationToken).ConfigureAwait(false);
+            await OnHeadersCompleteAsync(state, cancellationToken).ConfigureAwait(false);
         }
     }
 
@@ -438,6 +478,41 @@ internal sealed class Http2Connection
             payload = payload[..^pad];
         }
 
+        if (state.IsStreaming)
+        {
+            // Streaming (gRPC) path: feed the handler's body stream; the connection loop stays
+            // responsive so more DATA / END_STREAM can arrive. Enforce max body here (write
+            // returns false on overflow → RST) and replenish flow control as DATA is consumed.
+            if (state.BodyStream is not { } bodyStream)
+            {
+                await RstAsync(frame.StreamId, ErrRefusedStream, cancellationToken).ConfigureAwait(false);
+                return;
+            }
+
+            bodyStream.Write(payload.ToArray());
+            if (bodyStream.TooLarge)
+            {
+                await RstAsync(frame.StreamId, ErrRefusedStream, cancellationToken).ConfigureAwait(false);
+                return;
+            }
+
+            if (frameLen > 0)
+            {
+                await WriteWindowUpdateAsync(0, frameLen, cancellationToken).ConfigureAwait(false);
+                await WriteWindowUpdateAsync(frame.StreamId, frameLen, cancellationToken).ConfigureAwait(false);
+                state.RecvWindow += frameLen;
+                _serverWindow += frameLen;
+            }
+
+            if ((frame.Flags & Http2FrameFlags.EndStream) != 0)
+            {
+                state.EndStream = true;
+                bodyStream.Complete();
+            }
+
+            return;
+        }
+
         if (state.Body.Length + payload.Length > _serverOptions.MaxRequestBodyBytes)
         {
             await RstAsync(frame.StreamId, ErrRefusedStream, cancellationToken).ConfigureAwait(false);
@@ -462,6 +537,74 @@ internal sealed class Http2Connection
             state.EndStream = true;
             await MaybeDispatchAsync(state, cancellationToken).ConfigureAwait(false);
         }
+        else if (state.ContentLength is { } cl && state.Body.Length >= cl)
+        {
+            // Body is complete per Content-Length but the client has not sent END_STREAM
+            // (grpc-go does this for unary requests). Dispatch now so message-based
+            // protocols (gRPC) work; keep-alive safety: the stream state is removed after
+            // dispatch, so any late frames on this stream are rejected with RST_STREAM.
+            state.EndStream = true;
+            await MaybeDispatchAsync(state, cancellationToken).ConfigureAwait(false);
+        }
+    }
+
+    /// <summary>Best-effort decode of the request header block via the connection's HPACK
+    /// decoder (dynamic-table aware). Returns null on malformed HPACK (the error surfaces
+    /// properly in <see cref="DispatchStreamAsync"/>).</summary>
+    private List<(string Name, string Value)>? TryDecodeHeaders(byte[] headerBlock)
+    {
+        try
+        {
+            return _hpack.Decode(headerBlock);
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    /// <summary>Extracts <c>content-length</c> from decoded request headers; null when absent.
+    /// Used to dispatch a request whose body is fully received per Content-Length even when
+    /// the client omits END_STREAM.</summary>
+    private static long? ExtractContentLength(List<(string Name, string Value)>? headers)
+    {
+        if (headers is null)
+        {
+            return null;
+        }
+
+        foreach (var (name, value) in headers)
+        {
+            if (name.Equals("content-length", StringComparison.OrdinalIgnoreCase) &&
+                long.TryParse(value, out var cl))
+            {
+                return cl;
+            }
+        }
+
+        return null;
+    }
+
+    /// <summary>True when the request is a gRPC call (content-type <c>application/grpc</c> or a
+    /// gRPC variant), which must be dispatched on HEADERS with a streaming body because gRPC
+    /// clients (grpc-go) do not half-close the request stream or send Content-Length.</summary>
+    private static bool IsGrpcRequest(List<(string Name, string Value)>? headers)
+    {
+        if (headers is null)
+        {
+            return false;
+        }
+
+        foreach (var (name, value) in headers)
+        {
+            if (name.Equals("content-type", StringComparison.OrdinalIgnoreCase) &&
+                value.StartsWith("application/grpc", StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private async Task MaybeDispatchAsync(StreamState state, CancellationToken cancellationToken)
@@ -502,7 +645,7 @@ internal sealed class Http2Connection
         List<(string Name, string Value)> decoded;
         try
         {
-            decoded = HpackCodec.Decode(state.HeaderBuffer.ToArray());
+            decoded = state.DecodedHeaders ?? (state.DecodedHeaders = _hpack.Decode(state.HeaderBuffer.ToArray()));
         }
         catch (Exception ex)
         {
@@ -631,9 +774,11 @@ internal sealed class Http2Connection
             pathOnly = "/";
         }
 
-        var bodyBytes = state.Body.ToArray();
-        contentLength ??= bodyBytes.Length;
-        await using var bodyStream = new MemoryStream(bodyBytes, writable: false);
+        var bodyBytes = state.BodyStream is not null ? Array.Empty<byte>() : state.Body.ToArray();
+        contentLength ??= state.BodyStream is not null ? null : bodyBytes.Length;
+        var bodyStream = state.BodyStream is not null
+            ? (Stream)state.BodyStream
+            : new MemoryStream(bodyBytes, writable: false);
 
         var queryValues = Http1RequestReader.ParseQuery(queryString);
         var headerRo = new Dictionary<string, IReadOnlyList<string>>(headerDict.Count, StringComparer.OrdinalIgnoreCase);
@@ -952,6 +1097,21 @@ internal sealed class Http2Connection
         public bool Dispatched { get; set; }
         public int RecvWindow { get; set; }
         public int SendWindow { get; set; }
+
+        /// <summary>Optional <c>Content-Length</c> from the request headers; lets the server dispatch
+        /// a request once its body is fully received even if the client never sends END_STREAM
+        /// (grpc-go sends unary requests this way).</summary>
+        public long? ContentLength { get; set; }
+
+        /// <summary>Decoded request headers (from the HPACK block) — reused by dispatch.</summary>
+        public List<(string Name, string Value)>? DecodedHeaders { get; set; }
+
+        /// <summary>True when the request content-type is gRPC — dispatched on HEADERS with a
+        /// streaming body (grpc clients do not send END_STREAM / Content-Length).</summary>
+        public bool IsStreaming { get; set; }
+
+        /// <summary>Streaming request body fed by DATA frames (gRPC path).</summary>
+        public Http2RequestBodyStream? BodyStream { get; set; }
 
         public void Dispose()
         {

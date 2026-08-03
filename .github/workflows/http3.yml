@@ -74,42 +74,42 @@ jobs:
           set -euo pipefail
           pip install --quiet aioquic
           python3 - <<'PY'
-import sys
-sys.path.insert(0, __import__('site').getsitepackages()[0])
-from aioquic.asyncio.client import connect
-from aioquic.quic.configuration import QuicConfiguration
-from aioquic.h3.connection import H3Connection
-from aioquic.h3.events import HeadersReceived
-import asyncio
-
-async def main():
-    config = QuicConfiguration(is_client=True, alpn_protocols=["h3"])
-    config.verify_mode = False  # self-signed sample cert
-    async with connect("127.0.0.1", 8443, configuration=config) as client:
-        h3 = H3Connection(client)
-        # Several requests sharing repeated header fields so the aioquic encoder inserts
-        # into the server's advertised QPACK dynamic table (capacity 4096) and the server
-        # decoder must process the encoder-stream instructions + blocked streams.
-        for i in range(3):
-            headers = [(b":method", b"GET"), (b":scheme", b"https"),
-                       (b":authority", b"127.0.0.1:8443"), (b":path", b"/ping"),
-                       (b"x-dyn", b"value-%d" % i),
-                       (b"x-dyn", b"shared-value")]
-            stream_id = h3.send_headers(headers, stream_id=client.get_next_available_stream_id())
-            h3.send_data(b"", stream_id=stream_id)
-            status = None
-            while status is None:
-                event = await client.wait_for_event()
-                for e in h3.handle_event(event):
-                    if isinstance(e, HeadersReceived):
-                        for k, v in e.headers:
-                            if k == b":status":
-                                status = int(v)
-            assert status == 200, f"h3 status {status}"
-        print(f"aioquic dynamic-table requests -> 200 x3")
-
-asyncio.run(main())
-PY
+          import sys
+          sys.path.insert(0, __import__('site').getsitepackages()[0])
+          from aioquic.asyncio.client import connect
+          from aioquic.quic.configuration import QuicConfiguration
+          from aioquic.h3.connection import H3Connection
+          from aioquic.h3.events import HeadersReceived
+          import asyncio
+          
+          async def main():
+              config = QuicConfiguration(is_client=True, alpn_protocols=["h3"])
+              config.verify_mode = False  # self-signed sample cert
+              async with connect("127.0.0.1", 8443, configuration=config) as client:
+                  h3 = H3Connection(client)
+                  # Several requests sharing repeated header fields so the aioquic encoder inserts
+                  # into the server's advertised QPACK dynamic table (capacity 4096) and the server
+                  # decoder must process the encoder-stream instructions + blocked streams.
+                  for i in range(3):
+                      headers = [(b":method", b"GET"), (b":scheme", b"https"),
+                                 (b":authority", b"127.0.0.1:8443"), (b":path", b"/ping"),
+                                 (b"x-dyn", b"value-%d" % i),
+                                 (b"x-dyn", b"shared-value")]
+                      stream_id = h3.send_headers(headers, stream_id=client.get_next_available_stream_id())
+                      h3.send_data(b"", stream_id=stream_id)
+                      status = None
+                      while status is None:
+                          event = await client.wait_for_event()
+                          for e in h3.handle_event(event):
+                              if isinstance(e, HeadersReceived):
+                                  for k, v in e.headers:
+                                      if k == b":status":
+                                          status = int(v)
+                      assert status == 200, f"h3 status {status}"
+                  print(f"aioquic dynamic-table requests -> 200 x3")
+          
+          asyncio.run(main())
+          PY
 
       - name: Stop sample
         if: always()

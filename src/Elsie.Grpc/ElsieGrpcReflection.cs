@@ -37,15 +37,29 @@ internal sealed class ElsieGrpcReflectionModule : ElsieModule
 {
     public ElsieGrpcReflectionModule(ElsieGrpcReflectionHost host)
     {
-        var binder = new ElsieServiceBinder();
-        global::Grpc.Reflection.V1Alpha.ServerReflection.BindService(
-            binder,
-            new ReflectionServiceImpl(host.Descriptors));
+        // Register reflection under BOTH grpc.reflection.v1 (grpcurl v1.9+) and v1alpha
+        // (legacy / reference clients). Both protos are wire-identical and share the host's
+        // LIVE descriptor dictionary (filled by MapGrpcService after this module is built).
+        var v1Binder = new ElsieServiceBinder();
+        global::Grpc.Reflection.V1.ServerReflection.BindService(
+            v1Binder,
+            new ReflectionServiceImplV1(host.Descriptors));
+        AddReflectionRoutes(v1Binder, host.Options);
 
+        var v1AlphaBinder = new ElsieServiceBinder();
+        global::Grpc.Reflection.V1Alpha.ServerReflection.BindService(
+            v1AlphaBinder,
+            new ReflectionServiceImpl(host.Descriptors));
+        AddReflectionRoutes(v1AlphaBinder, host.Options);
+    }
+
+    private void AddReflectionRoutes(ElsieServiceBinder binder, ElsieGrpcOptions options)
+    {
         foreach (var method in binder.Methods)
         {
             var m = method;
-            Map("POST", m.RoutePath, (ctx, ct) => ElsieGrpcModule.HandleGrpcAsync(ctx, m, host.Options, ct));
+            Map("POST", m.RoutePath, (ctx, ct) => ElsieGrpcModule.HandleGrpcAsync(ctx, m, options, ct));
         }
     }
 }
+

@@ -14,6 +14,7 @@
   </ItemGroup>
   <ItemGroup>
     <Protobuf Include="Protos/reflection.proto" GrpcServices="Server" />
+    <Protobuf Include="Protos/reflection_v1.proto" GrpcServices="Server" />
   </ItemGroup>
   <ItemGroup>
     <InternalsVisibleTo Include="Elsie.Grpc.Tests" />
