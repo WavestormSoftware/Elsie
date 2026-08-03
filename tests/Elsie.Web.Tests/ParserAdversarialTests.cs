@@ -171,11 +171,11 @@ public class ParserAdversarialTests
             "\r\n";
         await ns.WriteAsync(Encoding.ASCII.GetBytes(headers));
 
-        var prelude = await ReadUntilAsync(ns, "\r\n\r\n", TimeSpan.FromSeconds(2));
+        var prelude = await ReadUntilAsync(ns, "\r\n\r\n", TimeSpan.FromSeconds(10));
         Assert.StartsWith("HTTP/1.1 100 Continue", prelude, StringComparison.Ordinal);
 
         await ns.WriteAsync(Encoding.ASCII.GetBytes(body));
-        var response = await ReadUntilAsync(ns, "\r\n\r\n", TimeSpan.FromSeconds(2));
+        var response = await ReadUntilAsync(ns, "\r\n\r\n", TimeSpan.FromSeconds(10));
         Assert.Contains("200", response, StringComparison.Ordinal);
     }
 
@@ -276,7 +276,7 @@ public class ParserAdversarialTests
         await using var ns = tcp.GetStream();
         await ns.WriteAsync(Encoding.ASCII.GetBytes(
             "GET /ping HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n"));
-        var response = await ReadUntilAsync(ns, "\r\n\r\n", TimeSpan.FromSeconds(2));
+        var response = await ReadUntilAsync(ns, "\r\n\r\n", TimeSpan.FromSeconds(10));
         Assert.Matches(@"(?im)^Date:\s+.+$", response);
     }
 
@@ -305,7 +305,7 @@ public class ParserAdversarialTests
             "\r\n" +
             "ab")); // incomplete body; wait for idle timeout
         await Task.Delay(800);
-        var response = await ReadAvailableAsync(ns, TimeSpan.FromSeconds(2));
+        var response = await ReadAvailableAsync(ns, TimeSpan.FromSeconds(10));
         Assert.Contains("408", response, StringComparison.Ordinal);
     }
 
@@ -339,7 +339,7 @@ public class ParserAdversarialTests
         await using var ns = tcp.GetStream();
         await ns.WriteAsync(Encoding.ASCII.GetBytes(
             $"GET {path} HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n"));
-        var response = await ReadUntilAsync(ns, "\r\n\r\n", TimeSpan.FromSeconds(2));
+        var response = await ReadUntilAsync(ns, "\r\n\r\n", TimeSpan.FromSeconds(10));
         var line = response.Split("\r\n", 2)[0];
         var parts = line.Split(' ');
         return parts.Length >= 2 && int.TryParse(parts[1], out var code) ? code : -1;

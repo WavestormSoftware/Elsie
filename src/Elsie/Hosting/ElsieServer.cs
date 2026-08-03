@@ -91,7 +91,7 @@ internal sealed class ElsieServer : IHostedService, IAsyncDisposable
             _log?.Invoke(msg);
             _logger.LogInformation("{Message}", msg);
             _acceptLoops.Add(AcceptLoopAsync(listener, ep, _cts.Token));
-            StartHttp3ListenerIfSupported(ep);
+            StartHttp3ListenerIfSupported(ep, local.Port);
         }
 
         BoundEndpoints = bound;
@@ -104,7 +104,11 @@ internal sealed class ElsieServer : IHostedService, IAsyncDisposable
     /// platform has QUIC support (libmsquic). Silently skipped otherwise.
     /// </summary>
 #pragma warning disable CA1416 // guarded by QuicListener.IsSupported + OS checks at runtime
-    private void StartHttp3ListenerIfSupported(ElsieListenOptions ep)
+    /// <param name="ep"></param>
+    /// <param name="tcpPort">The TCP listener's actual bound port, so HTTP/3 (UDP) shares the
+    /// same numeric port — required for ephemeral (port 0) listens and for clients that resolve
+    /// one endpoint for both transports.</param>
+    private void StartHttp3ListenerIfSupported(ElsieListenOptions ep, int tcpPort)
     {
         if (!ep.EnableHttp3 || !ep.UseHttps || ep.Certificate is null || !QuicListener.IsSupported)
         {
@@ -118,7 +122,7 @@ internal sealed class ElsieServer : IHostedService, IAsyncDisposable
 
         var options = new QuicListenerOptions
         {
-            ListenEndPoint = new IPEndPoint(ep.Address, ep.Port),
+            ListenEndPoint = new IPEndPoint(ep.Address, tcpPort),
             ApplicationProtocols = [SslApplicationProtocol.Http3],
             ConnectionOptionsCallback = (_, _, _) => ValueTask.FromResult(new QuicServerConnectionOptions
             {
@@ -141,7 +145,7 @@ internal sealed class ElsieServer : IHostedService, IAsyncDisposable
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "Failed to start HTTP/3 listener on udp://{Host}:{Port} — continuing without HTTP/3.", ep.Address, ep.Port);
+            _logger.LogWarning(ex, "Failed to start HTTP/3 listener on udp://{Host}:{Port} — continuing without HTTP/3.", ep.Address, tcpPort);
             return;
         }
 
