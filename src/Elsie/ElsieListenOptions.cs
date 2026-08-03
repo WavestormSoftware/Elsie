@@ -78,6 +78,13 @@ public sealed class ElsieListenOptions
                 path = path[1..]; // keep single leading /
             }
 
+            // Windows drive-letter paths (http+unix://C:\tmp\x.sock): the "/" kept above is
+            // drive-relative ("D:\C:\..." after GetFullPath) — drop it.
+            if (path.Length > 3 && path[0] == '/' && char.IsAsciiLetter(path[1]) && path[2] == ':' && OperatingSystem.IsWindows())
+            {
+                path = path[1..];
+            }
+
             if (string.IsNullOrWhiteSpace(path) || path == "/")
             {
                 throw new ArgumentException($"Unix socket path missing in '{url}'.", nameof(url));

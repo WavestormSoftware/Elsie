@@ -54,7 +54,7 @@ jobs:
             --urls https://127.0.0.1:8443 > /tmp/h3-sample.log 2>&1 < /dev/null &
           echo $! > /tmp/h3-sample.pid
           for i in $(seq 1 40); do
-            if curl -s -o /dev/null --max-time 2 http://127.0.0.1:8443/ 2>/dev/null; then
+            if curl -s -k -o /dev/null --max-time 2 https://127.0.0.1:8443/ping 2>/dev/null; then
               break
             fi
             sleep 1
@@ -65,12 +65,16 @@ jobs:
       - name: curl --http3 probe
         run: |
           set -euo pipefail
-          body=$(curl --http3 -s -k --max-time 15 https://127.0.0.1:8443/ping)
+          # The runner's stock curl is built without HTTP/3 (no nghttp3) — use the official
+          # curl image (host networking so 127.0.0.1:8443 reaches the sample).
+          body=$(docker run --rm --network host curlimages/curl:8.16.0 \
+            --http3 -s -k --max-time 15 https://127.0.0.1:8443/ping)
           echo "body=$body"
           grep -q '"protocol":"h3"' <<< "$body"
           # QPACK dynamic-table-exercising request: the repeated header fields let curl's
           # QPACK encoder insert into the table advertised by the server (4096 by default).
-          body2=$(curl --http3 -s -k --max-time 15 \
+          body2=$(docker run --rm --network host curlimages/curl:8.16.0 \
+            --http3 -s -k --max-time 15 \
             -H 'X-Dyn-1: value-one' -H 'X-Dyn-1: value-two' \
             -H 'X-Long-Header: '"$(printf 'a%.0s' {1..200})" https://127.0.0.1:8443/ping)
           echo "body2=$body2"
