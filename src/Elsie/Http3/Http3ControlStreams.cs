@@ -63,7 +63,10 @@ internal static class Http3ControlStreams
     /// end-of-stream. Frames from the control stream are consumed (SETTINGS forwarded to the
     /// encoder); QPACK stream bytes are fed to the codecs. QPACK instruction violations are
     /// NOT swallowed — they poison the per-connection codec state, so the connection is
-    /// terminated with the matching RFC 9114 §8.1 error code.
+    /// terminated with the matching RFC 9114 §8.1 error code. A peer-initiated close of a
+    /// critical stream (control / QPACK) terminates the connection with
+    /// H3_CLOSED_CRITICAL_STREAM (RFC 9114 §6.2.1, RFC 9204 §2.2) instead of hanging until
+    /// the MsQuic inactivity timeout.
     /// </summary>
     public static async Task ReadClientUnidirectionalStreamAsync(
         Stream stream,
@@ -87,22 +90,31 @@ internal static class Http3ControlStreams
             {
                 case Http3UnidirectionalStreamType.Control:
                     await ReadControlFramesAsync(stream, encoder, cancellationToken).ConfigureAwait(false);
-                    return;
+                    break;
 
                 case Http3UnidirectionalStreamType.QpackEncoder:
                     isEncoderStream = true;
                     await DrainAndFeedAsync(stream, decoder, cancellationToken).ConfigureAwait(false);
-                    return;
+                    break;
 
                 case Http3UnidirectionalStreamType.QpackDecoder:
                     await DrainAndFeedAsync(stream, encoder, cancellationToken).ConfigureAwait(false);
-                    return;
+                    break;
 
                 default:
                     // Push (0x1) and unknown types: drain to EOF so the peer's flow control
                     // is not blocked (RFC 9114 §6.2).
                     await DrainAsync(stream, cancellationToken).ConfigureAwait(false);
                     return;
+            }
+
+            if (!cancellationToken.IsCancellationRequested)
+            {
+                // RFC 9114 §6.2.1 / RFC 9204 §2.2: the peer closed a critical stream.
+                await CloseWithErrorAsync(
+                    connection,
+                    Http3ErrorCodes.ClosedCriticalStream,
+                    CancellationToken.None).ConfigureAwait(false);
             }
         }
         catch (OperationCanceledException)
@@ -116,7 +128,13 @@ internal static class Http3ControlStreams
             await CloseWithErrorAsync(
                 connection,
                 isEncoderStream ? Http3QpackErrorCodes.EncoderStreamError : Http3QpackErrorCodes.DecoderStreamError,
-                cancellationToken).ConfigureAwait(false);
+                CancellationToken.None).ConfigureAwait(false);
+        }
+        catch (Http3ProtocolException ex)
+        {
+            // Malformed frame on a unidirectional stream — connection error with the
+            // RFC-required code, not a silent swallow followed by an inactivity timeout.
+            await CloseWithErrorAsync(connection, ex.ErrorCode, CancellationToken.None).ConfigureAwait(false);
         }
         catch (Exception)
         {

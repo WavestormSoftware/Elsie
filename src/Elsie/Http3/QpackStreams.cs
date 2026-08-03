@@ -10,7 +10,7 @@ namespace Elsie.Web.Http3;
 [System.Runtime.Versioning.SupportedOSPlatform("linux")]
 [System.Runtime.Versioning.SupportedOSPlatform("macos")]
 [System.Runtime.Versioning.SupportedOSPlatform("windows")]
-internal sealed class QpackStream
+internal sealed class QpackStream : IAsyncDisposable
 {
     private readonly QuicConnection _connection;
     private readonly Http3UnidirectionalStreamType _streamType;
@@ -52,5 +52,23 @@ internal sealed class QpackStream
         var len = QuicVarInt.Write(type, (ulong)_streamType);
         await stream.WriteAsync(type[..len].ToArray(), cancellationToken).ConfigureAwait(false);
         return stream;
+    }
+
+    /// <summary>Releases the lazily-opened stream at connection shutdown.</summary>
+    public async ValueTask DisposeAsync()
+    {
+        await _writeGate.WaitAsync().ConfigureAwait(false);
+        try
+        {
+            if (_stream is not null)
+            {
+                await _stream.DisposeAsync().ConfigureAwait(false);
+            }
+        }
+        finally
+        {
+            _writeGate.Release();
+            _writeGate.Dispose();
+        }
     }
 }

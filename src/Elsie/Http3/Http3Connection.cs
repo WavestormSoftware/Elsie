@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Net.Quic;
 using Elsie;
 using Elsie.Web.Hosting;
@@ -29,9 +30,15 @@ internal sealed class Http3Connection
     private readonly ElsieServerOptions _serverOptions;
     private readonly Action<string>? _log;
     private readonly ILogger _logger;
+    // Bounded wait for in-flight stream tasks once the accept loop ends (shutdown / abort).
+    private static readonly TimeSpan StreamTaskShutdownTimeout = TimeSpan.FromSeconds(5);
+    private readonly ConcurrentDictionary<long, Task> _streamTasks = new();
     private QuicConnection _connection = null!;
     private QpackDecoder _decoder = null!;
     private QpackEncoder _encoder = null!;
+    private QpackStream _decoderStream = null!;
+    private QpackStream _encoderStream = null!;
+    private QuicStream? _serverControlStream;
     private int _blockedStreams;
 
     public Http3Connection(
@@ -51,61 +58,115 @@ internal sealed class Http3Connection
     public async Task RunAsync(QuicConnection connection, CancellationToken cancellationToken)
     {
         _connection = connection;
-        _decoder = new QpackDecoder(
-            _serverOptions.QpackMaxTableCapacity,
-            new QpackStream(connection, Http3UnidirectionalStreamType.QpackDecoder));
-        _encoder = new QpackEncoder(new QpackStream(connection, Http3UnidirectionalStreamType.QpackEncoder));
+        _decoderStream = new QpackStream(connection, Http3UnidirectionalStreamType.QpackDecoder);
+        _decoder = new QpackDecoder(_serverOptions.QpackMaxTableCapacity, _decoderStream);
+        _encoderStream = new QpackStream(connection, Http3UnidirectionalStreamType.QpackEncoder);
+        _encoder = new QpackEncoder(_encoderStream);
 
-        // Server control stream (unidirectional): type + SETTINGS.
         try
         {
-            await using var controlStream = await connection.OpenOutboundStreamAsync(
-                QuicStreamType.Unidirectional,
-                cancellationToken).ConfigureAwait(false);
-            await Http3ControlStreams.WriteServerPreambleAsync(controlStream, _serverOptions, cancellationToken)
-                .ConfigureAwait(false);
+            // Server control stream (unidirectional): type + SETTINGS. Owned by the connection
+            // and kept open for its whole life — closing it early is H3_CLOSED_CRITICAL_STREAM
+            // (RFC 9114 §6.2.1).
+            try
+            {
+                _serverControlStream = await connection.OpenOutboundStreamAsync(
+                    QuicStreamType.Unidirectional,
+                    cancellationToken).ConfigureAwait(false);
+                await Http3ControlStreams.WriteServerPreambleAsync(_serverControlStream, _serverOptions, cancellationToken)
+                    .ConfigureAwait(false);
+            }
+            catch (Exception ex) when (ex is OperationCanceledException or QuicException)
+            {
+                return;
+            }
+
+            while (!cancellationToken.IsCancellationRequested)
+            {
+                QuicStream stream;
+                try
+                {
+                    stream = await connection.AcceptInboundStreamAsync(cancellationToken).ConfigureAwait(false);
+                }
+                catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+                {
+                    break;
+                }
+                catch (QuicException) when (cancellationToken.IsCancellationRequested)
+                {
+                    break;
+                }
+                catch (QuicException)
+                {
+                    // Connection aborted / shutting down.
+                    break;
+                }
+                catch (ObjectDisposedException)
+                {
+                    break;
+                }
+
+                var s = stream;
+                if (!s.CanWrite)
+                {
+                    // Unidirectional stream (control / QPACK encoder+decoder).
+                    TrackStreamTask(s.Id, Http3ControlStreams.ReadClientUnidirectionalStreamAsync(
+                        s, _decoder, _encoder, _connection, cancellationToken));
+                    continue;
+                }
+
+                // Bidirectional request stream.
+                TrackStreamTask(s.Id, HandleRequestStreamAsync(s, cancellationToken));
+            }
         }
-        catch (Exception ex) when (ex is OperationCanceledException or QuicException)
+        finally
+        {
+            // Shutdown: give tracked stream tasks a bounded window to observe cancellation and
+            // unwind, then release the connection-owned streams so nothing outlives the
+            // connection (no orphaned readers/writers behind a disposed QuicConnection).
+            await WaitForStreamTasksAsync().ConfigureAwait(false);
+            if (_serverControlStream is not null)
+            {
+                await _serverControlStream.DisposeAsync().ConfigureAwait(false);
+            }
+
+            await _decoderStream.DisposeAsync().ConfigureAwait(false);
+            await _encoderStream.DisposeAsync().ConfigureAwait(false);
+        }
+    }
+
+    /// <summary>Tracks a per-stream task so shutdown can await it instead of orphaning it.</summary>
+    private void TrackStreamTask(long streamId, Task task)
+    {
+        _streamTasks[streamId] = task;
+        _ = task.ContinueWith(
+            static (t, state) =>
+            {
+                var (self, id) = ((Http3Connection, long))state!;
+                self._streamTasks.TryRemove(id, out _);
+            },
+            (this, streamId),
+            CancellationToken.None,
+            TaskContinuationOptions.ExecuteSynchronously,
+            TaskScheduler.Default);
+    }
+
+    private async Task WaitForStreamTasksAsync()
+    {
+        var tasks = _streamTasks.Values.ToArray();
+        if (tasks.Length == 0)
         {
             return;
         }
 
-        while (!cancellationToken.IsCancellationRequested)
+        try
         {
-            QuicStream stream;
-            try
-            {
-                stream = await connection.AcceptInboundStreamAsync(cancellationToken).ConfigureAwait(false);
-            }
-            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
-            {
-                break;
-            }
-            catch (QuicException) when (cancellationToken.IsCancellationRequested)
-            {
-                break;
-            }
-            catch (QuicException)
-            {
-                // Connection aborted / shutting down.
-                break;
-            }
-            catch (ObjectDisposedException)
-            {
-                break;
-            }
-
-            var s = stream;
-            if (!s.CanWrite)
-            {
-                // Unidirectional stream (control / QPACK encoder+decoder).
-                _ = Task.Run(() => Http3ControlStreams.ReadClientUnidirectionalStreamAsync(
-                    s, _decoder, _encoder, _connection, cancellationToken));
-                continue;
-            }
-
-            // Bidirectional request stream.
-            _ = Task.Run(() => HandleRequestStreamAsync(s, cancellationToken));
+            await Task.WhenAll(tasks).WaitAsync(StreamTaskShutdownTimeout).ConfigureAwait(false);
+        }
+        catch (Exception)
+        {
+            // Best effort: individual tasks already logged their own failures; on timeout the
+            // connection dispose below aborts whatever is left.
         }
     }
 
@@ -170,6 +231,16 @@ internal sealed class Http3Connection
             _decoder.MarkStreamCancelled(stream.Id);
             await DrainDecoderInstructionsAsync(CancellationToken.None).ConfigureAwait(false);
         }
+        catch (Http3ProtocolException ex)
+        {
+            // RFC 9114 §8.1: framing violations are connection errors — close explicitly with
+            // the matching code instead of letting the peer hang until the MsQuic inactivity
+            // timeout.
+            _logger.LogDebug(ex, "HTTP/3 request stream violated framing rules.");
+            _decoder.MarkStreamCancelled(stream.Id);
+            await DrainDecoderInstructionsAsync(CancellationToken.None).ConfigureAwait(false);
+            await CloseWithErrorAsync(ex.ErrorCode, CancellationToken.None).ConfigureAwait(false);
+        }
         catch (Exception ex) when (ex is IOException or ObjectDisposedException or QuicException)
         {
             // Client aborted the stream — nothing to write.
@@ -207,18 +278,32 @@ internal sealed class Http3Connection
         CancellationToken cancellationToken)
     {
         // Request HEADERS frame (DATA body follows; served lazily).
-        var first = await Http3FrameReader.ReadAsync(stream, cancellationToken).ConfigureAwait(false);
-        if (first is null)
+        Http3Frame first;
+        while (true)
         {
-            return null;
+            var frame = await Http3FrameReader.ReadAsync(stream, cancellationToken).ConfigureAwait(false);
+            if (frame is null)
+            {
+                return null;
+            }
+
+            if (frame.Value.Type == Http3FrameType.Headers)
+            {
+                first = frame.Value;
+                break;
+            }
+
+            if (Enum.IsDefined(frame.Value.Type))
+            {
+                // RFC 9114 §4.1: a known frame before the initial HEADERS is H3_FRAME_UNEXPECTED.
+                throw new Http3ProtocolException(
+                    $"HTTP/3 request stream started with frame type 0x{(long)frame.Value.Type:X} (HEADERS required).",
+                    Http3ErrorCodes.FrameUnexpected);
+            }
+            // Unknown/extension frame types MUST be ignored (RFC 9114 §9).
         }
 
-        if (first.Value.Type != Http3FrameType.Headers)
-        {
-            return null;
-        }
-
-        var block = first.Value.Payload;
+        var block = first.Payload;
         QpackDecodeResult result;
         try
         {

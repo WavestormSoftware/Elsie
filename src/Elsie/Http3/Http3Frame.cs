@@ -129,10 +129,29 @@ internal readonly struct Http3Frame
     }
 }
 
-/// <summary>Raised when a peer violates the HTTP/3 framing rules (protocol error → H3_FRAME_UNEXPECTED).</summary>
+/// <summary>HTTP/3 connection-error codes (RFC 9114 §8.1).</summary>
+internal static class Http3ErrorCodes
+{
+    public const long NoError = 0x100;
+    public const long GeneralProtocolError = 0x101;
+    public const long ClosedCriticalStream = 0x104;
+    public const long FrameUnexpected = 0x105;
+}
+
+/// <summary>
+/// Raised when a peer violates the HTTP/3 framing rules. Carries the RFC 9114 §8.1
+/// connection-error code the connection must be closed with.
+/// </summary>
 internal sealed class Http3ProtocolException : Exception
 {
-    public Http3ProtocolException(string message) : base(message) { }
+    public Http3ProtocolException(string message, long errorCode = Http3ErrorCodes.GeneralProtocolError)
+        : base(message)
+    {
+        ErrorCode = errorCode;
+    }
+
+    /// <summary>The connection error code to close with (e.g. H3_FRAME_UNEXPECTED).</summary>
+    public long ErrorCode { get; }
 }
 
 /// <summary>Reads HTTP/3 frames from a QUIC stream.</summary>

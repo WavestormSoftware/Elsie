@@ -27,6 +27,7 @@ internal sealed class ElsieServer : IHostedService, IAsyncDisposable
     private readonly List<string> _unixPaths = new();
 #pragma warning disable CA1416 // guarded by QuicListener.IsSupported + OS checks at runtime
     private readonly List<QuicListener> _quicListeners = new();
+    private readonly ConcurrentDictionary<Guid, Http3ConnectionEntry> _http3Connections = new();
 #pragma warning restore CA1416
     private readonly CancellationTokenSource _cts = new();
     private readonly List<Task> _acceptLoops = new();
@@ -185,9 +186,25 @@ internal sealed class ElsieServer : IHostedService, IAsyncDisposable
             }
 
             var conn = connection;
-            _ = Task.Run(
-                () => RunHttp3ConnectionAsync(conn, ep, ct),
+            var id = Guid.NewGuid();
+            var task = Task.Run(
+                async () =>
+                {
+                    try
+                    {
+                        await RunHttp3ConnectionAsync(conn, ep, ct).ConfigureAwait(false);
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogError(ex, "HTTP/3 connection failed.");
+                    }
+                    finally
+                    {
+                        _http3Connections.TryRemove(id, out _);
+                    }
+                },
                 CancellationToken.None);
+            _http3Connections[id] = new Http3ConnectionEntry(conn, task);
         }
     }
 
@@ -202,6 +219,46 @@ internal sealed class ElsieServer : IHostedService, IAsyncDisposable
             _loggerFactory);
         var handler = new Http3Connection(_services, dispatch, _serverOptions, _log, _loggerFactory);
         await handler.RunAsync(conn, ct).ConfigureAwait(false);
+    }
+
+    /// <summary>Drains in-flight HTTP/3 connections at shutdown; aborts the stragglers after
+    /// <see cref="ElsieServerOptions.ConnectionDrainTimeout"/> so no connection task outlives
+    /// the server (orphaned tasks keep test processes alive).</summary>
+    private async Task DrainHttp3ConnectionsAsync()
+    {
+        var entries = _http3Connections.Values.ToArray();
+        if (entries.Length == 0)
+        {
+            return;
+        }
+
+        var drain = Task.WhenAll(entries.Select(static e => e.Task));
+        var completed = await Task.WhenAny(drain, Task.Delay(_serverOptions.ConnectionDrainTimeout))
+            .ConfigureAwait(false);
+        if (completed == drain)
+        {
+            return;
+        }
+
+        var remaining = _http3Connections.Values.ToArray();
+        _logger.LogWarning("HTTP/3 connection drain timed out with {Count} still active.", remaining.Length);
+        foreach (var entry in remaining)
+        {
+            try { entry.Connection.DisposeAsync().AsTask().GetAwaiter().GetResult(); }
+            catch { /* ignore */ }
+        }
+
+        // Brief wait so aborted handlers unwind.
+        try
+        {
+            await Task.WhenAny(
+                Task.WhenAll(remaining.Select(static e => e.Task)),
+                Task.Delay(TimeSpan.FromSeconds(1))).ConfigureAwait(false);
+        }
+        catch
+        {
+            // ignore
+        }
     }
 #pragma warning restore CA1416
 
@@ -333,6 +390,10 @@ internal sealed class ElsieServer : IHostedService, IAsyncDisposable
         {
             // ignore
         }
+
+#pragma warning disable CA1416 // guarded at runtime by QuicListener.IsSupported + OS checks
+        await DrainHttp3ConnectionsAsync().ConfigureAwait(false);
+#pragma warning restore CA1416
 
         // Drain in-flight connections
         var pending = _connections.Values.Select(c => c.Task).ToArray();
@@ -582,4 +643,18 @@ internal sealed class ElsieServer : IHostedService, IAsyncDisposable
         public CancellationTokenSource ConnectionCts { get; }
         public Task Task { get; }
     }
+
+#pragma warning disable CA1416 // only instantiated on QUIC-supported platforms
+    private sealed class Http3ConnectionEntry
+    {
+        public Http3ConnectionEntry(QuicConnection connection, Task task)
+        {
+            Connection = connection;
+            Task = task;
+        }
+
+        public QuicConnection Connection { get; }
+        public Task Task { get; }
+    }
+#pragma warning restore CA1416
 }
