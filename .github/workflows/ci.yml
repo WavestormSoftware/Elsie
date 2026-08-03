@@ -35,9 +35,11 @@ jobs:
       - name: Test + coverage
         # Bounded: a wedged test (e.g. a QUIC transport hang on Windows) must fail the step
         # with hang diagnostics instead of running until the job-level timeout cancels it.
+        # -m:1 serializes the per-project test hosts: on 2-vCPU runners, running 10 testhosts
+        # (+ Testcontainers) concurrently starved socket deadlines into flaky failures.
         timeout-minutes: 20
         run: >
-          dotnet test Elsie.sln -c Release --no-build --verbosity normal
+          dotnet test Elsie.sln -c Release --no-build -m:1 --verbosity normal
           --collect:"XPlat Code Coverage"
           --results-directory TestResults
           --blame-hang --blame-hang-timeout 15m --blame-hang-dump-type none
