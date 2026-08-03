@@ -100,7 +100,9 @@ jobs:
               config = QuicConfiguration(is_client=True, alpn_protocols=["h3"])
               config.verify_mode = False  # self-signed sample cert
               async with connect("127.0.0.1", 8443, configuration=config) as client:
-                  h3 = H3Connection(client)
+                  # Current aioquic: H3Connection wraps the underlying QuicConnection, not the
+                  # protocol object; transmit() flushes buffered datagrams to the socket.
+                  h3 = H3Connection(client._quic)
                   # Several requests sharing repeated header fields so the aioquic encoder inserts
                   # into the server's advertised QPACK dynamic table (capacity 4096) and the server
                   # decoder must process the encoder-stream instructions + blocked streams.
@@ -109,8 +111,9 @@ jobs:
                                  (b":authority", b"127.0.0.1:8443"), (b":path", b"/ping"),
                                  (b"x-dyn", b"value-%d" % i),
                                  (b"x-dyn", b"shared-value")]
-                      stream_id = h3.send_headers(headers, stream_id=client.get_next_available_stream_id())
+                      stream_id = h3.send_headers(headers, stream_id=client._quic.get_next_available_stream_id())
                       h3.send_data(b"", stream_id=stream_id)
+                      client.transmit()
                       status = None
                       while status is None:
                           event = await client.wait_for_event()
