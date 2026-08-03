@@ -31,8 +31,10 @@ jobs:
 
       - name: Start sample (gRPC on 8443)
         run: |
-          nohup dotnet run --project samples/Elsie.Sample.Grpc -c Release --no-build -- \
-            --urls https://127.0.0.1:8443 > /tmp/grpc-sample.log 2>&1 &
+          # setsid detaches the server from the runner's process group so the job can finish
+          # (an orphaned `dotnet run &` keeps the job alive to the 30-min timeout).
+          setsid nohup dotnet run --project samples/Elsie.Sample.Grpc -c Release --no-build -- \
+            --urls https://127.0.0.1:8443 > /tmp/grpc-sample.log 2>&1 < /dev/null &
           echo $! > /tmp/grpc-sample.pid
           for i in $(seq 1 40); do
             if grpcurl -insecure -max-time 2 127.0.0.1:8443 list 2>/dev/null | grep -q greet.Greeter; then
@@ -45,27 +47,32 @@ jobs:
       - name: grpcurl unary call
         run: |
           set -euo pipefail
-          reply=$(grpcurl -insecure -d '{"name":"Elsie"}' 127.0.0.1:8443 greet.Greeter/SayHello)
+          reply=$(grpcurl -insecure -max-time 15 -d '{"name":"Elsie"}' 127.0.0.1:8443 greet.Greeter/SayHello)
           echo "reply=$reply"
           grep -q '"message": "Hello Elsie"' <<< "$reply"
 
       - name: grpcurl server streaming
         run: |
           set -euo pipefail
-          replies=$(grpcurl -insecure -d '{"name":"Elsie"}' 127.0.0.1:8443 greet.Greeter/SayHelloStream)
+          replies=$(grpcurl -insecure -max-time 15 -d '{"name":"Elsie"}' 127.0.0.1:8443 greet.Greeter/SayHelloStream)
           echo "replies=$replies"
           test "$(grep -c '"message"' <<< "$replies")" -eq 3
 
       - name: grpcurl reflection (list + describe)
         run: |
           set -euo pipefail
-          services=$(grpcurl -insecure 127.0.0.1:8443 list)
+          services=$(grpcurl -insecure -max-time 15 127.0.0.1:8443 list)
           echo "services=$services"
           grep -q 'greet.Greeter' <<< "$services"
-          grpcurl -insecure 127.0.0.1:8443 describe greet.Greeter > /tmp/describe.txt
+          grpcurl -insecure -max-time 15 127.0.0.1:8443 describe greet.Greeter > /tmp/describe.txt
           grep -q 'SayHello' /tmp/describe.txt
 
       - name: Stop sample
         if: always()
         run: |
-          kill "$(cat /tmp/grpc-sample.pid)" 2>/dev/null || true
+          # Kill the whole setsid process group (the server may be the child of `dotnet run`).
+          pid=$(cat /tmp/grpc-sample.pid 2>/dev/null || true)
+          if [ -n "$pid" ]; then
+            kill -TERM -- -"$pid" 2>/dev/null || kill -9 "$pid" 2>/dev/null || true
+          fi
+          pkill -f Elsie.Sample.Grpc 2>/dev/null || true

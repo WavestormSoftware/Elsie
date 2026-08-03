@@ -43,8 +43,9 @@ jobs:
 
       - name: Start sample (h3 on 8443)
         run: |
-          nohup dotnet run --project samples/Elsie.Sample.Http3 -c Release --no-build -- \
-            --urls https://127.0.0.1:8443 > /tmp/h3-sample.log 2>&1 &
+          # setsid detaches the server from the runner's process group so the job can finish.
+          setsid nohup dotnet run --project samples/Elsie.Sample.Http3 -c Release --no-build -- \
+            --urls https://127.0.0.1:8443 > /tmp/h3-sample.log 2>&1 < /dev/null &
           echo $! > /tmp/h3-sample.pid
           for i in $(seq 1 40); do
             if curl -s -o /dev/null --max-time 2 http://127.0.0.1:8443/ 2>/dev/null; then
@@ -114,4 +115,8 @@ jobs:
       - name: Stop sample
         if: always()
         run: |
-          kill "$(cat /tmp/h3-sample.pid)" 2>/dev/null || true
+          pid=$(cat /tmp/h3-sample.pid 2>/dev/null || true)
+          if [ -n "$pid" ]; then
+            kill -TERM -- -"$pid" 2>/dev/null || kill -9 "$pid" 2>/dev/null || true
+          fi
+          pkill -f Elsie.Sample.Http3 2>/dev/null || true
