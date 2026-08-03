@@ -65,16 +65,19 @@ jobs:
       - name: curl --http3 probe
         run: |
           set -euo pipefail
-          # The runner's stock curl is built without HTTP/3 (no nghttp3) — use the official
-          # curl image (host networking so 127.0.0.1:8443 reaches the sample).
-          body=$(docker run --rm --network host curlimages/curl:8.16.0 \
-            --http3 -s -k --max-time 15 https://127.0.0.1:8443/ping)
+          # Neither the runner's stock curl nor the official curlimages/curl image is built
+          # with HTTP/3 (no ngtcp2/nghttp3) — use the static curl build that ships them.
+          curl -sSL -o /tmp/curl-h3.tar.xz \
+            https://github.com/stunnel/static-curl/releases/download/8.21.0/curl-linux-x86_64-glibc-8.21.0.tar.xz
+          tar -xf /tmp/curl-h3.tar.xz -C /tmp
+          chmod +x /tmp/curl
+          /tmp/curl --version | grep -q nghttp3
+          body=$(/tmp/curl --http3 -s -k --max-time 15 https://127.0.0.1:8443/ping)
           echo "body=$body"
           grep -q '"protocol":"h3"' <<< "$body"
           # QPACK dynamic-table-exercising request: the repeated header fields let curl's
           # QPACK encoder insert into the table advertised by the server (4096 by default).
-          body2=$(docker run --rm --network host curlimages/curl:8.16.0 \
-            --http3 -s -k --max-time 15 \
+          body2=$(/tmp/curl --http3 -s -k --max-time 15 \
             -H 'X-Dyn-1: value-one' -H 'X-Dyn-1: value-two' \
             -H 'X-Long-Header: '"$(printf 'a%.0s' {1..200})" https://127.0.0.1:8443/ping)
           echo "body2=$body2"
