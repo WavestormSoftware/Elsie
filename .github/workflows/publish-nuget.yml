@@ -21,6 +21,9 @@
 name: publish-nuget
 
 on:
+  push:
+    tags:
+      - 'v*'
   release:
     types: [published]
   workflow_dispatch:
@@ -64,7 +67,7 @@ jobs:
 
       - name: Resolve NuGet policy-creator username
         id: who
-        if: ${{ github.event_name == 'release' || inputs.dry_run == false }}
+        if: ${{ github.event_name == 'release' || github.event_name == 'push' || inputs.dry_run == false }}
         env:
           INPUT_USER: ${{ inputs.nuget_user }}
           VAR_USER: ${{ vars.NUGET_USER }}
@@ -157,14 +160,14 @@ jobs:
           if-no-files-found: error
 
       - name: NuGet login (Trusted Publishing OIDC)
-        if: ${{ github.event_name == 'release' || inputs.dry_run == false }}
+        if: ${{ github.event_name == 'release' || github.event_name == 'push' || inputs.dry_run == false }}
         uses: NuGet/login@v1
         id: nuget
         with:
           user: ${{ steps.who.outputs.user }}
 
       - name: Push to nuget.org
-        if: ${{ github.event_name == 'release' || inputs.dry_run == false }}
+        if: ${{ github.event_name == 'release' || github.event_name == 'push' || inputs.dry_run == false }}
         run: |
           set -euo pipefail
           shopt -s nullglob

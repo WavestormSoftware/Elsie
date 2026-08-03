@@ -4,8 +4,6 @@ HTTP module framework for **.NET 10** (net10.0-only). Define routes in small mod
 
 **Why Elsie?** Tiny Sinatra-style modules, one fluent host (`ElsieApp`), no ASP.NET tax. Hold the whole request path in your head — modules → middleware → results → server — without `WebApplication` ceremony or a shared-framework dependency.
 
-> **No Kestrel / no ASP.NET — ever.** Elsie is a standalone HTTP framework with its own transport stack (`System.Net.Sockets`, `System.Net.Security`, `System.Net.Quic`). There is no ASP.NET adapter, and no `Microsoft.AspNetCore.*` package or type is used anywhere in Core or the host. Same constraint as [AGENTS.md](AGENTS.md).
-
 ```bash
 dotnet add package Elsie          # 0.4.0-beta — host + Elsie.Core
 ```
