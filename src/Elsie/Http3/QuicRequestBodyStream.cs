@@ -39,10 +39,27 @@ internal sealed class QuicRequestBodyStream : Stream
         });
     }
 
+    private Task? _pumpTask;
+
     /// <summary>Starts the background DATA-frame pump (call once after construction).</summary>
     public void StartReadingAsync(CancellationToken cancellationToken)
     {
-        _ = PumpAsync(cancellationToken);
+        _pumpTask = PumpAsync(cancellationToken);
+    }
+
+    /// <summary>
+    /// Best-effort wait for the client to finish sending (pump observed stream FIN), bounded by
+    /// <paramref name="timeout"/>. Lets the caller delay stream disposal so a client still
+    /// flushing its final DATA frames is not hit with a spurious STOP_SENDING abort.
+    /// </summary>
+    public async Task WaitForDrainAsync(TimeSpan timeout)
+    {
+        if (_pumpTask is null)
+        {
+            return;
+        }
+
+        await Task.WhenAny(_pumpTask, Task.Delay(timeout)).ConfigureAwait(false);
     }
 
     private async Task PumpAsync(CancellationToken cancellationToken)

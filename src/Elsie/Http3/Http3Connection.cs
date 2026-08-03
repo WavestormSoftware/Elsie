@@ -236,6 +236,10 @@ internal sealed class Http3Connection
             else
             {
                 await WriteResponseAsync(stream, response, request.Method, cancellationToken).ConfigureAwait(false);
+                // Graceful close: give in-flight request bytes a bounded moment to arrive so
+                // disposing the stream does not STOP_SENDING-abort a client still flushing its
+                // final DATA frames (races the response on fast links / some msquic builds).
+                await bodyStream.WaitForDrainAsync(TimeSpan.FromSeconds(1)).ConfigureAwait(false);
             }
 
             // Flush any queued Section Acknowledgments for decoded request field sections.
