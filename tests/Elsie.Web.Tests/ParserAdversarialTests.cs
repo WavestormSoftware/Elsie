@@ -169,13 +169,15 @@ public class ParserAdversarialTests
             "Expect: 100-continue\r\n" +
             "Connection: close\r\n" +
             "\r\n";
+        // Generous read deadlines: CI runners (2 vCPU) run all test assemblies in parallel,
+        // and a starved in-proc server must not turn into a flake.
         await ns.WriteAsync(Encoding.ASCII.GetBytes(headers));
 
-        var prelude = await ReadUntilAsync(ns, "\r\n\r\n", TimeSpan.FromSeconds(10));
+        var prelude = await ReadUntilAsync(ns, "\r\n\r\n", TimeSpan.FromSeconds(30));
         Assert.StartsWith("HTTP/1.1 100 Continue", prelude, StringComparison.Ordinal);
 
         await ns.WriteAsync(Encoding.ASCII.GetBytes(body));
-        var response = await ReadUntilAsync(ns, "\r\n\r\n", TimeSpan.FromSeconds(10));
+        var response = await ReadUntilAsync(ns, "\r\n\r\n", TimeSpan.FromSeconds(30));
         Assert.Contains("200", response, StringComparison.Ordinal);
     }
 
