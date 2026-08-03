@@ -10,6 +10,6 @@
   <ItemGroup>
     <PackageReference Include="Elsie" Version="0.3.0-beta.2" />
     <PackageReference Include="Elsie.Validation" Version="0.3.0-beta.2" />
-    <PackageReference Include="Microsoft.Extensions.Logging.Console" Version="8.0.1" />
+    <PackageReference Include="Microsoft.Extensions.Logging.Console" Version="10.0.10" />
   </ItemGroup>
 </Project>
