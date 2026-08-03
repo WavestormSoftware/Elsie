@@ -112,8 +112,8 @@ jobs:
                                  (b"x-dyn", b"value-%d" % i),
                                  (b"x-dyn", b"shared-value")]
                       stream_id = client._quic.get_next_available_stream_id()
-                      h3.send_headers(stream_id=stream_id, headers=headers)
-                      h3.send_data(b"", stream_id=stream_id)
+                      # GET with no body: HEADERS carries END_STREAM.
+                      h3.send_headers(stream_id=stream_id, headers=headers, end_stream=True)
                       client.transmit()
                       status = None
                       while status is None:
