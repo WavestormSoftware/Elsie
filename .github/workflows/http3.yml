@@ -111,7 +111,8 @@ jobs:
                                  (b":authority", b"127.0.0.1:8443"), (b":path", b"/ping"),
                                  (b"x-dyn", b"value-%d" % i),
                                  (b"x-dyn", b"shared-value")]
-                      stream_id = h3.send_headers(headers, stream_id=client._quic.get_next_available_stream_id())
+                      stream_id = client._quic.get_next_available_stream_id()
+                      h3.send_headers(stream_id=stream_id, headers=headers)
                       h3.send_data(b"", stream_id=stream_id)
                       client.transmit()
                       status = None
