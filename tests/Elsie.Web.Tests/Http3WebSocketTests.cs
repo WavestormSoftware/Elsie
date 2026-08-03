@@ -73,6 +73,9 @@ public class Http3WebSocketTests
                 RemoteEndPoint = new IPEndPoint(IPAddress.Loopback, port),
                 DefaultStreamErrorCode = 0x0100,
                 DefaultCloseErrorCode = 0,
+                // Zero inbound credit (the default) would starve the server's control/QPACK streams.
+                MaxInboundBidirectionalStreams = 100,
+                MaxInboundUnidirectionalStreams = 100,
                 ClientAuthenticationOptions = new SslClientAuthenticationOptions
                 {
                     ApplicationProtocols = new List<SslApplicationProtocol> { SslApplicationProtocol.Http3 },

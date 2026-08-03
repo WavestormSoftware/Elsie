@@ -78,7 +78,10 @@ internal static class Http3ControlStreams
         var isEncoderStream = false;
         try
         {
-            var typeBuffer = new byte[8];
+            // Read EXACTLY one byte: the buffer passed to ReadExactlyAsync bounds the read, so
+            // an oversized buffer would swallow (and discard) the first instruction/frame bytes
+            // that share the peer's first datagram.
+            var typeBuffer = new byte[1];
             var read = await ReadExactlyAsync(stream, typeBuffer, 1, cancellationToken).ConfigureAwait(false);
             if (read == 0)
             {

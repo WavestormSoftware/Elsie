@@ -115,6 +115,9 @@ public class Http3QpackErrorTests
             RemoteEndPoint = new IPEndPoint(IPAddress.Loopback, port),
             DefaultStreamErrorCode = 0x0100,
             DefaultCloseErrorCode = 0x0100,
+            // Zero inbound credit (the default) would starve the server's control/QPACK streams.
+            MaxInboundBidirectionalStreams = 100,
+            MaxInboundUnidirectionalStreams = 100,
             ClientAuthenticationOptions = new SslClientAuthenticationOptions
             {
                 ApplicationProtocols = [SslApplicationProtocol.Http3],

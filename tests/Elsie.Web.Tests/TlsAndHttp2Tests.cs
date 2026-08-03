@@ -308,7 +308,11 @@ public class Http3ServerTests
                     RemoteCertificateValidationCallback = static (_, _, _, _) => true
                 },
                 DefaultStreamErrorCode = 0x0100,
-                DefaultCloseErrorCode = 0x0100
+                DefaultCloseErrorCode = 0x0100,
+                // Advertise inbound stream credit: the default (0) would starve the server's
+                // control/QPACK streams (RFC 9114 requires them).
+                MaxInboundBidirectionalStreams = 100,
+                MaxInboundUnidirectionalStreams = 100
             };
 
             await using var connection = await System.Net.Quic.QuicConnection.ConnectAsync(quic, ct);

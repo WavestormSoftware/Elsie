@@ -67,19 +67,9 @@ internal sealed class Http3Connection
         {
             // Server control stream (unidirectional): type + SETTINGS. Owned by the connection
             // and kept open for its whole life — closing it early is H3_CLOSED_CRITICAL_STREAM
-            // (RFC 9114 §6.2.1).
-            try
-            {
-                _serverControlStream = await connection.OpenOutboundStreamAsync(
-                    QuicStreamType.Unidirectional,
-                    cancellationToken).ConfigureAwait(false);
-                await Http3ControlStreams.WriteServerPreambleAsync(_serverControlStream, _serverOptions, cancellationToken)
-                    .ConfigureAwait(false);
-            }
-            catch (Exception ex) when (ex is OperationCanceledException or QuicException)
-            {
-                return;
-            }
+            // (RFC 9114 §6.2.1). Opened on a tracked background task: a peer that advertises
+            // zero unidirectional stream credit must not block the inbound accept loop.
+            TrackStreamTask(-1, OpenServerControlStreamAsync(cancellationToken));
 
             while (!cancellationToken.IsCancellationRequested)
             {
@@ -132,6 +122,31 @@ internal sealed class Http3Connection
 
             await _decoderStream.DisposeAsync().ConfigureAwait(false);
             await _encoderStream.DisposeAsync().ConfigureAwait(false);
+        }
+    }
+
+    /// <summary>Opens the server control stream and writes the SETTINGS preamble. Stream-credit
+    /// waits are expected here (the peer may grant unidirectional credit late); failures are
+    /// swallowed — the accept loop carries on and shutdown disposes whatever was opened.</summary>
+    private async Task OpenServerControlStreamAsync(CancellationToken cancellationToken)
+    {
+        QuicStream? stream = null;
+        try
+        {
+            stream = await _connection.OpenOutboundStreamAsync(
+                QuicStreamType.Unidirectional,
+                cancellationToken).ConfigureAwait(false);
+            _serverControlStream = stream;
+            await Http3ControlStreams.WriteServerPreambleAsync(stream, _serverOptions, cancellationToken)
+                .ConfigureAwait(false);
+        }
+        catch (Exception ex) when (ex is OperationCanceledException or QuicException or ObjectDisposedException)
+        {
+            if (stream is not null)
+            {
+                await stream.DisposeAsync().ConfigureAwait(false);
+                _serverControlStream = null;
+            }
         }
     }
 
@@ -202,9 +217,7 @@ internal sealed class Http3Connection
                 return;
             }
 
-            var isExtendedConnect = string.Equals(request.Method, "CONNECT", StringComparison.OrdinalIgnoreCase)
-                && request.GetHeader(":protocol") is not null;
-            if (isExtendedConnect && response.WebSocketHandler is null)
+            if (IsExtendedConnect(request) && response.WebSocketHandler is null)
             {
                 // RFC 9220 §3: unknown/unsupported :protocol on an extended CONNECT → 501.
                 response = HostDispatch.FromResult(ElsieResult.Problem(
@@ -254,7 +267,9 @@ internal sealed class Http3Connection
     }
 
     /// <summary>Reads the HEADERS frame, decodes QPACK (blocking until unblocked), and builds an
-    /// <see cref="ElsieRequest"/>. The request body is served lazily by the caller-started pump.</summary>
+    /// <see cref="ElsieRequest"/>. The request body is served lazily by the caller-started pump.
+    /// Extended-CONNECT (RFC 9220) streams carry WebSocket data, not an HTTP body — the caller
+    /// must NOT start the pump for them (it would race the WebSocket frame reader).</summary>
     private async Task<ElsieRequest?> ReadRequestAsync(
         QuicStream stream,
         QuicRequestBodyStream bodyStream,
@@ -263,13 +278,17 @@ internal sealed class Http3Connection
     {
         var request = await ReadRequestCoreAsync(stream, bodyStream, requestServices, cancellationToken)
             .ConfigureAwait(false);
-        if (request is not null)
+        if (request is not null && !IsExtendedConnect(request))
         {
             bodyStream.StartReadingAsync(cancellationToken);
         }
 
         return request;
     }
+
+    private static bool IsExtendedConnect(ElsieRequest request) =>
+        string.Equals(request.Method, "CONNECT", StringComparison.OrdinalIgnoreCase)
+        && request.GetHeader(":protocol") is not null;
 
     private async Task<ElsieRequest?> ReadRequestCoreAsync(
         QuicStream stream,
