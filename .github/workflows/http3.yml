@@ -32,11 +32,17 @@ jobs:
 
       - name: Run HTTP/3 + gRPC test suites (libmsquic installed)
         run: |
+          set -euo pipefail
           # The runtime h3 tests (QPACK codec, h3 server, h3 scope/DI, WS-over-h3) and the
           # gRPC suite only execute when libmsquic is present; locally they vacate via
           # QuicListener.IsSupported checks. apt-install msquic above makes them run here.
-          dotnet test tests/Elsie.Web.Tests -c Release --filter "FullyQualifiedName~Http3"
-          dotnet test tests/Elsie.Grpc.Tests -c Release
+          # `timeout` bounds each command; --blame-hang reports any test still running when
+          # the hang deadline fires so a wedged QUIC run fails with diagnostics instead of
+          # cancelling the whole job at the step timeout.
+          timeout 900 dotnet test tests/Elsie.Web.Tests -c Release --filter "FullyQualifiedName~Http3" \
+            --blame-hang --blame-hang-timeout 10m --blame-hang-dump-type none
+          timeout 900 dotnet test tests/Elsie.Grpc.Tests -c Release \
+            --blame-hang --blame-hang-timeout 10m --blame-hang-dump-type none
 
       - name: Build h3 sample
         run: dotnet build samples/Elsie.Sample.Http3/Elsie.Sample.Http3.csproj -c Release
@@ -120,3 +126,21 @@ jobs:
             kill -TERM -- -"$pid" 2>/dev/null || kill -9 "$pid" 2>/dev/null || true
           fi
           pkill -f Elsie.Sample.Http3 2>/dev/null || true
+
+      - name: Reap orphaned test processes
+        if: always()
+        run: |
+          # A wedged test run must not leak testhost/server processes into later steps.
+          pkill -f 'testhost' 2>/dev/null || true
+          pkill -f 'Elsie.Web.Tests' 2>/dev/null || true
+          pkill -f 'Elsie.Grpc.Tests' 2>/dev/null || true
+
+      - name: Collect diagnostics on failure
+        if: failure()
+        run: |
+          echo "=== surviving dotnet/Elsie processes ==="
+          ps auxf | grep -E 'dotnet|testhost|Elsie' | grep -v grep || true
+          echo "=== h3 sample log ==="
+          cat /tmp/h3-sample.log 2>/dev/null || true
+          echo "=== blame-hang / test logs ==="
+          find . -name '*.trx' -o -name 'Sequence_*.xml' 2>/dev/null | head -20 || true
