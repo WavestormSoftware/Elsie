@@ -91,15 +91,25 @@ jobs:
           import sys
           sys.path.insert(0, __import__('site').getsitepackages()[0])
           from aioquic.asyncio.client import connect
+          from aioquic.asyncio.protocol import QuicConnectionProtocol
           from aioquic.quic.configuration import QuicConfiguration
           from aioquic.h3.connection import H3Connection
           from aioquic.h3.events import HeadersReceived
           import asyncio
           
+          class H3Client(QuicConnectionProtocol):
+              """Collects QUIC events so the probe can feed them to H3Connection."""
+              def __init__(self, *args, **kwargs):
+                  super().__init__(*args, **kwargs)
+                  self.events = asyncio.Queue()
+              def quic_event_received(self, event):
+                  self.events.put_nowait(event)
+          
           async def main():
               config = QuicConfiguration(is_client=True, alpn_protocols=["h3"])
               config.verify_mode = False  # self-signed sample cert
-              async with connect("127.0.0.1", 8443, configuration=config) as client:
+              async with connect("127.0.0.1", 8443, configuration=config,
+                                 create_protocol=H3Client) as client:
                   # Current aioquic: H3Connection wraps the underlying QuicConnection, not the
                   # protocol object; transmit() flushes buffered datagrams to the socket.
                   h3 = H3Connection(client._quic)
@@ -117,7 +127,7 @@ jobs:
                       client.transmit()
                       status = None
                       while status is None:
-                          event = await client.wait_for_event()
+                          event = await asyncio.wait_for(client.events.get(), timeout=15)
                           for e in h3.handle_event(event):
                               if isinstance(e, HeadersReceived):
                                   for k, v in e.headers:
