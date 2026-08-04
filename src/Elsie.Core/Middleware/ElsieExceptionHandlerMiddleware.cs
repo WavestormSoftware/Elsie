@@ -36,6 +36,14 @@ public sealed class ElsieExceptionHandlerMiddleware : IElsieMiddleware
                 return;
             }
 
+            // Response-header CR/LF injection attempts are protocol/client errors, not server
+            // faults — reject with a 400 (the injection stays blocked by ElsieHeaders).
+            if (ex is ElsieHeaderValidationException headerValidation)
+            {
+                context.Result = ElsieResult.Problem(400, "Bad Request", headerValidation.Message);
+                return;
+            }
+
             if (_options.ExceptionHandler is not null)
             {
                 context.Result = await _options.ExceptionHandler(context, ex, context.DispatchCancellationToken);

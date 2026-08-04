@@ -63,7 +63,7 @@ internal sealed class ElsieServer : IHostedService, IAsyncDisposable
     /// <summary>Unix domain socket paths this server is listening on.</summary>
     public IReadOnlyList<string> BoundUnixSocketPaths { get; private set; } = Array.Empty<string>();
 
-    public Task StartAsync(CancellationToken cancellationToken = default)
+    public async Task StartAsync(CancellationToken cancellationToken = default)
     {
         if (Interlocked.Exchange(ref _started, 1) != 0)
         {
@@ -92,12 +92,11 @@ internal sealed class ElsieServer : IHostedService, IAsyncDisposable
             _log?.Invoke(msg);
             _logger.LogInformation("{Message}", msg);
             _acceptLoops.Add(AcceptLoopAsync(listener, ep, _cts.Token));
-            StartHttp3ListenerIfSupported(ep, local.Port);
+            await StartHttp3ListenerIfSupportedAsync(ep, local.Port).ConfigureAwait(false);
         }
 
         BoundEndpoints = bound;
         BoundUnixSocketPaths = _unixPaths.ToArray();
-        return Task.CompletedTask;
     }
 
     /// <summary>
@@ -109,7 +108,7 @@ internal sealed class ElsieServer : IHostedService, IAsyncDisposable
     /// same numeric port — required for ephemeral (port 0) listens and for clients that resolve
     /// one endpoint for both transports.</param>
 #pragma warning disable CA1416 // guarded by QuicListener.IsSupported + OS checks at runtime
-    private void StartHttp3ListenerIfSupported(ElsieListenOptions ep, int tcpPort)
+    private async Task StartHttp3ListenerIfSupportedAsync(ElsieListenOptions ep, int tcpPort)
     {
         if (!ep.EnableHttp3 || !ep.UseHttps || ep.Certificate is null || !QuicListener.IsSupported)
         {
@@ -142,7 +141,7 @@ internal sealed class ElsieServer : IHostedService, IAsyncDisposable
         QuicListener listener;
         try
         {
-            listener = QuicListener.ListenAsync(options, _cts.Token).GetAwaiter().GetResult();
+            listener = await QuicListener.ListenAsync(options, _cts.Token).ConfigureAwait(false);
         }
         catch (Exception ex)
         {
@@ -244,7 +243,7 @@ internal sealed class ElsieServer : IHostedService, IAsyncDisposable
         _logger.LogWarning("HTTP/3 connection drain timed out with {Count} still active.", remaining.Length);
         foreach (var entry in remaining)
         {
-            try { entry.Connection.DisposeAsync().AsTask().GetAwaiter().GetResult(); }
+            try { await entry.Connection.DisposeAsync().ConfigureAwait(false); }
             catch { /* ignore */ }
         }
 
@@ -358,7 +357,7 @@ internal sealed class ElsieServer : IHostedService, IAsyncDisposable
             try
             {
 #pragma warning disable CA1416 // guarded at runtime by QuicListener.IsSupported + OS checks
-                listener.DisposeAsync().AsTask().GetAwaiter().GetResult();
+                await listener.DisposeAsync().ConfigureAwait(false);
 #pragma warning restore CA1416
             }
             catch

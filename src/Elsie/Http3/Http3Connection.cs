@@ -39,6 +39,7 @@ internal sealed class Http3Connection
     private QpackStream _decoderStream = null!;
     private QpackStream _encoderStream = null!;
     private QuicStream? _serverControlStream;
+    private readonly Http3ControlStreamTracker _controlStreamTracker = new();
     private int _blockedStreams;
 
     public Http3Connection(
@@ -101,7 +102,7 @@ internal sealed class Http3Connection
                 {
                     // Unidirectional stream (control / QPACK encoder+decoder).
                     TrackStreamTask(s.Id, Http3ControlStreams.ReadClientUnidirectionalStreamAsync(
-                        s, _decoder, _encoder, _connection, cancellationToken));
+                        s, _decoder, _encoder, _connection, _controlStreamTracker, cancellationToken));
                     continue;
                 }
 

@@ -252,6 +252,11 @@ public class ParserAdversarialTests
             "\r\n";
         await ns.WriteAsync(Encoding.ASCII.GetBytes(req));
         await Task.Delay(200);
+
+        // Abort hard (SO_LINGER 0 → RST): a graceful FIN is a half-close that must NOT abort
+        // the request (the client can still read the response), so the abort path is exercised
+        // with a genuine reset instead.
+        tcp.Client.LingerState = new LingerOption(true, 0);
         tcp.Close();
 
         // Server should not hang forever; next ping still works.

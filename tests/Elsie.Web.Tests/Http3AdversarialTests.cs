@@ -248,15 +248,15 @@ public class Http3AdversarialTests
     }
 
     /// <summary>
-    /// A second client control stream (type 0x00) opening is tolerated: send nothing on it and
-    /// verify requests still succeed (documents current behavior). If the server instead closes
-    /// the connection with an error code, that code must be in 0x100-0x1FF.
+    /// A second client control stream (type 0x00) must be rejected: RFC 9114 §6.2.1 permits
+    /// exactly one control stream per endpoint, so the connection is closed with H3_ID_ERROR
+    /// (0x108) — never tolerated.
     /// </summary>
     [Fact]
     [SupportedOSPlatform("linux")]
     [SupportedOSPlatform("macOS")]
     [SupportedOSPlatform("windows")]
-    public async Task Second_client_control_stream_is_permissible_and_requests_succeed()
+    public async Task Second_client_control_stream_closes_connection_with_0x108()
     {
         if (!QuicListener.IsSupported)
         {
@@ -281,17 +281,18 @@ public class Http3AdversarialTests
 
             await using var connection = await ConnectAsync(port, ct);
 
-            // Open a second control stream (type 0x00) and write nothing after the type byte;
-            // keep it open (no FIN) so the server's control-frame reader stays parked.
+            // First client control stream (type 0x00).
+            await using var firstControl = await connection.OpenOutboundStreamAsync(QuicStreamType.Unidirectional, ct);
+            await firstControl.WriteAsync(new byte[] { 0x00 }, ct);
+            await firstControl.FlushAsync(ct);
+
+            // Second client control stream (type 0x00) — must terminate the connection with
+            // H3_ID_ERROR (0x108) instead of being tolerated.
             await using var secondControl = await connection.OpenOutboundStreamAsync(QuicStreamType.Unidirectional, ct);
             await secondControl.WriteAsync(new byte[] { 0x00 }, ct);
             await secondControl.FlushAsync(ct);
 
-            // Requests must still succeed on the same connection.
-            (string status, string body) = await RoundTripAsync(connection, port, "/ping", ct)
-                .ConfigureAwait(false);
-            Assert.Equal("200", status);
-            Assert.Equal("h3-pong", body);
+            await AssertConnectionClosedWithErrorAsync(connection, 0x108, port, ct);
         });
     }
 

@@ -82,12 +82,16 @@ public sealed class ElsieHeaders : IEnumerable<KeyValuePair<string, IReadOnlyLis
     {
         if (ContainsCtl(name))
         {
-            throw new ArgumentException("Header name contains invalid control characters.", nameof(name));
+            throw new ElsieHeaderValidationException(
+                "Header name contains invalid control characters.",
+                nameof(name));
         }
 
         if (ContainsCtl(value))
         {
-            throw new ArgumentException("Header value contains invalid control characters.", nameof(value));
+            throw new ElsieHeaderValidationException(
+                "Header value contains invalid control characters.",
+                nameof(value));
         }
     }
 

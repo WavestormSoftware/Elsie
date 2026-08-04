@@ -78,6 +78,14 @@ internal sealed class HostDispatch
         }
         catch (Exception ex)
         {
+            // Response-header CR/LF injection rejected at bake time (FromDispatch merge) is a
+            // client error — surface 400, never 500. The injection stays blocked by ElsieHeaders.
+            if (ex is ElsieHeaderValidationException headerValidation)
+            {
+                ElsieMetrics.ActiveRequests.Add(-1);
+                return FromResult(ElsieResult.Problem(400, "Bad Request", headerValidation.Message));
+            }
+
             ElsieMetrics.RequestsTotal.Add(1, new KeyValuePair<string, object?>("status", 500));
             var elapsedMs = Stopwatch.GetElapsedTime(start).TotalMilliseconds;
             ElsieMetrics.RequestDuration.Record(

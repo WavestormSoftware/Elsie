@@ -22,6 +22,20 @@ internal static class Http3QpackErrorCodes
 }
 
 /// <summary>
+/// Per-connection state for inbound unidirectional streams (RFC 9114 §6.2). Each side MUST
+/// initiate exactly one control stream; a second client control stream is a connection error.
+/// </summary>
+internal sealed class Http3ControlStreamTracker
+{
+    private int _clientControlStreams;
+
+    /// <summary>Claims the single client control stream slot. Returns false when a second
+    /// client control stream is opened (RFC 9114 §6.2.1).</summary>
+    public bool TryClaimClientControlStream() =>
+        Interlocked.Increment(ref _clientControlStreams) == 1;
+}
+
+/// <summary>
 /// HTTP/3 control streams: server SETTINGS/GOAWAY/MAX_PUSH_ID and client control / QPACK
 /// stream reading (RFC 9114 §6.2 + §7.2.4). The server advertises a nonzero QPACK dynamic
 /// table capacity (configurable via <see cref="ElsieServerOptions"/>) and forwards the
@@ -73,6 +87,7 @@ internal static class Http3ControlStreams
         QpackDecoder decoder,
         QpackEncoder encoder,
         QuicConnection connection,
+        Http3ControlStreamTracker tracker,
         CancellationToken cancellationToken)
     {
         var isEncoderStream = false;
@@ -92,6 +107,18 @@ internal static class Http3ControlStreams
             switch (type)
             {
                 case Http3UnidirectionalStreamType.Control:
+                    // RFC 9114 §6.2.1: each side MUST initiate exactly one control stream.
+                    // A second client control stream is a connection error (H3_ID_ERROR) —
+                    // never tolerated.
+                    if (!tracker.TryClaimClientControlStream())
+                    {
+                        await CloseWithErrorAsync(
+                            connection,
+                            Http3ErrorCodes.IdError,
+                            CancellationToken.None).ConfigureAwait(false);
+                        return;
+                    }
+
                     await ReadControlFramesAsync(stream, encoder, cancellationToken).ConfigureAwait(false);
                     break;
 

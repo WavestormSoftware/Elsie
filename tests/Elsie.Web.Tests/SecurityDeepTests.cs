@@ -224,10 +224,9 @@ public class SecurityDeepTests
     // ------------------------------------------------------------------ 3. Host header
 
     [Fact]
-    public async Task Missing_host_on_http11_is_accepted_not_400()
+    public async Task Missing_host_on_http11_returns_400()
     {
-        // RFC 7230 §5.4 requires Host on HTTP/1.1. The server does not enforce this.
-        // Assert actual behavior (request still processed) and flag the deviation.
+        // RFC 7230 §5.4 requires Host on HTTP/1.1; a missing Host is a 400.
         await using var server = await ElsieApp.Create()
             .QuietConsole(false)
             .Listen(IPAddress.Loopback, 0)
@@ -240,13 +239,14 @@ public class SecurityDeepTests
             ep,
             "GET /ping HTTP/1.1\r\nConnection: close\r\n\r\n",
             TimeSpan.FromSeconds(10));
-        Assert.Equal(200, FirstStatus(raw));
-        Assert.Contains("pong", raw, StringComparison.Ordinal);
+        Assert.Equal(400, FirstStatus(raw));
+        Assert.DoesNotContain("pong", raw, StringComparison.Ordinal);
     }
 
     [Fact]
-    public async Task Duplicate_host_headers_first_wins()
+    public async Task Duplicate_host_headers_return_400()
     {
+        // RFC 7230 §5.4: more than one Host header field is a 400 (first-wins is rejected).
         await using var server = await ElsieApp.Create()
             .QuietConsole(false)
             .Listen(IPAddress.Loopback, 0)
@@ -259,8 +259,8 @@ public class SecurityDeepTests
             ep,
             "GET /host HTTP/1.1\r\nHost: first.example\r\nHost: second.example\r\nConnection: close\r\n\r\n",
             TimeSpan.FromSeconds(10));
-        Assert.Equal(200, FirstStatus(raw));
-        Assert.Contains("first.example", raw, StringComparison.Ordinal);
+        Assert.Equal(400, FirstStatus(raw));
+        Assert.DoesNotContain("first.example", raw, StringComparison.Ordinal);
         Assert.DoesNotContain("second.example", raw, StringComparison.Ordinal);
     }
 

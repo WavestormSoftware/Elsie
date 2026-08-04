@@ -9,9 +9,11 @@ public class SecurityHygieneTests
     public void Headers_reject_crlf_in_name_and_value()
     {
         var h = new ElsieHeaders();
-        Assert.Throws<ArgumentException>(() => h.Set("X-A\rB", "1"));
-        Assert.Throws<ArgumentException>(() => h.Set("X-A", "1\n2"));
-        Assert.Throws<ArgumentException>(() => h.Add("X-A", "1\0z"));
+        // ElsieHeaderValidationException is an ArgumentException subtype (still an argument
+        // error for callers), so ThrowsAny asserts the contract without demanding the exact type.
+        Assert.ThrowsAny<ArgumentException>(() => h.Set("X-A\rB", "1"));
+        Assert.ThrowsAny<ArgumentException>(() => h.Set("X-A", "1\n2"));
+        Assert.ThrowsAny<ArgumentException>(() => h.Add("X-A", "1\0z"));
         h.Set("X-Ok", "fine");
         Assert.Equal("fine", h["X-Ok"]);
     }

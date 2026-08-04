@@ -242,6 +242,13 @@ internal sealed class ConnectionHandler
                     {
                         response = await _dispatch.ProcessAsync(request, requestAborted).ConfigureAwait(false);
                     }
+                    catch (OperationCanceledException) when (
+                        requestAborted.IsCancellationRequested && !cancellationToken.IsCancellationRequested)
+                    {
+                        // DisconnectWatcher fired on a genuine socket error (RST / reset) — the
+                        // client is gone and there is no one to write to. Close without a response.
+                        return;
+                    }
                     finally
                     {
                         disconnectWatcher?.Stop();

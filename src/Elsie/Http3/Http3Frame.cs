@@ -137,6 +137,7 @@ internal static class Http3ErrorCodes
     public const long ClosedCriticalStream = 0x104;
     public const long FrameUnexpected = 0x105;
     public const long ExcessiveLoad = 0x107;
+    public const long IdError = 0x108;
 }
 
 /// <summary>

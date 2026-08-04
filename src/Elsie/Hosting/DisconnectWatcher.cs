@@ -54,14 +54,21 @@ internal sealed class DisconnectWatcher : IDisposable
             {
                 try
                 {
-                    // Readable + Peek 0 bytes ⇒ peer half-closed / closed.
+                    // Readable + Peek 0 bytes ⇒ peer half-closed (FIN).
                     if (_socket.Poll(0, SelectMode.SelectRead))
                     {
                         var n = _socket.Receive(buf, 0, 1, SocketFlags.Peek);
                         if (n == 0)
                         {
-                            try { _cts.Cancel(); } catch (ObjectDisposedException) { /* ignore */ }
-                            return;
+                            // A graceful FIN only means the peer will send no more bytes. The
+                            // peer can still be reading (half-close, e.g. a client that
+                            // shutdown(SHUT_WR) after sending the full request), so aborting
+                            // the in-flight request here is a false positive that drops the
+                            // response. A real disconnect (RST / socket error / disposal)
+                            // surfaces as a SocketException/ObjectDisposedException below;
+                            // otherwise keep polling until the handler finishes — the
+                            // response write itself reports a vanished peer.
+                            continue;
                         }
                     }
                 }

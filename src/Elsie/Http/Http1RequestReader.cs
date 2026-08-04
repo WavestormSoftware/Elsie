@@ -71,7 +71,7 @@ internal sealed class Http1RequestReader
             throw new InvalidOperationException($"Unsupported protocol '{protocol}'.");
         }
 
-        var (path, queryString, queryValues) = SplitTarget(target);
+        var (path, queryString, queryValues, isAbsoluteForm) = SplitTarget(target);
 
         var headers = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
         for (var i = 1; i < lines.Length; i++)
@@ -97,6 +97,23 @@ internal sealed class Http1RequestReader
             }
 
             list.Add(value);
+        }
+
+        // RFC 7230 §5.4: HTTP/1.1 requests require exactly one Host header unless the
+        // request-target is absolute-form (the target itself carries the host). A missing
+        // Host or duplicate Host headers is a 400 — the server MUST NOT guess.
+        if (protocol.StartsWith("HTTP/1.1", StringComparison.Ordinal))
+        {
+            var hasHost = headers.TryGetValue("Host", out var hostValues) && hostValues!.Count > 0;
+            if (!hasHost && !isAbsoluteForm)
+            {
+                throw new InvalidOperationException("Missing Host header.");
+            }
+
+            if (hasHost && hostValues!.Count > 1)
+            {
+                throw new InvalidOperationException("Duplicate Host header.");
+            }
         }
 
         var hasContentLength = headers.TryGetValue("Content-Length", out var clValues) && clValues.Count > 0;
@@ -282,11 +299,14 @@ internal sealed class Http1RequestReader
         return protocol.StartsWith("HTTP/1.1", StringComparison.Ordinal);
     }
 
-    private static (string Path, string QueryString, IReadOnlyDictionary<string, IReadOnlyList<string>> QueryValues)
+    private static (string Path, string QueryString, IReadOnlyDictionary<string, IReadOnlyList<string>> QueryValues, bool IsAbsoluteForm)
         SplitTarget(string target)
     {
-        if (target.StartsWith("http://", StringComparison.OrdinalIgnoreCase) ||
-            target.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
+        // RFC 7230 §5.3.2: absolute-form carries the host in the target itself, so the Host
+        // header is not required (RFC 7230 §5.4). Track it for the Host-header validation.
+        var isAbsoluteForm = target.StartsWith("http://", StringComparison.OrdinalIgnoreCase) ||
+                             target.StartsWith("https://", StringComparison.OrdinalIgnoreCase);
+        if (isAbsoluteForm)
         {
             if (Uri.TryCreate(target, UriKind.Absolute, out var abs))
             {
@@ -296,7 +316,7 @@ internal sealed class Http1RequestReader
 
         if (target == "*")
         {
-            return ("/", string.Empty, new Dictionary<string, IReadOnlyList<string>>(StringComparer.OrdinalIgnoreCase));
+            return ("/", string.Empty, new Dictionary<string, IReadOnlyList<string>>(StringComparer.OrdinalIgnoreCase), isAbsoluteForm);
         }
 
         var q = target.IndexOf('?');
@@ -319,7 +339,7 @@ internal sealed class Http1RequestReader
         }
 
         var queryValues = ParseQuery(queryString);
-        return (path, queryString, queryValues);
+        return (path, queryString, queryValues, isAbsoluteForm);
     }
 
     internal static IReadOnlyDictionary<string, IReadOnlyList<string>> ParseQuery(string queryString)
