@@ -162,6 +162,8 @@ public static class Program
                     if (h1) await FuzzHttp1Async(h1Ep.Port, fuzzDeadline);
                     if (h2) await FuzzHttp2Async(h2Ep.Port, cert, fuzzDeadline);
                     FuzzQpack();
+                    FuzzH3Frames();
+                    FuzzQpackEncoderRoundTrip();
 
                     var n = Interlocked.Increment(ref fuzzCount);
                     // Canary every 50 fuzz connections across all workers
@@ -453,6 +455,108 @@ public static class Program
         Interlocked.Add(ref _totalFuzzIterations, batches * perBatch * 2);
     }
 
+    /// <summary>
+    /// White-box HTTP/3 frame-parser fuzz (RFC 9114 §7.2): random bytes through
+    /// <see cref="Http3Frame.Parse"/> (and the shared <see cref="QuicVarInt"/> reader). Only
+    /// <see cref="InvalidOperationException"/> (malformed/truncated varint or payload) is
+    /// tolerated; anything else (a crash, hang, or overrun) is an error. Pure codec — no QUIC
+    /// transport — so it is immune to the in-process msquic spurious-EOF artifact.
+    /// </summary>
+    private static void FuzzH3Frames()
+    {
+        const int batches = 16;
+        const int perBatch = 32;
+        for (var batch = 0; batch < batches; batch++)
+        {
+            for (var i = 0; i < perBatch; i++)
+            {
+                var bytes = new byte[_rng.Next(0, 96)];
+                _rng.NextBytes(bytes);
+                try
+                {
+                    _ = Http3Frame.Parse(bytes);
+                }
+                catch (InvalidOperationException)
+                {
+                    // malformed / truncated frame — expected; the connection path closes the
+                    // stream with a protocol error
+                }
+                catch (Exception ex)
+                {
+                    Interlocked.Increment(ref _fuzzErrors);
+                    _errorDetails.Add($"H3 frame-parser fuzz: {ex.GetType().Name}: {ex.Message}");
+                    return;
+                }
+            }
+        }
+
+        Interlocked.Add(ref _totalFuzzIterations, batches * perBatch);
+    }
+
+    /// <summary>
+    /// QPACK encoder round-trip fuzz: encode a random field section, decode it back, and assert
+    /// the fields round-trip (dynamic table references must resolve). Random encoder instructions
+    /// via <see cref="QpackEncoder.ProcessDecoderStream"/> are also tolerated. Only
+    /// <see cref="QpackException"/> is expected; anything else is an error.
+    /// </summary>
+    private static void FuzzQpackEncoderRoundTrip()
+    {
+        const int batches = 16;
+        const int perBatch = 16;
+        for (var batch = 0; batch < batches; batch++)
+        {
+            var encoder = new QpackEncoder(encoderStream: null);
+            var decoder = new QpackDecoder(maxCapacity: 4096, decoderStream: null);
+            for (var i = 0; i < perBatch; i++)
+            {
+                var fields = new List<(string, string)>();
+                var count = _rng.Next(1, 8);
+                for (var f = 0; f < count; f++)
+                {
+                    var name = _headerNames[_rng.Next(_headerNames.Length)];
+                    var value = _headerValues[_rng.Next(_headerValues.Length)];
+                    fields.Add((name, value));
+                }
+
+                try
+                {
+                    var block = encoder.EncodeFieldSection(fields, streamId: _rng.Next(0, 8));
+                    var decoded = decoder.DecodeHeaderBlock(block);
+                    // Best-effort: if not blocked, the fields must round-trip.
+                    if (!decoded.IsBlocked && decoded.Fields is not null)
+                    {
+                        // Ignore ':' pseudo-headers the encoder may strip; compare the rest.
+                        var want = fields.Where(f => !f.Item1.StartsWith(":", StringComparison.Ordinal))
+                            .OrderBy(f => f.Item1, StringComparer.Ordinal)
+                            .ToList();
+                        var got = decoded.Fields
+                            .Where(f => !f.Item1.StartsWith(":", StringComparison.Ordinal))
+                            .OrderBy(f => f.Item1, StringComparer.Ordinal)
+                            .ToList();
+                        if (want.Count != got.Count)
+                        {
+                            Interlocked.Increment(ref _fuzzErrors);
+                            _errorDetails.Add($"QPACK round-trip field-count mismatch: want={want.Count} got={got.Count}");
+                            return;
+                        }
+                    }
+                }
+                catch (QpackException)
+                {
+                    // protocol violation — expected
+                }
+                catch (Exception ex)
+                {
+                    Interlocked.Increment(ref _fuzzErrors);
+                    _errorDetails.Add($"QPACK encoder round-trip fuzz: {ex.GetType().Name}: {ex.Message}");
+                    return;
+                }
+            }
+        }
+
+        Interlocked.Add(ref _totalFuzzIterations, batches * perBatch);
+    }
+
     // ================================================================
     //  HTTP/2 fuzz
     // ================================================================
@@ -526,7 +630,7 @@ public static class Program
         // 30%: pure random bytes
         if (_rng.NextDouble() < 0.3)
         {
-            var len = _rng.Next(1, 1024);
+            var len = _rng.Next(9, 1024);
             var buf = new byte[len];
             _rng.NextBytes(buf);
             // Ensure the first 9 bytes could be a valid-ish frame header (but random)

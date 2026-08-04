@@ -120,7 +120,7 @@ internal readonly struct Http3Frame
         var offset = typeConsumed;
         var length = QuicVarInt.Read(data[offset..], out var lengthConsumed);
         offset += lengthConsumed;
-        if (data.Length - offset < length)
+        if (length < 0 || data.Length - offset < length)
         {
             throw new InvalidOperationException("Truncated HTTP/3 frame payload.");
         }

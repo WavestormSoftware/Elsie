@@ -23,7 +23,7 @@ jobs:
       - name: Build fuzz harness
         run: dotnet build tests/Elsie.Fuzz/Elsie.Fuzz.csproj -c Release
 
-      - name: Parser fuzz (HTTP/1.1 + HTTP/2, bounded 10 min)
+      - name: Parser + codec fuzz (HTTP/1.1 + HTTP/2 + QPACK + h3 frame, bounded 10 min)
         run: >
           dotnet run --project tests/Elsie.Fuzz/Elsie.Fuzz.csproj
           -c Release --no-build -- --fuzz-only --seconds 600 --seed 42
