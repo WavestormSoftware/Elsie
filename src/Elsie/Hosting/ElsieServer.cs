@@ -614,6 +614,16 @@ internal sealed class ElsieServer : IHostedService, IAsyncDisposable
                 var bytes = System.Text.Encoding.UTF8.GetBytes(response);
                 await rejectStream.WriteAsync(bytes, ct).ConfigureAwait(false);
                 await rejectStream.FlushAsync(ct).ConfigureAwait(false);
+
+                // Graceful close: signal EOF on our side, then drain inbound briefly.
+                // Disposing with unread request bytes queued makes Windows RST the
+                // connection, which discards the 503 before the client can read it.
+                try { socket.Shutdown(SocketShutdown.Send); } catch { /* best effort */ }
+                using var drainCts = new CancellationTokenSource(TimeSpan.FromMilliseconds(500));
+                var drain = new byte[1024];
+                while (await rejectStream.ReadAsync(drain, drainCts.Token).ConfigureAwait(false) > 0)
+                {
+                }
             }
             catch
             {

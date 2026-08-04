@@ -2,7 +2,7 @@
   <PropertyGroup>
     <PackageType>Template</PackageType>
     <PackageId>Elsie.Templates</PackageId>
-    <Version>0.4.0-beta</Version>
+    <Version>0.4.1-beta.1</Version>
     <Authors>WavestormSoftware</Authors>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <PackageProjectUrl>https://github.com/WavestormSoftware/Elsie</PackageProjectUrl>
