@@ -1,0 +1,68 @@
+name: benchmarks
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  benchmark:
+    name: BenchmarkDotNet (route/dispatch/views)
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: |
+            10.0.x
+
+      - name: Run benchmarks (ShortRun)
+        run: >
+          dotnet run -c Release --project benchmarks/Elsie.Benchmarks
+          -f net10.0 -- --job short --exporters json --exporters markdown
+
+      - name: Compare against committed baseline (warn-only)
+        run: |
+          python3 - <<'EOF'
+          import json, glob, os, re
+
+          results = glob.glob("benchmarks/Elsie.Benchmarks/BenchmarkDotNet.Artifacts/results/*.json")
+          if not results:
+              print("WARN: no benchmark JSON results produced; skipping comparison.")
+              exit(0)
+
+          # Baseline means from committed benchmarks/BASELINE.md (method -> mean ns).
+          baseline = {}
+          baseline_path = "benchmarks/BASELINE.md"
+          if os.path.isfile(baseline_path):
+              with open(baseline_path) as f:
+                  for line in f:
+                      m = re.match(r"\|\s*([A-Za-z0-9_]+)\s*\|\s*([0-9.]+)\s*(?:ns|us|ms)?\s*\|", line)
+                      if m:
+                          baseline[m.group(1)] = float(m.group(2))
+
+          regressions = []
+          for path in results:
+              with open(path) as f:
+                  data = json.load(f)
+              for bench in data.get("Benchmarks", []):
+                  method = bench.get("DisplayInfo", "").split(".")[-1]
+                  mean_us = bench.get("Statistics", {}).get("Mean")
+                  if mean_us is None:
+                      continue
+                  current_ns = mean_us * 1000.0  # stats Mean is in nanoseconds
+                  if method in baseline and baseline[method] > 0:
+                      ratio = current_ns / baseline[method]
+                      if ratio > 1.20:
+                          regressions.append((method, baseline[method], current_ns, ratio))
+
+          if regressions:
+              print("WARN-ONLY (does not block): >20% regression vs baseline:")
+              for method, base, cur, ratio in regressions:
+                  print(f"  {method}: {base:.0f} -> {cur:.0f} ns ({ratio:.2f}x)")
+          else:
+              print("Benchmarks: no regression >20% vs baseline.")
+          EOF
