@@ -108,13 +108,14 @@ internal static class Http3ControlStreams
             {
                 case Http3UnidirectionalStreamType.Control:
                     // RFC 9114 §6.2.1: each side MUST initiate exactly one control stream.
-                    // A second client control stream is a connection error (H3_ID_ERROR) —
+                    // A second client control stream is a connection error
+                    // (H3_STREAM_CREATION_ERROR — a stream the server will not accept) —
                     // never tolerated.
                     if (!tracker.TryClaimClientControlStream())
                     {
                         await CloseWithErrorAsync(
                             connection,
-                            Http3ErrorCodes.IdError,
+                            Http3ErrorCodes.StreamCreationError,
                             CancellationToken.None).ConfigureAwait(false);
                         return;
                     }

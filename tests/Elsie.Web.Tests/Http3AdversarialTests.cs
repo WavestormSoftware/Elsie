@@ -249,14 +249,14 @@ public class Http3AdversarialTests
 
     /// <summary>
     /// A second client control stream (type 0x00) must be rejected: RFC 9114 §6.2.1 permits
-    /// exactly one control stream per endpoint, so the connection is closed with H3_ID_ERROR
-    /// (0x108) — never tolerated.
+    /// exactly one control stream per endpoint, so the connection is closed with
+    /// H3_STREAM_CREATION_ERROR (0x103) — never tolerated.
     /// </summary>
     [Fact]
     [SupportedOSPlatform("linux")]
     [SupportedOSPlatform("macOS")]
     [SupportedOSPlatform("windows")]
-    public async Task Second_client_control_stream_closes_connection_with_0x108()
+    public async Task Second_client_control_stream_closes_connection_with_0x103()
     {
         if (!QuicListener.IsSupported)
         {
@@ -287,12 +287,12 @@ public class Http3AdversarialTests
             await firstControl.FlushAsync(ct);
 
             // Second client control stream (type 0x00) — must terminate the connection with
-            // H3_ID_ERROR (0x108) instead of being tolerated.
+            // H3_STREAM_CREATION_ERROR (0x103) instead of being tolerated.
             await using var secondControl = await connection.OpenOutboundStreamAsync(QuicStreamType.Unidirectional, ct);
             await secondControl.WriteAsync(new byte[] { 0x00 }, ct);
             await secondControl.FlushAsync(ct);
 
-            await AssertConnectionClosedWithErrorAsync(connection, 0x108, port, ct);
+            await AssertConnectionClosedWithErrorAsync(connection, 0x103, port, ct);
         });
     }
 
