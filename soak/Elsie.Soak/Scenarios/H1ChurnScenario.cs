@@ -39,6 +39,7 @@ internal sealed class H1ChurnScenario
             openClients.Add(serialClient);
 
             var iteration = 0;
+            var currentOp = "";
             while ((serialPhase.IsOpen || iteration < 60) &&
                    !DeadlineReached(budget, rootCt) &&
                    budget.Remaining > TimeSpan.FromSeconds(2))
@@ -46,6 +47,9 @@ internal sealed class H1ChurnScenario
                 var size = BodySizes[iteration % BodySizes.Length];
                 var body = size > 0 ? RandomBody(size, iteration) : Array.Empty<byte>();
                 var isPost = (iteration / BodySizes.Length) % 2 == 0;
+                currentOp = isPost
+                    ? $"POST /upload ({size}B)"
+                    : $"GET {(iteration % 3 == 0 ? "/ping" : iteration % 3 == 1 ? "/slow" : "/big")}";
                 try
                 {
                     using var timeout = budget.Token.LinkTimeout(TimeSpan.FromSeconds(5));
@@ -78,7 +82,7 @@ internal sealed class H1ChurnScenario
                 catch (Exception ex)
                 {
                     counters.Record(budget.Elapsed, false);
-                    problems.Add($"serial#{iteration}: {ex.GetType().Name}: {ex.Message}");
+                    problems.Add($"serial#{iteration} [{currentOp}]: {ex.GetType().Name}: {ex.Message}");
                     break; // one broken connection poisons the rest of the serial phase
                 }
 

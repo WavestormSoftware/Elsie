@@ -247,9 +247,16 @@ internal sealed class H3ChurnScenario
 
             counters.Record(op.Elapsed, true);
         }
-        catch (Exception)
+        catch (Exception ex)
         {
             counters.Record(TimeSpan.Zero, false);
+            lock (problems)
+            {
+                if (problems.Count < 20)
+                {
+                    problems.Add($"h3 req {index} {path}: {ex.GetType().Name}: {ex.Message}");
+                }
+            }
         }
     }
 

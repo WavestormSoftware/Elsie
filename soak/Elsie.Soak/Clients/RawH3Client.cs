@@ -32,7 +32,6 @@ internal sealed class RawH3Client : IAsyncDisposable
     private readonly QpackEncoder _encoder = new(encoderStream: null);
     private readonly QpackDecoder _decoder = new(maxCapacity: 0, decoderStream: null);
     private readonly List<Task> _drains = [];
-    private QuicStream? _controlStream;
     private long _streamSeq;
     private volatile bool _closed;
 
@@ -42,7 +41,14 @@ internal sealed class RawH3Client : IAsyncDisposable
         _port = port;
     }
 
-    /// <summary>Connects to the server's HTTP/3 (UDP) endpoint and opens the client control stream.</summary>
+    /// <summary>Connects to the server's HTTP/3 (UDP) endpoint and starts the inbound drain
+    /// pump. Matches the working client pattern in <c>tests/Elsie.Web.Tests/Http3*Tests.cs</c>:
+    /// no client control stream is opened (RFC 9114 §6.2.1 allows the server to operate without
+    /// one; the reference tests connect exactly this way). Advertising a client SETTINGS with
+    /// QPACK_MAX_TABLE_CAPACITY=0 here triggers a deterministic msquic delivery stall that wedges
+    /// every request on the connection (see soak report — transport-edge finding); the reference
+    /// pattern avoids it. The server encodes responses literal-only (capacity 0 default), so the
+    /// capacity-0 client decoder stays in sync with no encoder-stream bytes.</summary>
     public static async Task<RawH3Client> ConnectAsync(int port, CancellationToken ct)
     {
         using var t = ct.LinkTimeout(TimeSpan.FromSeconds(10));
@@ -66,7 +72,6 @@ internal sealed class RawH3Client : IAsyncDisposable
         var client = new RawH3Client(connection, port);
         try
         {
-            await client.OpenControlStreamAsync(t.Token).ConfigureAwait(false);
             client.StartInboundPump(ct);
             return client;
         }
@@ -75,28 +80,6 @@ internal sealed class RawH3Client : IAsyncDisposable
             await client.DisposeAsync().ConfigureAwait(false);
             throw;
         }
-    }
-
-    /// <summary>
-    /// The client control stream (RFC 9114 §6.2.1). Holds it open for the connection's life —
-    /// closing it early is H3_CLOSED_CRITICAL_STREAM. Advertises QPACK dynamic-table capacity 0
-    /// so the server encodes responses with static/literal-only field lines (deterministic for
-    /// the client-side decoder).
-    /// </summary>
-    private async Task OpenControlStreamAsync(CancellationToken ct)
-    {
-        using var t = ct.LinkTimeout(TimeSpan.FromSeconds(10));
-        var token = t.Token;
-        var control = await _connection.OpenOutboundStreamAsync(QuicStreamType.Unidirectional, token).ConfigureAwait(false);
-        _controlStream = control;
-        // Control stream type (0x00) + SETTINGS frame advertising QPACK dynamic-table
-        // capacity 0 (so the server encodes responses with static/literal-only field lines).
-        // Written as ONE buffered chunk: back-to-back split WriteAsync calls on a client
-        // unidirectional stream intermittently stall the peer's delivery of subsequent request
-        // streams (see report — transport-edge behavior).
-        var preamble = new byte[] { 0x00, 0x04, 0x02, 0x01, 0x00 };
-        await control.WriteAsync(preamble, token).ConfigureAwait(false);
-        await control.FlushAsync(token).ConfigureAwait(false);
     }
 
     /// <summary>Accepts and drains the server's unidirectional streams (control + QPACK) so
@@ -263,18 +246,6 @@ internal sealed class RawH3Client : IAsyncDisposable
         catch
         {
             // connection already gone
-        }
-
-        if (_controlStream is not null)
-        {
-            try
-            {
-                await _controlStream.DisposeAsync().ConfigureAwait(false);
-            }
-            catch
-            {
-                // ignore
-            }
         }
 
         await _connection.DisposeAsync().ConfigureAwait(false);
