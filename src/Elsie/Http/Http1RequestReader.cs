@@ -100,11 +100,16 @@ internal sealed class Http1RequestReader
         }
 
         // RFC 7230 §5.4: HTTP/1.1 requests require exactly one Host header unless the
-        // request-target is absolute-form (the target itself carries the host). A missing
-        // Host or duplicate Host headers is a 400 — the server MUST NOT guess.
+        // request-target is absolute-form (the target itself carries the host). A missing,
+        // empty/whitespace, or duplicate Host header is a 400 — the server MUST NOT guess.
         if (protocol.StartsWith("HTTP/1.1", StringComparison.Ordinal))
         {
             var hasHost = headers.TryGetValue("Host", out var hostValues) && hostValues!.Count > 0;
+            if (hasHost && string.IsNullOrWhiteSpace(hostValues![0]))
+            {
+                throw new InvalidOperationException("Empty Host header.");
+            }
+
             if (!hasHost && !isAbsoluteForm)
             {
                 throw new InvalidOperationException("Missing Host header.");

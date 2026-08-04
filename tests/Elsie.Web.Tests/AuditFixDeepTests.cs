@@ -15,7 +15,7 @@ namespace Elsie.Web.Tests;
 /// W1 transport-audit regression tests: RFC 7230 §5.4 Host validation (missing/duplicate → 400,
 /// absolute-form waiver), response-header CRLF injection mapped to 400 (not 500), graceful
 /// half-close (FIN) no longer aborting a request, and HTTP/3 second-client-control-stream
-/// rejection with H3_ID_ERROR (0x108). QUIC tests follow the project's platform/deadline rules.
+/// rejection with H3_STREAM_CREATION_ERROR (0x103). QUIC tests follow the project's platform/deadline rules.
 /// </summary>
 public class AuditFixDeepTests
 {
@@ -61,6 +61,36 @@ public class AuditFixDeepTests
         var raw = await SendRawAsync(
             ep,
             "GET /ping HTTP/1.1\r\nHost: a.example\r\nHost: b.example\r\nConnection: close\r\n\r\n",
+            TimeSpan.FromSeconds(10));
+        Assert.Equal(400, FirstStatus(raw));
+        Assert.DoesNotContain("pong", raw, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Empty_host_header_returns_400()
+    {
+        // RFC 7230 §5.4: a Host header present but empty ("Host:\r\n") is a 400 — the
+        // authority is not recoverable and MUST NOT be guessed.
+        await using var server = await StartServerAsync();
+        var ep = server.Endpoints[0];
+        var raw = await SendRawAsync(
+            ep,
+            "GET /ping HTTP/1.1\r\nHost:\r\nConnection: close\r\n\r\n",
+            TimeSpan.FromSeconds(10));
+        Assert.Equal(400, FirstStatus(raw));
+        Assert.DoesNotContain("pong", raw, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Whitespace_only_host_header_returns_400()
+    {
+        // A Host header whose value is only whitespace is indistinguishable from empty and
+        // must be rejected the same way.
+        await using var server = await StartServerAsync();
+        var ep = server.Endpoints[0];
+        var raw = await SendRawAsync(
+            ep,
+            "GET /ping HTTP/1.1\r\nHost:   \r\nConnection: close\r\n\r\n",
             TimeSpan.FromSeconds(10));
         Assert.Equal(400, FirstStatus(raw));
         Assert.DoesNotContain("pong", raw, StringComparison.Ordinal);
@@ -139,13 +169,13 @@ public class AuditFixDeepTests
         Assert.Contains("slow-ok", raw, StringComparison.Ordinal);
     }
 
-    // ------------------------------------------------------------------ 4. HTTP/3 second control stream → 0x108
+    // ------------------------------------------------------------------ 4. HTTP/3 second control stream → 0x103
 
     [Fact]
     [SupportedOSPlatform("linux")]
     [SupportedOSPlatform("macOS")]
     [SupportedOSPlatform("windows")]
-    public async Task Second_client_control_stream_closes_connection_with_0x108()
+    public async Task Second_client_control_stream_closes_connection_with_0x103()
     {
         if (!QuicListener.IsSupported)
         {
@@ -175,12 +205,12 @@ public class AuditFixDeepTests
             await firstControl.WriteAsync(new byte[] { 0x00 }, ct);
             await firstControl.FlushAsync(ct);
 
-            // Second client control stream (type 0x00) — must close the connection with 0x108.
+            // Second client control stream (type 0x00) — must close the connection with 0x103.
             await using var secondControl = await connection.OpenOutboundStreamAsync(QuicStreamType.Unidirectional, ct);
             await secondControl.WriteAsync(new byte[] { 0x00 }, ct);
             await secondControl.FlushAsync(ct);
 
-            await AssertConnectionClosedWithErrorAsync(connection, 0x108, port, ct);
+            await AssertConnectionClosedWithErrorAsync(connection, 0x103, port, ct);
         });
     }
 
