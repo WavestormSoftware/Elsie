@@ -119,7 +119,8 @@ internal static class Http1ResponseWriter
             buffered = Array.Empty<byte>();
         }
 
-        if (buffered is not null && !hasContentLength && !hasTransferEncoding)
+        // RFC 9110 §8.6: no Content-Length on 204; on 304 only when it equals the 200 payload (caller-set).
+        if (buffered is not null && !noBodyStatus && !hasContentLength && !hasTransferEncoding)
         {
             await WriteHeaderAsync(
                     stream,

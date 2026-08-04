@@ -454,4 +454,61 @@ public class ResponseCachingTests
         Assert.Equal(304, notModified.StatusCode);
         Assert.Empty(notModified.Body);
     }
+
+    // ------------------------------------------------- RFC 9110 §13.2.2 precedence combinations
+
+    [Fact]
+    public async Task IfMatch_failure_beats_IfNoneMatch_match_returns_412()
+    {
+        // Step 1 (If-Match false => 412) precedes step 3 (If-None-Match match => 304).
+        await using var host = ElsieInMemoryHost.Create(s => s.AddElsieModule<AutoCacheModule>());
+        var response = await host.SendAsync("GET", "/etag", headers: new Dictionary<string, string>
+        {
+            ["If-Match"] = "\"v2\"",
+            ["If-None-Match"] = "\"v1\""
+        });
+
+        Assert.Equal(412, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task IfUnmodifiedSince_failure_beats_IfNoneMatch_match_returns_412()
+    {
+        // Step 2 (If-Unmodified-Since false => 412) precedes step 3 (If-None-Match match => 304).
+        await using var host = ElsieInMemoryHost.Create(s => s.AddElsieModule<AutoCacheModule>());
+        var response = await host.SendAsync("GET", "/lastmod", headers: new Dictionary<string, string>
+        {
+            ["If-Unmodified-Since"] = "Mon, 01 Jan 2024 00:00:00 GMT",
+            ["If-None-Match"] = "\"v1\""
+        });
+
+        Assert.Equal(412, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task IfUnmodifiedSince_failure_beats_IfNoneMatch_no_match_returns_412()
+    {
+        // Step 2 (If-Unmodified-Since false => 412) precedes step 3 passthrough (would be 200).
+        await using var host = ElsieInMemoryHost.Create(s => s.AddElsieModule<AutoCacheModule>());
+        var response = await host.SendAsync("GET", "/lastmod", headers: new Dictionary<string, string>
+        {
+            ["If-Unmodified-Since"] = "Mon, 01 Jan 2024 00:00:00 GMT",
+            ["If-None-Match"] = "\"stale\""
+        });
+
+        Assert.Equal(412, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task IfNoneMatch_absent_IfModifiedSince_not_modified_returns_304()
+    {
+        // Step 4: only reachable when If-None-Match is absent.
+        await using var host = ElsieInMemoryHost.Create(s => s.AddElsieModule<AutoCacheModule>());
+        var response = await host.SendAsync("GET", "/lastmod", headers: new Dictionary<string, string>
+        {
+            ["If-Modified-Since"] = LastModifiedHeader
+        });
+
+        Assert.Equal(304, response.StatusCode);
+    }
 }

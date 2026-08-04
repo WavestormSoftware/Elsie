@@ -21,5 +21,7 @@
   <ItemGroup>
     <InternalsVisibleTo Include="Elsie.Web.Tests" />
     <InternalsVisibleTo Include="Elsie.Fuzz" />
+    <!-- Soak/stress harness drives the raw HTTP/3 client with the internal QPACK codecs. -->
+    <InternalsVisibleTo Include="Elsie.Soak" />
   </ItemGroup>
 </Project>

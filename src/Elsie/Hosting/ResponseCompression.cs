@@ -150,8 +150,6 @@ internal static class ResponseCompression
         double brQ = -1;
         double gzipQ = -1;
         double starQ = -1;
-        var sawIdentity = false;
-        double identityQ = 1;
 
         foreach (var raw in acceptEncoding.Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries))
         {
@@ -166,7 +164,8 @@ internal static class ResponseCompression
                     if (p.StartsWith("q=", StringComparison.OrdinalIgnoreCase) &&
                         double.TryParse(p[2..], NumberStyles.Float, CultureInfo.InvariantCulture, out var parsed))
                     {
-                        q = parsed;
+                        // RFC 9110 §12.5.3: q-values are clamped to [0, 1].
+                        q = Math.Clamp(parsed, 0.0, 1.0);
                     }
                 }
             }
@@ -184,11 +183,7 @@ internal static class ResponseCompression
             {
                 starQ = q;
             }
-            else if (coding.Equals("identity", StringComparison.OrdinalIgnoreCase))
-            {
-                sawIdentity = true;
-                identityQ = q;
-            }
+
         }
 
         // Explicit q=0 means not acceptable.
@@ -213,8 +208,6 @@ internal static class ResponseCompression
         }
 
         // identity only / all q=0 → no compression
-        _ = sawIdentity;
-        _ = identityQ;
         return null;
     }
 

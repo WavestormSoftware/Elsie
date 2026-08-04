@@ -62,7 +62,7 @@ public static class ElsieResultConditionalGetExtensions
     /// <list type="bullet">
     /// <item>304 Not Modified when an If-None-Match (weak comparison) or If-Modified-Since validator matches for GET/HEAD — no body, no Content-Length, validators preserved;</item>
     /// <item>412 Precondition Failed when If-Match / If-Unmodified-Since (strong comparison) fails, or an If-None-Match match occurs for unsafe methods;</item>
-    /// <item>the result unchanged otherwise (precedence per RFC 9110 §13.2.2: If-None-Match &gt; If-Match &gt; If-Modified-Since &gt; If-Unmodified-Since).</item>
+    /// <item>the result unchanged otherwise (precedence per RFC 9110 §13.2.2: If-Match &gt; If-Unmodified-Since &gt; If-None-Match &gt; If-Modified-Since).</item>
     /// </list>
     /// <see cref="ElsieCaching.ConditionalGet"/> applies this automatically to every handled result.
     /// </summary>
@@ -76,6 +76,22 @@ public static class ElsieResultConditionalGetExtensions
         var isGetOrHead = request.Method is "GET" or "HEAD";
         var hasRepresentation = result.StatusCode is >= 200 and < 400;
 
+        // RFC 9110 §13.2.2 evaluation order.
+        // Step 1: If-Match present -> false => 412.
+        if (request.GetHeader("If-Match") is { } ifMatch)
+        {
+            return IfMatchMatches(ifMatch, currentTag, hasRepresentation) ? result : PreconditionFailed();
+        }
+
+        // Step 2: If-Match absent + If-Unmodified-Since present -> false => 412.
+        if (request.GetHeader("If-Unmodified-Since") is { } ifUnmodifiedSince &&
+            lastModified is { } unmodifiedLastModified &&
+            IfUnmodifiedSinceFails(ifUnmodifiedSince, unmodifiedLastModified))
+        {
+            return PreconditionFailed();
+        }
+
+        // Step 3: If-None-Match present -> match => 304 (GET/HEAD) / 412 (other methods).
         if (request.GetHeader("If-None-Match") is { } ifNoneMatch)
         {
             if (IfNoneMatchMatches(ifNoneMatch, currentTag, hasRepresentation))
@@ -86,26 +102,13 @@ public static class ElsieResultConditionalGetExtensions
             return result;
         }
 
-        if (request.GetHeader("If-Match") is { } ifMatch)
+        // Step 4: If-None-Match absent + If-Modified-Since present (GET/HEAD) -> not modified => 304.
+        if (isGetOrHead &&
+            request.GetHeader("If-Modified-Since") is { } ifModifiedSince &&
+            lastModified is { } lm &&
+            IfModifiedSinceMatches(ifModifiedSince, lm))
         {
-            return IfMatchMatches(ifMatch, currentTag, hasRepresentation) ? result : PreconditionFailed();
-        }
-
-        if (request.GetHeader("If-Modified-Since") is { } ifModifiedSince)
-        {
-            if (isGetOrHead && lastModified is { } lm && IfModifiedSinceMatches(ifModifiedSince, lm))
-            {
-                return NotModified(result);
-            }
-
-            return result;
-        }
-
-        if (request.GetHeader("If-Unmodified-Since") is { } ifUnmodifiedSince &&
-            lastModified is { } unmodifiedLastModified &&
-            IfUnmodifiedSinceFails(ifUnmodifiedSince, unmodifiedLastModified))
-        {
-            return PreconditionFailed();
+            return NotModified(result);
         }
 
         return result;
