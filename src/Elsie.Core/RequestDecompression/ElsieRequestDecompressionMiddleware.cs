@@ -31,6 +31,11 @@ public sealed class ElsieRequestDecompressionSizeExceededException : Exception
 /// exceeds it — no full-body buffering. Requests without a <c>Content-Encoding</c> header (or with
 /// <c>identity</c>) pass through untouched. Operates on <see cref="ElsieRequest.Body"/> (Core level),
 /// so it applies to HTTP/1.1, HTTP/2, and HTTP/3 alike.
+///
+/// <para>Because decoding is streaming (never buffered), <see cref="ElsieRequest.ContentLength"/>
+/// is left unchanged and continues to report the wire (compressed) size the client sent. Downstream
+/// handlers and binders must read the decoded stream rather than trust <c>ContentLength</c> for the
+/// decoded byte count.</para>
 /// </summary>
 public sealed class ElsieRequestDecompressionMiddleware : IElsieMiddleware
 {

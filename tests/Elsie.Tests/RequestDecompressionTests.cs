@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.IO.Compression;
 using System.Text;
 using System.Text.Json;
@@ -32,6 +33,14 @@ public class RequestDecompressionTests
             {
                 var bind = await ctx.BindFormAsync<Person>(ct);
                 return bind.IsSuccess ? ElsieResult.Text($"{bind.Value!.Name}:{bind.Value.Age}") : bind.Error!;
+            });
+
+            Post("/content-length", async (ctx, ct) =>
+            {
+                // Report the wire Content-Length as seen by the handler (post-decompression).
+                var cl = ctx.Request.ContentLength?.ToString(CultureInfo.InvariantCulture) ?? "null";
+                var bodyLen = (await ctx.Request.BufferBodyAsync(ct)).Length;
+                return ElsieResult.Text($"{cl}:{bodyLen}");
             });
         }
     }
@@ -282,5 +291,31 @@ public class RequestDecompressionTests
 
         Assert.Equal(200, res.StatusCode);
         Assert.Equal("Bob:20", res.ReadAsString());
+    }
+
+    [Fact]
+    public async Task ContentLength_reflects_wire_compressed_size_after_decompression()
+    {
+        // Documented decision: after decompression, ContentLength is NOT rewritten — it keeps
+        // reporting the wire (compressed) size the client sent. The decoded body is served
+        // lazily (never buffered), so ContentLength != decoded byte count.
+        await using var host = CreateHost();
+        var plain = Encoding.UTF8.GetBytes(Hello);
+        var compressed = Gzip(plain);
+        await using var stream = new MemoryStream(compressed);
+        var res = await host.SendAsync(
+            "POST",
+            "/content-length",
+            body: stream,
+            contentLength: compressed.Length,
+            contentType: "text/plain",
+            headers: new Dictionary<string, string> { ["Content-Encoding"] = "gzip" });
+
+        Assert.Equal(200, res.StatusCode);
+        // "<wire-compressed-length>:<decoded-length>" — the two differ (compression shrank the wire size).
+        var parts = res.ReadAsString().Split(':');
+        Assert.Equal(compressed.Length.ToString(CultureInfo.InvariantCulture), parts[0]);
+        Assert.Equal(plain.Length.ToString(CultureInfo.InvariantCulture), parts[1]);
+        Assert.NotEqual(compressed.Length, plain.Length);
     }
 }

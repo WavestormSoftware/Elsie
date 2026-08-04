@@ -30,8 +30,6 @@ internal sealed class Http3Connection
     private readonly ElsieServerOptions _serverOptions;
     private readonly Action<string>? _log;
     private readonly ILogger _logger;
-    // Bounded wait for in-flight stream tasks once the accept loop ends (shutdown / abort).
-    private static readonly TimeSpan StreamTaskShutdownTimeout = TimeSpan.FromSeconds(5);
     private readonly ConcurrentDictionary<long, Task> _streamTasks = new();
     private QuicConnection _connection = null!;
     private QpackDecoder _decoder = null!;
@@ -175,9 +173,15 @@ internal sealed class Http3Connection
             return;
         }
 
+        // Bounded by the configured ConnectionDrainTimeout (the same bound StopAsync applies
+        // to TCP connections), so an in-flight stream task cannot hold the server shutdown open
+        // indefinitely. The connection dispose below aborts whatever is left after the timeout.
+        var drainTimeout = _serverOptions.ConnectionDrainTimeout > TimeSpan.Zero
+            ? _serverOptions.ConnectionDrainTimeout
+            : TimeSpan.FromSeconds(5);
         try
         {
-            await Task.WhenAll(tasks).WaitAsync(StreamTaskShutdownTimeout).ConfigureAwait(false);
+            await Task.WhenAll(tasks).WaitAsync(drainTimeout).ConfigureAwait(false);
         }
         catch (Exception)
         {

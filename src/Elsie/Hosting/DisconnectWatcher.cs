@@ -4,7 +4,8 @@ namespace Elsie.Web.Hosting;
 
 /// <summary>
 /// Polls a socket with Peek while a handler runs; cancels when the client disconnects.
-/// Does not consume pipelined bytes.
+/// Does not consume pipelined bytes. A graceful FIN (half-close) does NOT cancel (the peer
+/// may still be reading the response), but a subsequent RST / socket error still fires.
 /// </summary>
 internal sealed class DisconnectWatcher : IDisposable
 {
@@ -53,18 +54,25 @@ internal sealed class DisconnectWatcher : IDisposable
             {
                 try
                 {
+                    // A socket error (RST / reset) signals a real disconnect — even after a
+                    // graceful FIN (half-close). (Probe: FIN leaves SelectError false; RST sets
+                    // it true.) Cancel so RequestAborted fires and the handler unwinds.
+                    if (_socket.Poll(0, SelectMode.SelectError))
+                    {
+                        _cts.Cancel();
+                        return;
+                    }
+
                     // Non-blocking only: a blocking Peek-receive here races the connection
                     // handler's own body reads (bytes drained between Poll and Receive),
                     // wedging the watcher thread and, via Dispose, the whole connection.
                     if (_socket.Poll(0, SelectMode.SelectRead) && _socket.Available == 0)
                     {
                         // Readable with no bytes = graceful FIN (half-close). The peer can
-                        // still be reading, so aborting the in-flight request would be a
-                        // false positive that drops the response. Stop watching instead of
-                        // spinning (EOF stays readable forever); a real disconnect (RST /
-                        // disposal) surfaces as SocketException/ObjectDisposedException, and
-                        // the response write itself reports a vanished peer.
-                        return;
+                        // still be reading, so aborting the in-flight request would be a false
+                        // positive that drops the response. Keep watching (bounded by the delay
+                        // below) so a later RST (SelectError above) still cancels RequestAborted
+                        // instead of silently stopping at FIN.
                     }
                 }
                 catch (ObjectDisposedException)

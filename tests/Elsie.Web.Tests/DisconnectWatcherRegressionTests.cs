@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Globalization;
 using System.Net;
 using System.Net.Sockets;
@@ -26,6 +27,48 @@ public class DisconnectWatcherRegressionTests
                 return ElsieResult.Text(body.Length.ToString(CultureInfo.InvariantCulture));
             });
         }
+    }
+
+    private sealed class AbortObservingModule : ElsieModule
+    {
+        public static readonly ConcurrentBag<long> Aborted = new();
+        public static readonly ConcurrentBag<long> Completed = new();
+
+        public AbortObservingModule()
+        {
+            Post("/observe", async (ctx, ct) =>
+            {
+                var id = Interlocked.Increment(ref _counter);
+                try
+                {
+                    // Wait for the request to be aborted (or the body to finish). Use a
+                    // non-cancellable delay so the loop keeps polling RequestAborted even
+                    // after the dispatch token is cancelled by the abort.
+                    var deadline = DateTime.UtcNow.AddSeconds(10);
+                    while (DateTime.UtcNow < deadline && !ctx.RequestAborted.IsCancellationRequested)
+                    {
+                        await Task.Delay(20).ConfigureAwait(false);
+                    }
+
+                    if (ctx.RequestAborted.IsCancellationRequested)
+                    {
+                        Aborted.Add(id);
+                    }
+                    else
+                    {
+                        Completed.Add(id);
+                    }
+
+                    return ElsieResult.Text("done");
+                }
+                catch (Exception)
+                {
+                    return ElsieResult.Text("error");
+                }
+            });
+        }
+
+        private static long _counter;
     }
 
     [Fact]
@@ -71,6 +114,55 @@ public class DisconnectWatcherRegressionTests
             Assert.Contains(" 200 ", headerText, StringComparison.Ordinal);
             Assert.DoesNotContain("Transfer-Encoding", headerText, StringComparison.OrdinalIgnoreCase);
         }
+    }
+
+    /// <summary>
+    /// A graceful FIN (half-close) that is followed by a RST (reset) must still fire
+    /// <see cref="ElsieRequest.RequestAborted"/>. The watcher previously stopped at FIN, so a
+    /// later RST was silently missed; the handler kept running to completion.
+    /// </summary>
+    [Fact]
+    public async Task Post_fin_rst_fires_request_aborted()
+    {
+        AbortObservingModule.Aborted.Clear();
+        AbortObservingModule.Completed.Clear();
+
+        await using var server = await ElsieApp.Create()
+            .QuietConsole(false)
+            .Listen(IPAddress.Loopback, 0)
+            .Configure(o => o.ScanEntryAssembly = false)
+            .Module<AbortObservingModule>()
+            .StartAsync();
+
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(15));
+        using var tcp = new TcpClient();
+        await tcp.ConnectAsync(server.Endpoints[0].Address, server.Endpoints[0].Port, cts.Token);
+        await using var ns = tcp.GetStream();
+
+        // Send a request whose handler runs until RequestAborted fires.
+        await ns.WriteAsync(Encoding.ASCII.GetBytes(
+            "POST /observe HTTP/1.1\r\nHost: localhost\r\nContent-Length: 0\r\n\r\n"), cts.Token);
+
+        // Give the handler a moment to start, then graceful FIN...
+        await Task.Delay(100, cts.Token);
+        tcp.Client.Shutdown(SocketShutdown.Send);
+
+        // ...then force a RST (LingerOption 0 + close). The watcher must observe the RST and
+        // cancel RequestAborted.
+        await Task.Delay(100, cts.Token);
+        tcp.Client.LingerState = new LingerOption(true, 0);
+        tcp.Client.Close();
+
+        // Wait for the handler to observe the abort (up to the deadline).
+        var deadline = DateTime.UtcNow.AddSeconds(10);
+        while (DateTime.UtcNow < deadline && AbortObservingModule.Aborted.IsEmpty && AbortObservingModule.Completed.IsEmpty)
+        {
+            await Task.Delay(50, cts.Token);
+        }
+
+        Assert.True(
+            AbortObservingModule.Aborted.Count > 0,
+            $"expected RequestAborted to fire after FIN+RST; completed={AbortObservingModule.Completed.Count} aborted={AbortObservingModule.Aborted.Count}");
     }
 
     private static int IndexOf(byte[] haystack, int length, ReadOnlySpan<byte> needle)

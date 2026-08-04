@@ -163,6 +163,65 @@ public class Http3HardeningTests
         });
     }
 
+    /// <summary>QUIC is platform-guarded; the test gates on <see cref="QuicListener.IsSupported"/>.</summary>
+    [Fact]
+    [SupportedOSPlatform("linux")]
+    [SupportedOSPlatform("macOS")]
+    [SupportedOSPlatform("windows")]
+    public async Task Shutdown_with_inflight_stream_returns_within_connection_drain_timeout()
+    {
+        if (!QuicListener.IsSupported)
+        {
+            return; // libmsquic absent locally — CI installs it (http3.yml)
+        }
+
+        await H3TestDeadline.RunAsync(async ct =>
+        {
+            using var cert = CreateSelfSigned();
+            await using var server = await ElsieApp.Create()
+                .QuietConsole(false)
+                .Listen(IPAddress.Loopback, 0, o =>
+                {
+                    o.UseHttps = true;
+                    o.Certificate = cert;
+                    o.EnableHttp3 = true;
+                })
+                .Server(o => o.ConnectionDrainTimeout = TimeSpan.FromMilliseconds(500))
+                .Configure(o => o.ScanEntryAssembly = false)
+                .Module<EchoModule>()
+                .StartAsync();
+
+            var port = server.Endpoints[0].Port;
+            await using var connection = await ConnectAsync(port, ct);
+
+            // Open a request stream and send HEADERS but never complete the request — an
+            // in-flight stream that would otherwise hold shutdown open.
+            await using var stream = await connection.OpenOutboundStreamAsync(QuicStreamType.Bidirectional, ct);
+            var encoder = new QpackEncoder(encoderStream: null);
+            var block = encoder.EncodeFieldSection(
+                [
+                    (":method", "POST"),
+                    (":scheme", "https"),
+                    (":path", "/echo"),
+                    (":authority", $"127.0.0.1:{port}"),
+                    ("content-length", "10")
+                ],
+                streamId: 0);
+            await Http3FrameWriter.WriteAsync(stream, new Http3Frame(Http3FrameType.Headers, block), ct);
+            await stream.FlushAsync(ct);
+
+            // Stop the server; the h3 connection drain must return within the configured
+            // ConnectionDrainTimeout (500 ms) even though a stream is in flight.
+            var sw = System.Diagnostics.Stopwatch.StartNew();
+            await server.DisposeAsync().ConfigureAwait(false);
+            sw.Stop();
+
+            Assert.True(
+                sw.Elapsed < TimeSpan.FromSeconds(5),
+                $"h3 drain was not bounded by ConnectionDrainTimeout; took {sw.Elapsed}.");
+        });
+    }
+
     /// <summary>QUIC is platform-guarded; the callers gate on <see cref="QuicListener.IsSupported"/>.</summary>
     [SupportedOSPlatform("linux")]
     [SupportedOSPlatform("macOS")]

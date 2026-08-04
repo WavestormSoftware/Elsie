@@ -91,6 +91,15 @@ public sealed class ElsieRequest
     /// <summary>First value per key. Prefer <see cref="GetHeaderValues"/> for multi-value.</summary>
     public IReadOnlyDictionary<string, string> Headers => _headersView ??= FirstWins(_headerValues);
     public Stream Body { get; private set; }
+
+    /// <summary>
+    /// The request body's declared <c>Content-Length</c> as sent on the wire. When request-body
+    /// decompression middleware (<c>Elsie.Core/RequestDecompression</c>) decodes the body, this
+    /// value is intentionally NOT rewritten: it continues to reflect the wire (compressed)
+    /// size, matching the header the client sent. The decoded body length is not computed (the
+    /// decoded stream is served lazily, never fully buffered), so callers must not assume this
+    /// equals the number of bytes read from <see cref="Body"/> after decompression.
+    /// </summary>
     public long? ContentLength { get; }
     public string? ContentType { get; }
     public IServiceProvider RequestServices { get; }
