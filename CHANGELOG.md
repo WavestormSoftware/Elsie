@@ -98,6 +98,7 @@ Elsie is **unreleased** software; prereleases may include breaking API changes.
 - **Pure-codec fuzz targets** (QPACK encoder round-trip + HTTP/3 frame parser) wired into the nightly `Elsie.Fuzz` batch; new warn-only `benchmarks.yml` workflow (never blocks CI)
 
 ### Fixed
+- **Output cache**: responses carrying `Set-Cookie` are never cached — a shared cache would otherwise replay one client's cookie to another (cross-user session leak)
 - **HTTP/3**: unknown/extension control-stream frame types are ignored per RFC 9114 §9 (not aborted); a duplicate client control stream now closes with `H3_STREAM_CREATION_ERROR` (`0x103`, was `0x108`)
 - **HTTP/1.1**: an empty or whitespace-only `Host` header is rejected with `400` (RFC 7230 §5.4)
 - **HTTP/2**: `:authority` is required for all requests except CONNECT and `OPTIONS *` (RFC 9113 §8.3.1); a missing `:authority` is a stream-level `PROTOCOL_ERROR`

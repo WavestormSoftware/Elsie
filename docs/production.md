@@ -57,7 +57,8 @@ It honors `Cache-Control: no-store` / `no-cache` on the request and response, an
 ```
 
 Only buffered (non-streaming) 200 responses are cached. `Cache-Control: no-store`/`no-cache` on the
-request or response opts out. Because the cache is in-memory and per-process, it is not shared across
+request or response opts out, and responses that carry `Set-Cookie` are never cached (a shared cache
+would replay one client's cookie to another). Because the cache is in-memory and per-process, it is not shared across
 instances — use it for single-node or sticky sessions, and pair with a shared cache (e.g. Redis) for
 horizontal scaling.
 

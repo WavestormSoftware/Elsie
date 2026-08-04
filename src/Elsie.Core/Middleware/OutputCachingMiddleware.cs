@@ -112,6 +112,13 @@ public sealed class OutputCachingMiddleware : IElsieMiddleware
             return false;
         }
 
+        // A response that sets a cookie is per-user: replaying it from a shared cache
+        // would hand one client's cookie to another. Never cache cookie-setting responses.
+        if (result.Headers.Contains("Set-Cookie"))
+        {
+            return false;
+        }
+
         return !IsNoStoreOrNoCache(result.Headers.GetSingle("Cache-Control"));
     }
 

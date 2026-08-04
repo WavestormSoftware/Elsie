@@ -39,6 +39,12 @@ public class OutputCachingTests
                     .WithHeader("Cache-Control", "no-store");
             });
 
+            Get("/cookie-value", ctx =>
+            {
+                var n = Interlocked.Increment(ref HitCount);
+                return ElsieResult.Text($"v{n}").WithCookie("session", "abc");
+            });
+
             Get("/etag", ctx =>
             {
                 var n = Interlocked.Increment(ref HitCount);
@@ -66,7 +72,7 @@ public class OutputCachingTests
         var second = await host.GetAsync("/cacheable-value");
 
         Assert.Equal(200, first.StatusCode);
-        Assert.Equal(firstCount, second.StatusCode == 200 ? firstCount : firstCount); // placeholder
+        Assert.Equal(200, second.StatusCode);
         Assert.Equal(first.ReadAsString(), second.ReadAsString());
         Assert.Equal(firstCount, CacheModule.HitCount); // handler did not run again
     }
@@ -117,6 +123,23 @@ public class OutputCachingTests
         });
         Assert.True(CacheModule.HitCount > countAfterFirst, "no-store request must run the handler");
         Assert.Equal(first.StatusCode, second.StatusCode);
+    }
+
+    /// <summary>A response carrying Set-Cookie is per-user and must never be cached
+    /// (a shared cache would replay one client's cookie to another).</summary>
+    [Fact]
+    public async Task Set_cookie_response_is_never_cached()
+    {
+        CacheModule.HitCount = 0;
+        await using var host = CreateHost();
+
+        var first = await host.GetAsync("/cookie-value");
+        Assert.Equal(1, CacheModule.HitCount);
+        Assert.Contains("session=abc", first.Headers.GetSingle("Set-Cookie"), StringComparison.Ordinal);
+
+        var second = await host.GetAsync("/cookie-value");
+        Assert.Equal(2, CacheModule.HitCount); // handler ran again — nothing served from cache
+        Assert.Equal("v2", second.ReadAsString());
     }
 
     /// <summary>A response with no-store is not cached.</summary>
