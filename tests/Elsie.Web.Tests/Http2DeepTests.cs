@@ -2,12 +2,155 @@ using System.Diagnostics;
 using System.Net;
 using System.Net.Http;
 using System.Net.Security;
+using System.Net.Sockets;
 using System.Security.Cryptography;
 using System.Security.Cryptography.X509Certificates;
 using System.Text;
+using Elsie.Web.Http2;
 using Xunit;
 
 namespace Elsie.Web.Tests;
+
+/// <summary>
+/// A minimal raw HTTP/2 client used to exercise pseudo-header validation the BCL
+/// <see cref="SocketsHttpHandler"/> never exposes (it always sends <c>:authority</c>).
+/// Establishes the connection preface, sends SETTINGS, then a single HEADERS request and
+/// reads the response frames, surfacing whether the request was reset (stream error) or
+/// served with a status.
+/// </summary>
+internal sealed class RawH2Client : IAsyncDisposable
+{
+    private readonly SslStream _ssl;
+    private readonly NetworkStream _net;
+    private int _lastStreamId = 1;
+
+    private RawH2Client(SslStream ssl, NetworkStream net)
+    {
+        _ssl = ssl;
+        _net = net;
+    }
+
+    public static async Task<RawH2Client> ConnectAsync(int port, CancellationToken ct)
+    {
+        var tcp = new TcpClient();
+        await tcp.ConnectAsync(IPAddress.Loopback, port, ct).ConfigureAwait(false);
+        var net = tcp.GetStream();
+        var ssl = new SslStream(net, leaveInnerStreamOpen: false);
+        await ssl.AuthenticateAsClientAsync(new SslClientAuthenticationOptions
+        {
+            TargetHost = "localhost",
+            ApplicationProtocols = [SslApplicationProtocol.Http2],
+            RemoteCertificateValidationCallback = static (_, _, _, _) => true
+        }, ct).ConfigureAwait(false);
+
+        var client = new RawH2Client(ssl, net);
+        // Client connection preface + empty SETTINGS.
+        await ssl.WriteAsync(Http2FrameIo.ClientPreface, ct).ConfigureAwait(false);
+        await Http2FrameIo.WriteFrameAsync(ssl, Http2FrameType.Settings, Http2FrameFlags.None, 0, Array.Empty<byte>(), ct).ConfigureAwait(false);
+        await ssl.FlushAsync(ct).ConfigureAwait(false);
+
+        // Read the server's SETTINGS (and any other zero-id frames) until the stream is usable.
+        while (true)
+        {
+            var frame = await Http2FrameIo.ReadFrameAsync(ssl, ct).ConfigureAwait(false);
+            if (frame is null)
+            {
+                throw new IOException("Server closed the HTTP/2 connection during handshake.");
+            }
+
+            if (frame.Value.Type == Http2FrameType.Settings && (frame.Value.Flags & Http2FrameFlags.Ack) != 0)
+            {
+                continue;
+            }
+
+            if (frame.Value.Type == Http2FrameType.Settings && frame.Value.StreamId == 0 &&
+                (frame.Value.Flags & Http2FrameFlags.Ack) == 0)
+            {
+                break;
+            }
+        }
+
+        return client;
+    }
+
+    /// <summary>Sends one HEADERS request on a fresh stream and reads response frames until
+    /// stream end or a RST_STREAM. Returns the response <c>:status</c> (null if none) and the
+    /// RST_STREAM error code (0 if the stream completed normally).</summary>
+    public async Task<(int? Status, int ResetError)> SendSingleRequestAsync(
+        (string Name, string Value)[] headers,
+        CancellationToken ct)
+    {
+        var streamId = _lastStreamId;
+        _lastStreamId += 2;
+        var block = HpackCodec.EncodeRequest(headers);
+        await Http2FrameIo.WriteFrameAsync(
+            _ssl, Http2FrameType.Headers, Http2FrameFlags.EndHeaders | Http2FrameFlags.EndStream,
+            streamId, block, ct).ConfigureAwait(false);
+        await _ssl.FlushAsync(ct).ConfigureAwait(false);
+
+        int? status = null;
+        var resetError = 0;
+        while (true)
+        {
+            var frame = await Http2FrameIo.ReadFrameAsync(_ssl, ct).ConfigureAwait(false);
+            if (frame is null)
+            {
+                break;
+            }
+
+            if (frame.Value.StreamId != streamId)
+            {
+                continue;
+            }
+
+            if (frame.Value.Type == Http2FrameType.RstStream)
+            {
+                resetError = (frame.Value.Payload[0] << 24)
+                    | (frame.Value.Payload[1] << 16)
+                    | (frame.Value.Payload[2] << 8)
+                    | frame.Value.Payload[3];
+                break;
+            }
+
+            if (frame.Value.Type == Http2FrameType.Headers)
+            {
+                var headersOut = HpackCodec.Decode(frame.Value.Payload);
+                status = headersOut.FirstOrDefault(h => h.Name == ":status").Value is { } s
+                    && int.TryParse(s, out var code)
+                    ? code
+                    : status;
+            }
+
+            if ((frame.Value.Flags & Http2FrameFlags.EndStream) != 0)
+            {
+                break;
+            }
+        }
+
+        return (status, resetError);
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        try
+        {
+            await _ssl.DisposeAsync().ConfigureAwait(false);
+        }
+        catch
+        {
+            // ignore
+        }
+
+        try
+        {
+            _net.Dispose();
+        }
+        catch
+        {
+            // ignore
+        }
+    }
+}
 
 /// <summary>
 /// Deep HTTP/2 behavior tests against a real TLS <see cref="ElsieApp"/> configured for
@@ -264,6 +407,66 @@ public class Http2DeepTests
         res.EnsureSuccessStatusCode();
         Assert.Equal(HttpVersion.Version20, res.Version);
         Assert.Equal("pong", await res.Content.ReadAsStringAsync(cts.Token));
+    }
+
+    // ------------------------------------------------------------------ RFC 9113 §8.3.1 :authority
+
+    [Fact]
+    public async Task Missing_authority_pseudo_header_is_stream_error()
+    {
+        // RFC 9113 §8.3.1: :authority is required for all requests except CONNECT and OPTIONS *.
+        // A request without :authority (and not CONNECT/OPTIONS *) must be reset with
+        // PROTOCOL_ERROR (0x1) rather than handled.
+        using var cert = CreateSelfSigned();
+        await using var server = await StartServerAsync(cert);
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(20));
+
+        await using var raw = await RawH2Client.ConnectAsync(server.Endpoints[0].Port, cts.Token);
+        var (status, resetError) = await raw.SendSingleRequestAsync(
+            [(":method", "GET"), (":scheme", "https"), (":path", "/ping")],
+            cts.Token);
+
+        Assert.Null(status);           // no response headers delivered
+        Assert.Equal(0x1, resetError); // PROTOCOL_ERROR
+    }
+
+    [Fact]
+    public async Task Options_asterisk_without_authority_is_accepted()
+    {
+        // OPTIONS * (asterisk-form target) has no authority; it must be accepted.
+        using var cert = CreateSelfSigned();
+        await using var server = await StartServerAsync(cert);
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(20));
+
+        await using var raw = await RawH2Client.ConnectAsync(server.Endpoints[0].Port, cts.Token);
+        var (status, resetError) = await raw.SendSingleRequestAsync(
+            [(":method", "OPTIONS"), (":scheme", "https"), (":path", "*")],
+            cts.Token);
+
+        // Accepted (not reset): the request is dispatched and answered. No route handles
+        // OPTIONS * so 404 is expected — the point is it is NOT a PROTOCOL_ERROR reset.
+        Assert.Equal(0, resetError);
+        Assert.NotNull(status);
+    }
+
+    [Fact]
+    public async Task Connect_without_authority_is_accepted()
+    {
+        // CONNECT has no :scheme/:path (its target is the authority form); it must not be
+        // reset for the missing :authority rule.
+        using var cert = CreateSelfSigned();
+        await using var server = await StartServerAsync(cert);
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(20));
+
+        await using var raw = await RawH2Client.ConnectAsync(server.Endpoints[0].Port, cts.Token);
+        var (status, resetError) = await raw.SendSingleRequestAsync(
+            [(":method", "CONNECT")],
+            cts.Token);
+
+        // Accepted (not reset): the request is dispatched and answered. No route handles
+        // CONNECT so 404 is expected — the point is it is NOT a PROTOCOL_ERROR reset.
+        Assert.Equal(0, resetError);
+        Assert.NotNull(status);
     }
 
     private static async Task<ElsieTestServer> StartServerAsync(X509Certificate2 cert) =>

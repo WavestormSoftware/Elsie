@@ -851,19 +851,33 @@ internal sealed class Http2Connection
             }
         }
 
-        if (method is null || path is null || scheme is null)
+        var isConnect = string.Equals(method, "CONNECT", StringComparison.OrdinalIgnoreCase);
+        var isOptionsStar = string.Equals(method, "OPTIONS", StringComparison.OrdinalIgnoreCase)
+            && string.Equals(path, "*", StringComparison.Ordinal);
+
+        // RFC 9113 §8.3.1: :method, :scheme, and :path are required for all requests EXCEPT
+        // CONNECT (which has no :scheme or :path — its target is the :authority / authority form).
+        if (method is null || (!isConnect && (path is null || scheme is null)))
         {
             await RstAsync(state.StreamId, ErrProtocol, cancellationToken).ConfigureAwait(false);
             return;
         }
 
-        var pathOnly = path;
+        // RFC 9113 §8.3.1 / RFC 9110 §7.1: the :authority pseudo-header is required for all
+        // requests except CONNECT and OPTIONS * (asterisk-form target has no authority).
+        if (authority is null && !isConnect && !isOptionsStar)
+        {
+            await RstAsync(state.StreamId, ErrProtocol, cancellationToken).ConfigureAwait(false);
+            return;
+        }
+
+        var pathOnly = path ?? "/";
         var queryString = string.Empty;
-        var q = path.IndexOf('?');
+        var q = pathOnly.IndexOf('?');
         if (q >= 0)
         {
-            pathOnly = path[..q];
-            queryString = path[q..];
+            queryString = pathOnly[q..];
+            pathOnly = pathOnly[..q];
         }
 
         if (string.IsNullOrEmpty(pathOnly))

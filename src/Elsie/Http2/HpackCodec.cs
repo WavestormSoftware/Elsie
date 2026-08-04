@@ -178,6 +178,20 @@ internal static class HpackCodec
         return ms.ToArray();
     }
 
+    /// <summary>Encodes a request HEADERS HPACK block (pseudo-headers + regular headers) as
+    /// literals without indexing. Used by raw HTTP/2 test clients to control the exact
+    /// pseudo-header set (e.g. omitting <c>:authority</c>).</summary>
+    public static byte[] EncodeRequest(params (string Name, string Value)[] headers)
+    {
+        using var ms = new MemoryStream();
+        foreach (var (name, value) in headers)
+        {
+            WriteLiteral(ms, name, value, neverIndexed: false);
+        }
+
+        return ms.ToArray();
+    }
+
     /// <summary>Encodes a trailing-HEADERS HPACK block (no <c>:status</c> pseudo-header).</summary>
     public static byte[] EncodeTrailers(IEnumerable<(string Name, string Value)> trailers)
     {
