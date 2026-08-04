@@ -52,6 +52,8 @@ internal sealed class DisconnectWatcher : IDisposable
         {
             while (!_cts.IsCancellationRequested && !_serverToken.IsCancellationRequested)
             {
+                var peekBuf = new byte[1];
+                var emptyReads = 0;
                 try
                 {
                     // A socket error (RST / reset) signals a real disconnect — even after a
@@ -63,16 +65,42 @@ internal sealed class DisconnectWatcher : IDisposable
                         return;
                     }
 
-                    // Non-blocking only: a blocking Peek-receive here races the connection
-                    // handler's own body reads (bytes drained between Poll and Receive),
-                    // wedging the watcher thread and, via Dispose, the whole connection.
+                    // Readable with no bytes buffered MIGHT be a completed receive (FIN/RST)
+                    // or a race: the handler drained bytes between our Poll and Available
+                    // check. Discriminate by requiring two consecutive readable+empty samples
+                    // 50ms apart — a live connection with in-flight data cannot stay readable
+                    // with zero available; only a pending EOF/error completion can. Only then
+                    // peek (error-code overload, returns immediately: the completion is
+                    // pending; a bare peek on the first sample could block and wedge the
+                    // connection — that bug bit twice already).
                     if (_socket.Poll(0, SelectMode.SelectRead) && _socket.Available == 0)
                     {
-                        // Readable with no bytes = graceful FIN (half-close). The peer can
-                        // still be reading, so aborting the in-flight request would be a false
-                        // positive that drops the response. Keep watching (bounded by the delay
-                        // below) so a later RST (SelectError above) still cancels RequestAborted
-                        // instead of silently stopping at FIN.
+                        emptyReads++;
+                        if (emptyReads >= 2)
+                        {
+                            var n = _socket.Receive(peekBuf, 0, 1, SocketFlags.Peek, out var errorCode);
+                            if (errorCode != SocketError.Success && errorCode != SocketError.WouldBlock)
+                            {
+                                // RST (also RST-after-FIN, which Windows does not surface via
+                                // SelectError) — real disconnect.
+                                try { _cts.Cancel(); } catch (ObjectDisposedException) { /* ignore */ }
+                                return;
+                            }
+
+                            if (n == 1)
+                            {
+                                // Data raced in after all — not a close.
+                                emptyReads = 0;
+                            }
+                            // n == 0: graceful FIN (half-close). The peer can still be
+                            // reading, so aborting the in-flight request would be a false
+                            // positive that drops the response. Keep watching so a later RST
+                            // still cancels RequestAborted instead of silently stopping at FIN.
+                        }
+                    }
+                    else
+                    {
+                        emptyReads = 0;
                     }
                 }
                 catch (ObjectDisposedException)
