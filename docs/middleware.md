@@ -68,6 +68,13 @@ CORS ships a dedicated middleware (`Elsie.Cors`); `AddElsieCors` registers it in
 // preflight 204 + ACAO on actuals — no extra Use call needed
 ```
 
+Inbound request decompression (`Elsie.RequestDecompression`) is Core-level, so it covers every
+protocol: `AddRequestDecompression` / `ElsieApp.UseRequestDecompression()` decode `gzip`/`deflate`/`br`
+bodies (stacked codings are decoded in reverse application order), reject unsupported codings with
+415, and fail over-limit decoded bodies with 413 mid-stream (default cap 10 MiB via
+`ElsieRequestDecompressionOptions.MaxDecompressedBodySize`). Requests without `Content-Encoding`
+pass through untouched.
+
 ## Ordering example
 
 ```csharp

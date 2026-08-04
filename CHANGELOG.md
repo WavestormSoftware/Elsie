@@ -22,6 +22,7 @@ Elsie is **unreleased** software; prereleases may include breaking API changes.
 - `ElsieMetrics` meter version string bumped to `0.4.0`.
 
 ### Added
+- **Inbound request body decompression**: `AddRequestDecompression` / `ElsieApp.UseRequestDecompression()` decode `Content-Encoding: gzip` / `deflate` / `br` request bodies (stacked codings decoded in reverse application order) so `BindJsonAsync` / form / multipart binding sees plain bytes; unsupported codings → 415, decompressed body over `ElsieRequestDecompressionOptions.MaxDecompressedBodySize` (default 10 MiB) → 413 mid-stream (no full-body buffering); requests without `Content-Encoding` pass through untouched; operates at Core/context level so it applies to HTTP/1.1, HTTP/2, and HTTP/3
 - **Hot reload (IOptionsMonitor)**: `Elsie:Server` binds onto `ElsieServerOptions` and `Elsie:Cors` binds onto CORS policies; config reloads flow into the live instances so server limits/timeouts, compression, `LogRequests`, and CORS origins/methods/headers update without restart (safe-knob list documented in `docs/hosting-and-aot.md`; routing/modules/binding/listener settings stay restart-only)
 - **OpenAPI 3.1** (`openapi: 3.1.0`, JSON Schema 2020-12): nullable properties and optional query parameters are emitted as type unions (`["string", "null"]`) instead of the removed `nullable` keyword
 - **Offline Scalar UI**: bundled `@scalar/api-reference` standalone bundle (embedded resource, served at `{UiPath}/standalone.js`) when `UseScalarCdn = false`; update via `tools/UpdateScalarAssets.sh`

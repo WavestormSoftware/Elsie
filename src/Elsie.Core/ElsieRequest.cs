@@ -90,7 +90,7 @@ public sealed class ElsieRequest
 
     /// <summary>First value per key. Prefer <see cref="GetHeaderValues"/> for multi-value.</summary>
     public IReadOnlyDictionary<string, string> Headers => _headersView ??= FirstWins(_headerValues);
-    public Stream Body { get; }
+    public Stream Body { get; private set; }
     public long? ContentLength { get; }
     public string? ContentType { get; }
     public IServiceProvider RequestServices { get; }
@@ -103,6 +103,23 @@ public sealed class ElsieRequest
     /// Per-request bag for host adapters and middleware (auth principal, features, etc.).
     /// </summary>
     public IDictionary<object, object?> Items => _items ??= new Dictionary<object, object?>();
+
+    /// <summary>
+    /// Replace the request body stream. Body-processing middleware (e.g. request decompression)
+    /// uses this to wrap the underlying stream so downstream handlers see a decoded body.
+    /// The original stream is not disposed here; the caller owns both streams' lifetimes.
+    /// </summary>
+    public void ReplaceBody(Stream body)
+    {
+        ArgumentNullException.ThrowIfNull(body);
+        if (ReferenceEquals(body, Body))
+        {
+            return;
+        }
+
+        Body = body;
+        _bufferedBody = null; // cached bytes belong to the previous stream
+    }
 
     public string? GetHeader(string name)
     {
