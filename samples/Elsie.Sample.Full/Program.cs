@@ -50,6 +50,16 @@ ElsieApp.Create(args)
     .ContentRoot(contentRoot)
     .Logging(loggerFactory)
     .Compression()
+    .UseRequestDeadline(TimeSpan.FromSeconds(30))
+    .UseOutputCaching()
+    .Server(o =>
+    {
+        // Connection governance: bound concurrent connections, opt-in per-IP cap, and
+        // keep-alive request cap.
+        o.MaxConcurrentConnections = 10_000;
+        o.MaxConnectionsPerIp = 0;      // off by default (NAT risk); set e.g. 64 behind a proxy
+        o.KeepAliveMaxRequests = 1000;  // Connection: close after 1000 requests per connection
+    })
     .Configure(o => o.ScanEntryAssembly = false)
     .Module<HomeModule>()
     .Module<AuthModule>()

@@ -88,6 +88,27 @@ Elsie is **unreleased** software; prereleases may include breaking API changes.
 - Ignore unsafe client `X-Request-Id` / `X-Correlation-Id` when echoing `X-Request-Id`
 - Route matching: invalid percent-encoding no longer throws
 
+## [0.4.1-beta.1] — unreleased
+
+### Added
+- **Per-request deadline middleware**: `ElsieApp.UseRequestDeadline(TimeSpan)` / `AddRequestDeadline` aborts a handler that exceeds the span with `408 Request Timeout` (when the response has not been started); the deadline is linked into the handler's dispatch cancellation token; WebSocket / streaming (SSE) responses are exempt
+- **Connection governance**: TCP connections over `MaxConcurrentConnections` now get a graceful `503` (was a silent dispose); HTTP/3 connections are bounded by the same slot and refused when over the limit; new opt-in `MaxConnectionsPerIp` (default 0 = off, NAT risk documented); new `KeepAliveMaxRequests` (default 1000) closes an HTTP/1.1 keep-alive connection with `Connection: close` after the configured number of requests
+- **103 Early Hints (RFC 9118)**: `ctx.SendEarlyHints(params string[] links)` emits `103` with `Link` headers before the final response on HTTP/1.1, HTTP/2, and HTTP/3; repeatable, no-op after the response has started / on upgrade
+- **In-memory output cache**: `ElsieApp.UseOutputCaching()` / `AddOutputCaching` (LRU, default 1024 entries / 64 MiB) caches successful GET/HEAD responses keyed by method + route + query + `Accept-Encoding`; honors `Cache-Control: no-store`/`no-cache`; composes with `WithETag` → `304` on `If-None-Match` match
+- **Pure-codec fuzz targets** (QPACK encoder round-trip + HTTP/3 frame parser) wired into the nightly `Elsie.Fuzz` batch; new warn-only `benchmarks.yml` workflow (never blocks CI)
+
+### Fixed
+- **HTTP/3**: unknown/extension control-stream frame types are ignored per RFC 9114 §9 (not aborted); a duplicate client control stream now closes with `H3_STREAM_CREATION_ERROR` (`0x103`, was `0x108`)
+- **HTTP/1.1**: an empty or whitespace-only `Host` header is rejected with `400` (RFC 7230 §5.4)
+- **HTTP/2**: `:authority` is required for all requests except CONNECT and `OPTIONS *` (RFC 9113 §8.3.1); a missing `:authority` is a stream-level `PROTOCOL_ERROR`
+- **DisconnectWatcher**: a graceful FIN followed by a RST now fires `RequestAborted` (previously stopped at FIN)
+- **HTTP/3 drain**: connection shutdown is bounded by `ConnectionDrainTimeout` (was a hardcoded 5s) so an in-flight stream cannot hold shutdown open
+- **HTTP/3 frame parser**: a negative length varint (value > `int.MaxValue`) is treated as a truncated frame (`InvalidOperationException`) instead of throwing `ArgumentOutOfRangeException` (found by fuzz)
+
+### Documented
+- `ElsieRequest.ContentLength` keeps reporting the wire (compressed) size after request-body decompression (streaming decode, never buffered) — pinned by a test; see `docs/production.md`
+- New `docs/production.md` (deadline / governance / caching / compression / decompression matrix); `docs/middleware.md` documents the new middleware
+
 ## [0.3.0-beta.2] — 2026-07-31
 
 ### Breaking
