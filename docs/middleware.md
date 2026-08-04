@@ -73,7 +73,50 @@ protocol: `AddRequestDecompression` / `ElsieApp.UseRequestDecompression()` decod
 bodies (stacked codings are decoded in reverse application order), reject unsupported codings with
 415, and fail over-limit decoded bodies with 413 mid-stream (default cap 10 MiB via
 `ElsieRequestDecompressionOptions.MaxDecompressedBodySize`). Requests without `Content-Encoding`
-pass through untouched.
+pass through untouched. Note: decoding is streaming, so `ElsieRequest.ContentLength` keeps reporting
+the wire (compressed) size — it is **not** rewritten to the decoded length.
+
+## Per-request deadline
+
+`ElsieApp.UseRequestDeadline(TimeSpan)` (Core `AddRequestDeadline`) aborts a handler that exceeds the
+span with `408 Request Timeout` when the response has not been started. The deadline is linked into
+the handler's dispatch cancellation token, so the handler observes `RequestAborted` cancellation.
+WebSocket upgrades and streaming (`BodyWriter`/SSE) responses are exempt — their handler returns a
+terminal result immediately.
+
+```csharp
+.UseRequestDeadline(TimeSpan.FromSeconds(10))
+// or
+.Services(s => s.AddRequestDeadline(o => o.Deadline = TimeSpan.FromSeconds(10)))
+```
+
+## Output caching
+
+`ElsieApp.UseOutputCaching()` (Core `AddOutputCaching`) caches successful GET/HEAD responses in an
+in-memory LRU (default 1024 entries / 64 MiB) keyed by method + route + query + `Accept-Encoding`
+(pre-compressed variants memoized independently). It honors `Cache-Control: no-store`/`no-cache` on
+the request and response, and composes with `WithETag` so a cached response is served as `304` when
+`If-None-Match` matches the stored ETag.
+
+```csharp
+.UseOutputCaching()
+// or
+.Services(s => s.AddOutputCaching(o => { o.MaxEntries = 1024; o.MaxCacheBytes = 64L * 1024 * 1024; }))
+```
+
+## 103 Early Hints
+
+`ctx.SendEarlyHints(params string[] links)` (RFC 9118) emits `103 Early Hints` with `Link` headers
+before the final response on HTTP/1.1, HTTP/2, and HTTP/3. Repeatable; a no-op once the response has
+started or for a WebSocket upgrade.
+
+```csharp
+Get("/blog", ctx =>
+{
+    ctx.SendEarlyHints("</app.css>; rel=preload; as=style", "</app.js>; rel=preload; as=script");
+    return ElsieResult.Text("...");
+});
+```
 
 ## Ordering example
 
