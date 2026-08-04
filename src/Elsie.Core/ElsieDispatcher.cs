@@ -75,7 +75,7 @@ public sealed class ElsieDispatcher
 
         try
         {
-            await _applicationPipeline.InvokeAsync(context, TerminalAsync(context, ct, match), ct).ConfigureAwait(false);
+            await _applicationPipeline.InvokeAsync(context, TerminalAsync(context, match), ct).ConfigureAwait(false);
         }
         finally
         {
@@ -95,8 +95,11 @@ public sealed class ElsieDispatcher
     /// <summary>
     /// Terminal pipeline step: module middleware (if any) wrapped around the route handler.
     /// Leaves <see cref="ElsieContext.Result"/> null when the route did not match (404 / 405 outcome).
+    /// The handler is invoked with the CURRENT <see cref="ElsieContext.DispatchCancellationToken"/>
+    /// (read at invocation time) so request-scoped middleware (e.g. the request-deadline gate) can
+    /// swap in a deadline-linked token that still observes the host's <see cref="ElsieRequest.RequestAborted"/>.
     /// </summary>
-    private ElsieMiddlewareDelegate TerminalAsync(ElsieContext context, CancellationToken ct, RouteMatch? match)
+    private ElsieMiddlewareDelegate TerminalAsync(ElsieContext context, RouteMatch? match)
     {
         if (match is null)
         {
@@ -108,6 +111,7 @@ public sealed class ElsieDispatcher
 
         return async ctx =>
         {
+            var ct = ctx.DispatchCancellationToken;
             if (moduleMiddleware is { Count: > 0 })
             {
                 await moduleMiddleware.InvokeAsync(
