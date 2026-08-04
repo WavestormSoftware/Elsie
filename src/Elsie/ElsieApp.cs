@@ -222,7 +222,13 @@ public sealed class ElsieApp
         return this;
     }
 
-    /// <summary>Enable gzip/brotli response compression for compressible buffered bodies.</summary>
+    /// <summary>
+    /// Enable gzip/brotli response compression for compressible bodies. Buffered bodies below
+    /// <paramref name="minBodyBytes"/> are skipped; streaming (BodyWriter) responses are
+    /// compressed whenever the client negotiates an encoding (unknown length bypasses the
+    /// threshold). <c>text/event-stream</c> (SSE) is left uncompressed to preserve per-event
+    /// delivery.
+    /// </summary>
     public ElsieApp Compression(bool enable = true, int minBodyBytes = 1024)
     {
         _serverOptions.EnableResponseCompression = enable;

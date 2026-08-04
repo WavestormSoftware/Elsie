@@ -21,18 +21,35 @@ public sealed class ElsieTestHost : IAsyncDisposable
 
     public HttpClient Client { get; }
 
+    /// <summary>Bound loopback endpoints (raw-socket tests that must inspect wire framing).</summary>
+    public IReadOnlyList<System.Net.IPEndPoint> Endpoints => _server.Endpoints;
+
     public static ElsieTestHost Create(Action<IServiceCollection> configure) =>
         CreateAsync(configure).GetAwaiter().GetResult();
 
-    public static async Task<ElsieTestHost> CreateAsync(Action<IServiceCollection> configure)
+    public static ElsieTestHost Create(
+        Action<IServiceCollection> configure,
+        Action<ElsieServerOptions>? serverOptions) =>
+        CreateAsync(configure, serverOptions).GetAwaiter().GetResult();
+
+    public static async Task<ElsieTestHost> CreateAsync(Action<IServiceCollection> configure) =>
+        await CreateAsync(configure, serverOptions: null).ConfigureAwait(false);
+
+    public static async Task<ElsieTestHost> CreateAsync(
+        Action<IServiceCollection> configure,
+        Action<ElsieServerOptions>? serverOptions)
     {
         ArgumentNullException.ThrowIfNull(configure);
 
         var app = ElsieApp.Create()
             .QuietConsole(false)
-            .Listen(IPAddress.Loopback, 0)
+            .Listen(System.Net.IPAddress.Loopback, 0)
             .Configure(o => o.ScanEntryAssembly = false)
             .Services(configure);
+        if (serverOptions is not null)
+        {
+            app = app.Server(serverOptions);
+        }
 
         var server = await app.StartAsync().ConfigureAwait(false);
         return new ElsieTestHost(server, server.CreateClient());
