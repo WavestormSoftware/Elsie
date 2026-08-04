@@ -4,6 +4,11 @@ This guide covers the request-lifecycle and connection-level knobs introduced in
 per-request deadlines, connection governance, output caching, compression, and decompression.
 It pairs with [production-checklist.md](production-checklist.md) and [middleware.md](middleware.md).
 
+> Protocol strictness note: HTTP/1.1 requests must carry exactly one non-empty `Host` header
+> (RFC 7230 §5.4); HTTP/2 requests must carry `:authority` except CONNECT / `OPTIONS *` —
+> deliberately stricter than RFC 9113 §8.3.1, which also allows a bare `Host` header as a
+> fallback. Clients sending HTTP/2 with only `Host` (no `:authority`) are rejected.
+
 ## Request deadline
 
 `ElsieApp.UseRequestDeadline(TimeSpan)` (or `Services(s => s.AddRequestDeadline(...))`) aborts a
@@ -46,7 +51,8 @@ exempt because their handler returns a terminal result immediately.
 
 `ElsieApp.UseOutputCaching()` (or `Services(s => s.AddOutputCaching(...))`) caches successful
 GET/HEAD responses in an in-memory LRU (default **1024 entries / 64 MiB**) keyed by
-method + route + query + `Accept-Encoding` (pre-compressed variants are memoized independently).
+method + route + query + `Accept-Encoding` (the cache stores the uncompressed result; compression is
+re-negotiated per request after a cache hit).
 It honors `Cache-Control: no-store` / `no-cache` on the request and response, and composes with
 `WithETag` so a cached response is served as **304** when `If-None-Match` matches the stored ETag.
 

@@ -59,7 +59,7 @@ Elsie is **unreleased** software; prereleases may include breaking API changes.
 
 ### Fixed
 - HTTP/1.1 requests with a missing or duplicate `Host` header are rejected with 400 (RFC 7230 §5.4; absolute-form request-targets exempt, HTTP/1.0 unaffected)
-- A second HTTP/3 client control stream now closes the connection with `H3_ID_ERROR` (0x108) instead of being tolerated (RFC 9114 §6.2.1)
+- A second HTTP/3 client control stream now closes the connection instead of being tolerated (RFC 9114 §6.2.1; initially `H3_ID_ERROR` 0x108, corrected to `H3_STREAM_CREATION_ERROR` 0x103 in 0.4.1-beta.1)
 - Response-header CRLF injection attempts now surface as 400 (`ElsieHeaderValidationException`) instead of 500; injection remains blocked
 - `DisconnectWatcher` no longer aborts in-flight requests on a graceful TCP half-close (FIN): only genuine socket errors (RST/dispose) cancel `RequestAborted`, so half-closed clients still receive their response
 - `ElsieServer` start/stop no longer uses sync-over-async (`.GetAwaiter().GetResult()` on QUIC listener start/dispose) — async all the way, public API unchanged

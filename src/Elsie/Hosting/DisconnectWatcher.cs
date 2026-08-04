@@ -48,12 +48,15 @@ internal sealed class DisconnectWatcher : IDisposable
 
     private async Task PollLoopAsync()
     {
+        // Hoisted out of the loop: the two-sample FIN/RST discrimination below requires
+        // these to persist across iterations (declared inside, emptyReads never reaches 2
+        // and the peek is dead code).
+        var peekBuf = new byte[1];
+        var emptyReads = 0;
         try
         {
             while (!_cts.IsCancellationRequested && !_serverToken.IsCancellationRequested)
             {
-                var peekBuf = new byte[1];
-                var emptyReads = 0;
                 try
                 {
                     // A socket error (RST / reset) signals a real disconnect — even after a
