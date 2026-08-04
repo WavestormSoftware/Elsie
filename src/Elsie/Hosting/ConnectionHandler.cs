@@ -138,6 +138,8 @@ internal sealed class ConnectionHandler
         try
         {
             var firstRequest = true;
+            var requestCount = 0;
+            var keepAliveMaxRequests = _serverOptions.KeepAliveMaxRequests;
             while (!cancellationToken.IsCancellationRequested)
             {
                 ParsedHttpRequest? parsed;
@@ -298,6 +300,15 @@ internal sealed class ConnectionHandler
                 }
 
                 var keepAlive = parsed.KeepAlive && response.StatusCode is not (408 or 413);
+
+                // Keep-alive cap: after KeepAliveMaxRequests served on this connection, close it
+                // gracefully (Connection: close) rather than keeping the socket alive forever.
+                requestCount++;
+                if (keepAlive && keepAliveMaxRequests > 0 && requestCount >= keepAliveMaxRequests)
+                {
+                    keepAlive = false;
+                }
+
                 var isHead = HttpMethods.IsHead(parsed.Method);
                 var isSse = string.Equals(
                     response.ContentType,

@@ -39,6 +39,21 @@ public sealed class ElsieServerOptions
     /// <summary>Max concurrent accepted connections (default 10_000).</summary>
     public int MaxConcurrentConnections { get; set; } = 10_000;
 
+    /// <summary>
+    /// Max concurrent connections from a single remote IP address. Default <c>0</c> = off (no
+    /// per-IP cap). When set, connections from a source IP exceeding this limit are rejected
+    /// (503 for TCP, refused for HTTP/3). Warning: NATs / shared egress IPs can cause false
+    /// positives, so this is opt-in and should be set conservatively.
+    /// </summary>
+    public int MaxConnectionsPerIp { get; set; }
+
+    /// <summary>
+    /// Max requests served on a single HTTP/1.1 keep-alive connection before the server sends
+    /// <c>Connection: close</c> and closes it (default 1000). A value of <c>0</c> disables the cap.
+    /// </summary>
+    public int KeepAliveMaxRequests { get; set; } = 1000;
+
+
     /// <summary>How long <see cref="Hosting.ElsieServer.StopAsync"/> waits for in-flight connections.</summary>
     public TimeSpan ConnectionDrainTimeout { get; set; } = TimeSpan.FromSeconds(5);
 
@@ -125,6 +140,8 @@ public sealed class ElsieServerOptions
         AbortRequestsOnClientDisconnect = source.AbortRequestsOnClientDisconnect;
         ShutdownAbortConnections = source.ShutdownAbortConnections;
         MaxConcurrentConnections = source.MaxConcurrentConnections;
+        MaxConnectionsPerIp = source.MaxConnectionsPerIp;
+        KeepAliveMaxRequests = source.KeepAliveMaxRequests;
         ConnectionDrainTimeout = source.ConnectionDrainTimeout;
         ListenBacklog = source.ListenBacklog;
         MaxConcurrentStreams = source.MaxConcurrentStreams;

@@ -186,6 +186,18 @@ internal sealed class ElsieServer : IHostedService, IAsyncDisposable
 
             var conn = connection;
             var id = Guid.NewGuid();
+
+            // Bound HTTP/3 connections by the same MaxConcurrentConnections slot as TCP: when
+            // over the limit the connection is refused (no response is possible on QUIC before
+            // the connection is established).
+            if (!_connectionSlots.Wait(0))
+            {
+                ElsieMetrics.ConnectionsRejected.Add(1);
+                _logger.LogWarning("Refusing HTTP/3 connection: max concurrent connections reached.");
+                try { await conn.DisposeAsync().ConfigureAwait(false); } catch { /* ignore */ }
+                continue;
+            }
+
             var task = Task.Run(
                 async () =>
                 {
@@ -200,6 +212,7 @@ internal sealed class ElsieServer : IHostedService, IAsyncDisposable
                     finally
                     {
                         _http3Connections.TryRemove(id, out _);
+                        _connectionSlots.Release();
                     }
                 },
                 CancellationToken.None);
@@ -515,15 +528,16 @@ internal sealed class ElsieServer : IHostedService, IAsyncDisposable
         {
             ElsieMetrics.ConnectionsRejected.Add(1);
             _logger.LogWarning("Rejecting connection: max concurrent connections reached.");
-            try
-            {
-                socket.Dispose();
-            }
-            catch
-            {
-                // ignore
-            }
+            RejectConnectionAsync(socket, ct);
+            return;
+        }
 
+        if (_serverOptions.MaxConnectionsPerIp > 0 && !TryAcquirePerIp(socket))
+        {
+            ElsieMetrics.ConnectionsRejected.Add(1);
+            _logger.LogWarning("Rejecting connection: per-IP connection limit reached.");
+            _connectionSlots.Release();
+            RejectConnectionAsync(socket, ct);
             return;
         }
 
@@ -565,6 +579,11 @@ internal sealed class ElsieServer : IHostedService, IAsyncDisposable
             {
                 ElsieMetrics.ActiveConnections.Add(-1);
                 _connectionSlots.Release();
+                if (_serverOptions.MaxConnectionsPerIp > 0)
+                {
+                    ReleasePerIp(socket);
+                }
+
                 if (_connections.TryRemove(id, out var removed))
                 {
                     try { removed.ConnectionCts.Dispose(); } catch { /* ignore */ }
@@ -573,6 +592,93 @@ internal sealed class ElsieServer : IHostedService, IAsyncDisposable
         }, CancellationToken.None);
 
         _connections[id] = new ConnectionEntry(socket, connectionCts, task);
+    }
+
+    /// <summary>Writes a graceful HTTP/1.1 503 to an over-limit TCP connection before closing it.</summary>
+    private static void RejectConnectionAsync(Socket socket, CancellationToken ct)
+    {
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                socket.NoDelay = true;
+                using var rejectStream = new NetworkStream(socket, ownsSocket: false);
+                const string body = "Service Unavailable";
+                var response =
+                    "HTTP/1.1 503 Service Unavailable\r\n" +
+                    "Content-Type: text/plain; charset=utf-8\r\n" +
+                    $"Content-Length: {body.Length}\r\n" +
+                    "Connection: close\r\n" +
+                    "\r\n" +
+                    body;
+                var bytes = System.Text.Encoding.UTF8.GetBytes(response);
+                await rejectStream.WriteAsync(bytes, ct).ConfigureAwait(false);
+                await rejectStream.FlushAsync(ct).ConfigureAwait(false);
+            }
+            catch
+            {
+                // best effort — the peer may have already gone away
+            }
+            finally
+            {
+                try { socket.Dispose(); } catch { /* ignore */ }
+            }
+        }, CancellationToken.None);
+    }
+
+    private readonly ConcurrentDictionary<string, int> _perIpCounts = new();
+
+    private bool TryAcquirePerIp(Socket socket)
+    {
+        var ip = GetRemoteIp(socket);
+        if (ip is null)
+        {
+            return true;
+        }
+
+        while (true)
+        {
+            var current = _perIpCounts.GetOrAdd(ip, 0);
+            if (current >= _serverOptions.MaxConnectionsPerIp)
+            {
+                return false;
+            }
+
+            if (_perIpCounts.TryUpdate(ip, current + 1, current))
+            {
+                return true;
+            }
+        }
+    }
+
+    private void ReleasePerIp(Socket socket)
+    {
+        var ip = GetRemoteIp(socket);
+        if (ip is null)
+        {
+            return;
+        }
+
+        if (_perIpCounts.TryGetValue(ip, out var current) && current > 1)
+        {
+            _perIpCounts.TryUpdate(ip, current - 1, current);
+        }
+        else
+        {
+            _perIpCounts.TryRemove(ip, out _);
+        }
+    }
+
+    private static string? GetRemoteIp(Socket socket)
+    {
+        try
+        {
+            return socket.RemoteEndPoint is IPEndPoint ip ? ip.Address.ToString() : null;
+        }
+        catch
+        {
+            return null;
+        }
     }
 
     private void ApplySocketOptions(Socket socket)
