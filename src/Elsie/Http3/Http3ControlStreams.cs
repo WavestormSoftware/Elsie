@@ -197,8 +197,10 @@ internal static class Http3ControlStreams
         var pos = 0;
         while (pos < payload.Length)
         {
-            pos += QuicVarInt.Read(payload[pos..], out var id);
-            pos += QuicVarInt.Read(payload[pos..], out var value);
+            var id = QuicVarInt.Read(payload[pos..], out var idConsumed);
+            pos += idConsumed;
+            var value = QuicVarInt.Read(payload[pos..], out var valueConsumed);
+            pos += valueConsumed;
             if ((ulong)id == SettingsQpackMaxTableCapacity)
             {
                 // The client's decoder capacity is the limit for our encoder's dynamic table.

@@ -47,29 +47,24 @@ internal sealed class DisconnectWatcher : IDisposable
 
     private async Task PollLoopAsync()
     {
-        var buf = new byte[1];
         try
         {
             while (!_cts.IsCancellationRequested && !_serverToken.IsCancellationRequested)
             {
                 try
                 {
-                    // Readable + Peek 0 bytes ⇒ peer half-closed (FIN).
-                    if (_socket.Poll(0, SelectMode.SelectRead))
+                    // Non-blocking only: a blocking Peek-receive here races the connection
+                    // handler's own body reads (bytes drained between Poll and Receive),
+                    // wedging the watcher thread and, via Dispose, the whole connection.
+                    if (_socket.Poll(0, SelectMode.SelectRead) && _socket.Available == 0)
                     {
-                        var n = _socket.Receive(buf, 0, 1, SocketFlags.Peek);
-                        if (n == 0)
-                        {
-                            // A graceful FIN only means the peer will send no more bytes. The
-                            // peer can still be reading (half-close, e.g. a client that
-                            // shutdown(SHUT_WR) after sending the full request), so aborting
-                            // the in-flight request here is a false positive that drops the
-                            // response. A real disconnect (RST / socket error / disposal)
-                            // surfaces as a SocketException/ObjectDisposedException below;
-                            // otherwise keep polling until the handler finishes — the
-                            // response write itself reports a vanished peer.
-                            continue;
-                        }
+                        // Readable with no bytes = graceful FIN (half-close). The peer can
+                        // still be reading, so aborting the in-flight request would be a
+                        // false positive that drops the response. Stop watching instead of
+                        // spinning (EOF stays readable forever); a real disconnect (RST /
+                        // disposal) surfaces as SocketException/ObjectDisposedException, and
+                        // the response write itself reports a vanished peer.
+                        return;
                     }
                 }
                 catch (ObjectDisposedException)

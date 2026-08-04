@@ -30,19 +30,9 @@ internal sealed class SoakServer : IAsyncDisposable
         var app = ElsieApp.Create()
             .QuietConsole(false)
             .Configure(o => o.ScanEntryAssembly = false)
-            // SOAK NOTE (real framework bug, documented in the soak report): with
-            // AbortRequestsOnClientDisconnect = true (the default) the per-request
-            // DisconnectWatcher's blocking Socket.Receive(Peek) can race the handler's own
-            // socket reads: Poll says readable, the handler drains the bytes, and the
-            // watcher's blocking Receive then waits forever. DisconnectWatcher.Dispose()
-            // waits synchronously on that stuck loop (no timeout), which permanently wedges
-            // the HTTP/1.1 connection handler mid-keep-alive — every later request on the
-            // connection hangs. Disabling the feature (a supported option) removes the
-            // polling thread from the path so the soak's churn/abort/leak assertions stay
-            // deterministic. Minimal repro: serial keep-alive POSTs with bodies on one
-            // connection hang within <1k requests; with the option off, 57k+ requests pass.
-            // (Left as an explicit configuration rather than patching src/, per task rule.)
-            .Server(o => o.AbortRequestsOnClientDisconnect = false)
+            // AbortRequestsOnClientDisconnect stays at its default (true): the
+            // DisconnectWatcher Peek-race that once wedged keep-alive connections here is
+            // fixed in src/ (non-blocking Available probe), so the soak exercises it.
             .Module<SoakModule>()
             .Listen(IPAddress.Loopback, 0, configureListen);
 
