@@ -410,6 +410,31 @@ public sealed class ElsieContext
     public ElsieResult Json<T>(T value, int statusCode = 200) =>
         ElsieResult.Json(value, statusCode, JsonSerializerOptions);
 
+    /// <summary>
+    /// Send <c>103 Early Hints</c> (RFC 9118) with the given <c>Link</c> header values before the
+    /// final response. Each value is a full Link header value (e.g.
+    /// <c>"&lt;/app.css&gt;; rel=preload; as=style"</c>). Repeatable; additional calls append more
+    /// links. A no-op when the response has already started (the handler has produced a result) or
+    /// for an upgrade/streaming response.
+    /// </summary>
+    public void SendEarlyHints(params string[] links)
+    {
+        ArgumentNullException.ThrowIfNull(links);
+        if (links.Length == 0 || Result is not null)
+        {
+            return; // response already started (or nothing to send) — no-op
+        }
+
+        foreach (var link in links)
+        {
+            if (!string.IsNullOrWhiteSpace(link))
+            {
+                Response.AddEarlyHint(link);
+            }
+        }
+    }
+
+
     private async Task<byte[]> ReadBodyWithLimitAsync(CancellationToken cancellationToken)
     {
         if (Request.ContentLength is { } declared && declared > _maxBindBodySize)

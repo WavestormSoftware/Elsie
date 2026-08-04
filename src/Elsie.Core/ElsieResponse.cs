@@ -9,11 +9,26 @@ public sealed class ElsieResponse
 {
     private readonly List<string> _setCookies = [];
     private readonly List<KeyValuePair<string, string>> _trailers = [];
+    private readonly List<string> _earlyHints = [];
 
     public ElsieHeaders Headers { get; } = new();
 
     /// <summary>Pending <c>Set-Cookie</c> header values (appended at bake after result headers).</summary>
     public IReadOnlyList<string> SetCookies => _setCookies;
+
+    /// <summary>
+    /// Pending <c>103 Early Hints</c> <c>Link</c> header values, drained by the transport writers
+    /// before the final response. Populated by <see cref="ElsieContext.SendEarlyHints"/>.
+    /// </summary>
+    public IReadOnlyList<string> EarlyHints => _earlyHints;
+
+    /// <summary>Record a <c>103 Early Hints</c> Link value (repeatable).</summary>
+    public ElsieResponse AddEarlyHint(string link)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(link);
+        _earlyHints.Add(link);
+        return this;
+    }
 
     /// <summary>
     /// HTTP/2 / HTTP/3 response trailers (sent in a trailing HEADERS frame after the body,

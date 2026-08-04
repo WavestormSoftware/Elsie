@@ -19,6 +19,8 @@ internal static class Http1ResponseWriter
         ArgumentNullException.ThrowIfNull(stream);
         ArgumentNullException.ThrowIfNull(response);
 
+        await WriteEarlyHintsAsync(stream, response, cancellationToken).ConfigureAwait(false);
+
         var statusLine =
             $"{protocol} {response.StatusCode} {HttpReasonPhrases.Get(response.StatusCode)}\r\n";
         var statusBytes = Encoding.ASCII.GetBytes(statusLine);
@@ -146,6 +148,29 @@ internal static class Http1ResponseWriter
             {
                 await stream.WriteAsync(buffered, cancellationToken).ConfigureAwait(false);
             }
+        }
+
+        await stream.FlushAsync(cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>Writes <c>103 Early Hints</c> (RFC 9118) with each pending Link before the final
+    /// response, when the handler called <see cref="ElsieContext.SendEarlyHints"/>.</summary>
+    private static async Task WriteEarlyHintsAsync(
+        Stream stream,
+        ElsieHttpResponse response,
+        CancellationToken cancellationToken)
+    {
+        if (response.EarlyHints.Count == 0 || response.WebSocketHandler is not null)
+        {
+            return; // no hints, or an upgrade — skip
+        }
+
+        foreach (var link in response.EarlyHints)
+        {
+            var statusLine = "HTTP/1.1 103 Early Hints\r\n";
+            await stream.WriteAsync(Encoding.ASCII.GetBytes(statusLine), cancellationToken).ConfigureAwait(false);
+            await WriteHeaderAsync(stream, "Link", link, cancellationToken).ConfigureAwait(false);
+            await stream.WriteAsync(Crlf, cancellationToken).ConfigureAwait(false);
         }
 
         await stream.FlushAsync(cancellationToken).ConfigureAwait(false);

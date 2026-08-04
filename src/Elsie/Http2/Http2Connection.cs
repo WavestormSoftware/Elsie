@@ -971,6 +971,22 @@ internal sealed class Http2Connection
             // Unknown-length BodyWriter: DATA frames delimit the body (streamed below).
         }
 
+        // RFC 9118: send 103 Early Hints HEADERS frames (with Link headers) before the final response.
+        if (response.EarlyHints.Count > 0 && response.WebSocketHandler is null)
+        {
+            foreach (var link in response.EarlyHints)
+            {
+                var hintBlock = HpackCodec.EncodeResponse(103, [("link", link)]);
+                await WriteFrameAsync(
+                        Http2FrameType.Headers,
+                        Http2FrameFlags.EndHeaders,
+                        streamId,
+                        hintBlock,
+                        cancellationToken)
+                    .ConfigureAwait(false);
+            }
+        }
+
         var hpack = HpackCodec.EncodeResponse(response.StatusCode, respHeaders);
         // For streaming bodies the trailer set is not known until the writer completes
         // (grpc-status is added during gRPC response writing), so HEADERS never carries

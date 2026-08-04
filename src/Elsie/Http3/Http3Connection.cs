@@ -581,6 +581,21 @@ internal sealed class Http3Connection
         var hasContentLength = respHeaders.Any(h =>
             h.Item1.Equals("content-length", StringComparison.OrdinalIgnoreCase));
 
+        // RFC 9118: send 103 Early Hints HEADERS frames (with Link headers) before the final response.
+        if (response.EarlyHints.Count > 0 && response.WebSocketHandler is null)
+        {
+            foreach (var link in response.EarlyHints)
+            {
+                var hintBlock = _encoder.EncodeResponse(103, [("link", link)], stream.Id);
+                await Http3FrameWriter.WriteAsync(
+                    stream,
+                    new Http3Frame(Http3FrameType.Headers, hintBlock),
+                    cancellationToken).ConfigureAwait(false);
+            }
+
+            await _encoder.FlushEncoderInstructionsAsync(cancellationToken).ConfigureAwait(false);
+        }
+
         if (!hasContentLength)
         {
             if (response.Body is { } mem && !isHead)

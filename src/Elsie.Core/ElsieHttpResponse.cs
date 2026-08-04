@@ -13,7 +13,8 @@ public sealed class ElsieHttpResponse
         ReadOnlyMemory<byte>? body,
         Func<Stream, CancellationToken, Task>? bodyWriter,
         Func<ElsieWebSocket, CancellationToken, Task>? webSocketHandler = null,
-        IReadOnlyList<KeyValuePair<string, string>>? trailers = null)
+        IReadOnlyList<KeyValuePair<string, string>>? trailers = null,
+        IReadOnlyList<string>? earlyHints = null)
     {
         StatusCode = statusCode;
         ContentType = contentType;
@@ -22,6 +23,7 @@ public sealed class ElsieHttpResponse
         BodyWriter = bodyWriter;
         WebSocketHandler = webSocketHandler;
         Trailers = trailers ?? Array.Empty<KeyValuePair<string, string>>();
+        EarlyHints = earlyHints ?? Array.Empty<string>();
     }
 
     public int StatusCode { get; }
@@ -34,6 +36,12 @@ public sealed class ElsieHttpResponse
     /// <summary>Response trailers (HTTP/2 / HTTP/3 trailing HEADERS after the body).</summary>
     public IReadOnlyList<KeyValuePair<string, string>> Trailers { get; }
 
+    /// <summary>
+    /// Pending <c>103 Early Hints</c> Link values, drained by the transport writers before the
+    /// final response (RFC 9118). Empty when the handler did not call <see cref="ElsieContext.SendEarlyHints"/>.
+    /// </summary>
+    public IReadOnlyList<string> EarlyHints { get; }
+
     /// <summary>Construct a response directly (host transforms, compression, static files).</summary>
     public static ElsieHttpResponse Create(
         int statusCode,
@@ -42,8 +50,9 @@ public sealed class ElsieHttpResponse
         ReadOnlyMemory<byte>? body,
         Func<Stream, CancellationToken, Task>? bodyWriter = null,
         Func<ElsieWebSocket, CancellationToken, Task>? webSocketHandler = null,
-        IReadOnlyList<KeyValuePair<string, string>>? trailers = null) =>
-        new(statusCode, contentType, headers ?? new ElsieHeaders(), body, bodyWriter, webSocketHandler, trailers);
+        IReadOnlyList<KeyValuePair<string, string>>? trailers = null,
+        IReadOnlyList<string>? earlyHints = null) =>
+        new(statusCode, contentType, headers ?? new ElsieHeaders(), body, bodyWriter, webSocketHandler, trailers, earlyHints);
 
     /// <summary>Construct a response directly (host transforms, compression, static files).</summary>
     public static ElsieHttpResponse Create(
@@ -106,7 +115,8 @@ public sealed class ElsieHttpResponse
                         result.Body,
                         result.BodyWriter,
                         result.WebSocketHandler,
-                        outcome.Response?.Trailers);
+                        outcome.Response?.Trailers,
+                        outcome.Response?.EarlyHints);
                 }
 
             default:

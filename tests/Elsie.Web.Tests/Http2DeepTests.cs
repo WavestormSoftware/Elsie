@@ -130,6 +130,60 @@ internal sealed class RawH2Client : IAsyncDisposable
         return (status, resetError);
     }
 
+    /// <summary>Sends one HEADERS request and collects all response :status codes and Link
+    /// header values (for 103 Early Hints tests).</summary>
+    public async Task<(List<int> Statuses, List<string> Links)> SendSingleRequestCollectAsync(
+        (string Name, string Value)[] headers,
+        CancellationToken ct)
+    {
+        var streamId = _lastStreamId;
+        _lastStreamId += 2;
+        var block = HpackCodec.EncodeRequest(headers);
+        await Http2FrameIo.WriteFrameAsync(
+            _ssl, Http2FrameType.Headers, Http2FrameFlags.EndHeaders | Http2FrameFlags.EndStream,
+            streamId, block, ct).ConfigureAwait(false);
+        await _ssl.FlushAsync(ct).ConfigureAwait(false);
+
+        var statuses = new List<int>();
+        var links = new List<string>();
+        while (true)
+        {
+            var frame = await Http2FrameIo.ReadFrameAsync(_ssl, ct).ConfigureAwait(false);
+            if (frame is null)
+            {
+                break;
+            }
+
+            if (frame.Value.StreamId != streamId)
+            {
+                continue;
+            }
+
+            if (frame.Value.Type == Http2FrameType.Headers)
+            {
+                var headersOut = HpackCodec.Decode(frame.Value.Payload);
+                foreach (var (name, value) in headersOut)
+                {
+                    if (name == ":status" && int.TryParse(value, out var code))
+                    {
+                        statuses.Add(code);
+                    }
+                    else if (name.Equals("link", StringComparison.OrdinalIgnoreCase))
+                    {
+                        links.Add(value);
+                    }
+                }
+            }
+
+            if ((frame.Value.Flags & Http2FrameFlags.EndStream) != 0)
+            {
+                break;
+            }
+        }
+
+        return (statuses, links);
+    }
+
     public async ValueTask DisposeAsync()
     {
         try
