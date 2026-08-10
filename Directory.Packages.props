@@ -20,7 +20,7 @@
     <PackageVersion Include="Microsoft.IdentityModel.Protocols.OpenIdConnect" Version="8.22.0" />
 
     <!-- Redis / distributed rate limiting -->
-    <PackageVersion Include="StackExchange.Redis" Version="3.1.0" />
+    <PackageVersion Include="StackExchange.Redis" Version="3.1.13" />
     <PackageVersion Include="Testcontainers" Version="4.13.0" />
 
     <!-- gRPC -->
