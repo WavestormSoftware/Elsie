@@ -21,7 +21,7 @@
 
     <!-- Redis / distributed rate limiting -->
     <PackageVersion Include="StackExchange.Redis" Version="3.1.0" />
-    <PackageVersion Include="Testcontainers" Version="4.13.0" />
+    <PackageVersion Include="Testcontainers" Version="4.14.0" />
 
     <!-- gRPC -->
     <PackageVersion Include="Google.Protobuf" Version="3.35.1" />
