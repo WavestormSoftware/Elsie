@@ -16,8 +16,8 @@
     <PackageVersion Include="Microsoft.Extensions.FileProviders.Physical" Version="10.0.0" />
 
     <!-- Auth JWT -->
-    <PackageVersion Include="System.IdentityModel.Tokens.Jwt" Version="8.22.0" />
-    <PackageVersion Include="Microsoft.IdentityModel.Protocols.OpenIdConnect" Version="8.22.0" />
+    <PackageVersion Include="System.IdentityModel.Tokens.Jwt" Version="8.23.0" />
+    <PackageVersion Include="Microsoft.IdentityModel.Protocols.OpenIdConnect" Version="8.23.0" />
 
     <!-- Redis / distributed rate limiting -->
     <PackageVersion Include="StackExchange.Redis" Version="3.3.1" />
