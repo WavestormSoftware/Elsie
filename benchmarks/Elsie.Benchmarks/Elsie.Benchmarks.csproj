@@ -9,6 +9,7 @@
   </PropertyGroup>
   <ItemGroup>
     <PackageReference Include="BenchmarkDotNet" />
+    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" />
     <ProjectReference Include="..\..\src\Elsie.Core\Elsie.Core.csproj" />
     <ProjectReference Include="..\..\src\Elsie.Views\Elsie.Views.csproj" />
   </ItemGroup>
