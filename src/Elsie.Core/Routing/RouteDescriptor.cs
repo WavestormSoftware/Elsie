@@ -8,6 +8,8 @@ public sealed class RouteDescriptor
     private readonly List<string> _tags = [];
     private readonly List<RouteProduces> _produces = [];
     private readonly List<string> _security = [];
+    private readonly List<object> _metadata = [];
+    private readonly List<Endpoints.IElsieEndpointFilter> _filters = [];
     private Dictionary<string, object?>? _items;
 
     public RouteDescriptor(string method, string template, RouteHandler handler, ElsieModule? module = null)
@@ -22,7 +24,7 @@ public sealed class RouteDescriptor
 
     public string Method { get; }
     public string Template { get; }
-    public RouteHandler Handler { get; }
+    public RouteHandler Handler { get; internal set; }
     public ElsieModule? Module { get; }
 
     /// <summary>Optional unique route name for link generation and OpenAPI operationId override.</summary>
@@ -39,6 +41,72 @@ public sealed class RouteDescriptor
 
     /// <summary>Extensibility bag for satellite packages (e.g. CORS policy name).</summary>
     public IDictionary<string, object?> Items => _items ??= new Dictionary<string, object?>(StringComparer.Ordinal);
+
+    /// <summary>
+    /// Endpoint metadata (conventions, policy requirements, filters' hints). Middleware reads it
+    /// through <see cref="GetMetadata{T}"/>; OpenAPI reads the typed properties above.
+    /// </summary>
+    public IReadOnlyList<object> Metadata => _metadata;
+
+    /// <summary>Filters that run around this endpoint's handler, outermost first.</summary>
+    public IReadOnlyList<Endpoints.IElsieEndpointFilter> Filters => _filters;
+
+    /// <summary>Add a metadata object to this endpoint.</summary>
+    public void AddMetadata(object metadata)
+    {
+        ArgumentNullException.ThrowIfNull(metadata);
+        _metadata.Add(metadata);
+    }
+
+    /// <summary>First metadata object assignable to <typeparamref name="T"/> (null when absent).</summary>
+    public T? GetMetadata<T>()
+        where T : class
+    {
+        foreach (var item in _metadata)
+        {
+            if (item is T typed)
+            {
+                return typed;
+            }
+        }
+
+        return null;
+    }
+
+    /// <summary>All metadata objects assignable to <typeparamref name="T"/>.</summary>
+    public IEnumerable<T> GetMetadataOfType<T>()
+        where T : class
+    {
+        foreach (var item in _metadata)
+        {
+            if (item is T typed)
+            {
+                yield return typed;
+            }
+        }
+    }
+
+    /// <summary>Existing metadata of type <typeparamref name="T"/>, adding one from <paramref name="factory"/> if absent.</summary>
+    public T GetOrAddMetadata<T>(Func<T> factory)
+        where T : class
+    {
+        ArgumentNullException.ThrowIfNull(factory);
+        if (GetMetadata<T>() is { } existing)
+        {
+            return existing;
+        }
+
+        var created = factory();
+        _metadata.Add(created);
+        return created;
+    }
+
+    /// <summary>Add a filter to this endpoint.</summary>
+    public void AddFilter(Endpoints.IElsieEndpointFilter filter)
+    {
+        ArgumentNullException.ThrowIfNull(filter);
+        _filters.Add(filter);
+    }
 
     internal void AddTags(IEnumerable<string> tags)
     {

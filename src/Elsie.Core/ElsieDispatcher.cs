@@ -71,6 +71,7 @@ public sealed class ElsieDispatcher
         if (match is not null)
         {
             context.RouteValues = match.RouteValues;
+            context.Endpoint = match.Route;
         }
 
         try
@@ -109,19 +110,26 @@ public sealed class ElsieDispatcher
         var moduleMiddleware = match.Route.Module?.Middleware;
         var route = match.Route;
 
+        var hasFilters = route.Filters.Count > 0;
+
         return async ctx =>
         {
             var ct = ctx.DispatchCancellationToken;
+
+            async Task<ElsieResult> InvokeHandlerAsync() => hasFilters
+                ? await Elsie.Endpoints.ElsieEndpointFilterPipeline.InvokeAsync(route, ctx, ct).ConfigureAwait(false)
+                : await route.Handler(ctx, ct).ConfigureAwait(false);
+
             if (moduleMiddleware is { Count: > 0 })
             {
                 await moduleMiddleware.InvokeAsync(
                     ctx,
-                    async handlerCtx => handlerCtx.Result = await route.Handler(handlerCtx, ct).ConfigureAwait(false),
+                    async handlerCtx => handlerCtx.Result = await InvokeHandlerAsync().ConfigureAwait(false),
                     ct).ConfigureAwait(false);
             }
             else
             {
-                ctx.Result = await route.Handler(ctx, ct).ConfigureAwait(false);
+                ctx.Result = await InvokeHandlerAsync().ConfigureAwait(false);
             }
         };
     }

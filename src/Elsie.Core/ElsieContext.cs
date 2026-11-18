@@ -59,6 +59,12 @@ public sealed class ElsieContext
     public ElsieResult? Result { get; set; }
 
     /// <summary>
+    /// The matched endpoint descriptor, populated before the pipeline runs (null when the request
+    /// matched no route). Middleware uses it to read endpoint metadata and conventions.
+    /// </summary>
+    public RouteDescriptor? Endpoint { get; internal set; }
+
+    /// <summary>
     /// Cancellation token the dispatcher uses for this request (linked from the caller's token
     /// and <see cref="RequestAborted"/>). Middleware adapters that need the dispatch-wide token
     /// (e.g. before-hook gates) observe this instead of the transport-only aborted token.

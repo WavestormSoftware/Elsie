@@ -1,5 +1,6 @@
 using System.Net;
 using System.Net.Sockets;
+using Elsie.Endpoints;
 using Elsie.Web.Hosting;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -15,7 +16,7 @@ namespace Elsie.Web;
 /// Fluent host for Elsie apps. Prefer <see cref="Run{TModule}"/> for the smallest entrypoint.
 /// For Generic Host, use <see cref="ElsieHostingExtensions.UseElsie"/>.
 /// </summary>
-public sealed class ElsieApp
+public sealed class ElsieApp : IElsieEndpointRouteBuilder
 {
     private readonly string[] _args;
     private readonly IServiceCollection _services;
@@ -23,6 +24,7 @@ public sealed class ElsieApp
     private readonly List<Action<IServiceCollection>> _serviceConfigs = new();
     private readonly List<Action<ElsieOptions>> _optionConfigs = new();
     private readonly List<ElsieListenOptions> _listen = new();
+    private readonly ElsieEndpointRegistry _endpoints = new();
     private ElsieStaticFileOptions? _staticFiles;
     private ElsieOpenApiHostOptions? _openApi;
     private ElsieServerOptions _serverOptions = new();
@@ -141,6 +143,13 @@ public sealed class ElsieApp
         _serviceConfigs.Add(s => s.AddElsieModule<TModule>());
         return this;
     }
+
+    /// <summary>Minimal-API endpoint sink for <c>MapGet</c>/<c>MapGroup</c> and friends.</summary>
+    public ElsieEndpointRegistry EndpointRegistry => _endpoints;
+
+    ElsieEndpointRegistry IElsieEndpointRouteBuilder.Registry => _endpoints;
+
+    ElsieEndpointConventions IElsieEndpointRouteBuilder.Conventions => _endpoints.Conventions;
 
     public ElsieApp Services(Action<IServiceCollection> configure)
     {
@@ -398,6 +407,8 @@ public sealed class ElsieApp
             cfg(services);
         }
 
+        services.AddSingleton(_endpoints);
+
         services.AddSingleton<ElsieServerFeatures>(sp =>
         {
             var features = new ElsieServerFeatures
@@ -458,6 +469,7 @@ public sealed class ElsieApp
         });
         RegisterOptionsReload(_services);
         RegisterStaticMiddleware(_services);
+        _services.AddSingleton(_endpoints);
 
         foreach (var cfg in _serviceConfigs)
         {

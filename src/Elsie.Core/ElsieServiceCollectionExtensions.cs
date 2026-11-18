@@ -39,8 +39,11 @@ public static class ElsieServiceCollectionExtensions
         services.TryAddSingleton<RouteTable>(sp =>
         {
             var modules = sp.GetServices<ElsieModule>().ToArray();
+            var endpoints = sp.GetServices<Endpoints.ElsieEndpointRegistry>().SelectMany(r => r.Routes);
             var opts = sp.GetRequiredService<ElsieOptions>();
-            return RouteTable.FromModules(modules, opts);
+            return new RouteTable(
+                modules.SelectMany(m => m.Routes).Concat(endpoints),
+                opts);
         });
         services.TryAddSingleton<ElsieDispatcher>();
 
