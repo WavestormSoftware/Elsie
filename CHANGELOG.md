@@ -23,6 +23,7 @@ Elsie is **unreleased** software; prereleases may include breaking API changes.
 - `ElsieMetrics` meter version string bumped to `0.4.0`.
 
 ### Added
+- **Static asset polish**: precompressed `.br`/`.gz` variants served from `Accept-Encoding` (with `Vary`, per-encoding ETags and identity fallback for ranges), `Cache-Control: immutable` for content-hashed file names, and an SPA fallback (`SpaFallback`) that serves the app shell for extension-less HTML requests without masking missing assets. See `docs/static-files.md`.
 - **WebSocket conformance**: `ElsieWebSocket` now assembles fragmented messages, handles interleaved control frames, rejects unmasked frames (1002), RSV bits, oversized frames/messages (1009) and invalid UTF-8 (1007), answers pings, performs a close handshake with `CloseStatus`/`CloseStatusDescription`, serializes concurrent sends, exposes byte counters, and negotiates subprotocols (`ElsieResult.WebSocket(handler, "chat.v1")` → `socket.Subprotocol`). Limits and switches live on `ElsieWebSocketOptions`.
 - **Realtime rooms** (`Elsie.Realtime`): `ElsieWebSocketHub` / `ElsieWebSocketGroup` for named rooms, parallel broadcast with dead-connection cleanup, `Join` leases and `BroadcastAllAsync`.
 - **SSE polish**: `ElsieSseEvent` record, spec-ordered event writing, `WriteRetryAsync`, `WriteHeartbeatAsync`, resumable `ElsieSse.GetLastEventId(...)` and `AcceptsEventStream(...)`. See `docs/realtime.md`.

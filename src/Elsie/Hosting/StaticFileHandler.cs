@@ -64,13 +64,48 @@ internal static class StaticFileHandler
         var full = Path.GetFullPath(Path.Combine(root, relative));
         // Require directory boundary — StartsWith(root) alone allows sibling prefix escapes
         // (root /var/www vs /var/www-evil).
-        if (!IsPathInsideRoot(full, root) || !File.Exists(full))
+        if (!IsPathInsideRoot(full, root))
         {
             return null;
         }
 
-        var info = new FileInfo(full);
+        if (!File.Exists(full))
+        {
+            return TrySpaFallback(path, headers, options, root);
+        }
+
+        // Precompressed variants (.br preferred over .gz) are served only when they are at least
+        // as new as the original and the request is not a range request.
+        var servingFile = full;
+        string? contentEncoding = null;
+        if (options.EnablePrecompressedFiles && !headers.ContainsKey("Range"))
+        {
+            var acceptEncoding = headers.TryGetValue("Accept-Encoding", out var ae) ? ae : string.Empty;
+            var brotli = full + ".br";
+            var gzip = full + ".gz";
+            var originalWrite = File.GetLastWriteTimeUtc(full);
+            if (acceptEncoding.Contains("br", StringComparison.OrdinalIgnoreCase)
+                && File.Exists(brotli)
+                && File.GetLastWriteTimeUtc(brotli) >= originalWrite)
+            {
+                servingFile = brotli;
+                contentEncoding = "br";
+            }
+            else if (acceptEncoding.Contains("gzip", StringComparison.OrdinalIgnoreCase)
+                && File.Exists(gzip)
+                && File.GetLastWriteTimeUtc(gzip) >= originalWrite)
+            {
+                servingFile = gzip;
+                contentEncoding = "gzip";
+            }
+        }
+
+        var info = new FileInfo(servingFile);
         var etag = ComputeEtag(info);
+        if (contentEncoding is not null)
+        {
+            etag = etag[..^1] + "-" + contentEncoding + "\"";
+        }
         var lastModified = info.LastWriteTimeUtc;
 
         if (headers.TryGetValue("If-None-Match", out var inm) && EtagMatches(inm, etag))
@@ -116,7 +151,7 @@ internal static class StaticFileHandler
             result = ElsieResult.Stream(async (stream, ct) =>
             {
                 await using var fs = new FileStream(
-                    full,
+                    servingFile,
                     FileMode.Open,
                     FileAccess.Read,
                     FileShare.Read,
@@ -155,12 +190,101 @@ internal static class StaticFileHandler
             }
         }
 
+        if (contentEncoding is not null)
+        {
+            result = result
+                .WithHeader("Content-Encoding", contentEncoding)
+                .WithHeader("Vary", "Accept-Encoding");
+        }
+
         if (options.MaxAge is { } maxAge)
         {
             result = result.WithHeader("Cache-Control", $"public, max-age={(int)maxAge.TotalSeconds}");
         }
 
+        if (options.ImmutableFingerprintedAssets && HasContentHash(full))
+        {
+            result = result.WithHeader(
+                "Cache-Control",
+                $"public, max-age={(int)options.ImmutableMaxAge.TotalSeconds}, immutable");
+        }
+
         return result;
+    }
+
+    /// <summary>
+    /// SPA fallback: extension-less GET/HEAD requests that would prefer HTML get the configured
+    /// document instead of a 404. Missing assets (paths with an extension) still 404 so errors are
+    /// not masked by index.html.
+    /// </summary>
+    private static ElsieResult? TrySpaFallback(
+        string path,
+        IReadOnlyDictionary<string, string> headers,
+        ElsieStaticFileOptions options,
+        string root)
+    {
+        if (string.IsNullOrWhiteSpace(options.SpaFallback) || headers.ContainsKey("Range"))
+        {
+            return null;
+        }
+
+        if (Path.HasExtension(path))
+        {
+            return null;
+        }
+
+        var accept = headers.TryGetValue("Accept", out var value) ? value : "text/html";
+        if (!accept.Contains("text/html", StringComparison.OrdinalIgnoreCase)
+            && !accept.Contains("*/*", StringComparison.Ordinal))
+        {
+            return null;
+        }
+
+        var fallback = Path.GetFullPath(Path.Combine(root, options.SpaFallback));
+        if (!IsPathInsideRoot(fallback, root) || !File.Exists(fallback))
+        {
+            return null;
+        }
+
+        var contentType = ContentTypes.FromExtension(fallback) ?? "text/html; charset=utf-8";
+        return ElsieResult.File(File.ReadAllBytes(fallback), contentType)
+            .WithHeader("Cache-Control", "no-cache");
+    }
+
+    /// <summary>Content-addressed names such as <c>app.4f3a9c1d.js</c> can be cached forever.</summary>
+    private static bool HasContentHash(string fullPath)
+    {
+        var parts = Path.GetFileName(fullPath).Split('.');
+        for (var i = 1; i < parts.Length - 1; i++)
+        {
+            var part = parts[i];
+            if (part.Length is < 8 or > 64)
+            {
+                continue;
+            }
+
+            var hasDigit = false;
+            var valid = true;
+            foreach (var c in part)
+            {
+                if (char.IsAsciiDigit(c))
+                {
+                    hasDigit = true;
+                }
+                else if (!char.IsAsciiLetter(c))
+                {
+                    valid = false;
+                    break;
+                }
+            }
+
+            if (valid && hasDigit)
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private static string ComputeEtag(FileInfo info)
