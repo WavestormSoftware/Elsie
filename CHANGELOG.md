@@ -9,6 +9,9 @@ Elsie is **unreleased** software; prereleases may include breaking API changes.
 
 ## [Unreleased]
 
+Next prerelease: **`0.5.0-beta.1`** — endpoint model, security hardening, realtime conformance,
+asset polish, hosting middleware and DX additions listed below.
+
 ### Breaking
 - Target framework is **net10.0 only** (net8.0 support dropped).
 - **Antiforgery hardening:** tokens now carry an issue timestamp (`TokenLifetime`, default 2 h) and are bound to the current principal — a token minted for one user (or anonymously) no longer validates for another; `ElsieAntiforgeryOptions.Secure` now defaults to **true**; repeated `GetAndStoreToken` calls within one request return the same token and emit a single cookie.
@@ -23,6 +26,8 @@ Elsie is **unreleased** software; prereleases may include breaking API changes.
 - `ElsieMetrics` meter version string bumped to `0.4.0`.
 
 ### Added
+- **Background jobs**: `AddElsieBackgroundJobs()` / `.BackgroundJobs(...)` register a bounded `ElsieBackgroundQueue` (`IElsieBackgroundQueue`) plus hosted workers. Each item runs in its own DI scope, failures are counted without stopping the loop, and `EnqueueAsync` returns false when full so handlers can shed load. See `docs/background-jobs-and-localization.md`.
+- **Localization**: `AddElsieLocalization()` resolves the request culture from `?culture=`, `Accept-Language` (q-values) or the default, validates against supported cultures, sets `Content-Language`/`Vary`, and adds `ctx.T("key")` with parent/default-culture fallback plus `ctx.SetCulture(...)`.
 - **Hosting and tenancy middleware**: `AddElsieHttpsRedirection()` (307/308 redirects with forwarded-proto awareness, custom ports, exclusions), `AddElsieHostRouting()` (`Host` allow-list with `*.subdomain` patterns, per-endpoint `RequireHost(...)` metadata for multi-tenant listeners, 421 problem responses) and `AddElsieServerTiming()` (`Server-Timing` header with total duration plus `ElsieServerTiming.Add`/`MeasureAsync` custom metrics). See `docs/hosting-tenancy.md`.
 - **Static asset polish**: precompressed `.br`/`.gz` variants served from `Accept-Encoding` (with `Vary`, per-encoding ETags and identity fallback for ranges), `Cache-Control: immutable` for content-hashed file names, and an SPA fallback (`SpaFallback`) that serves the app shell for extension-less HTML requests without masking missing assets. See `docs/static-files.md`.
 - **WebSocket conformance**: `ElsieWebSocket` now assembles fragmented messages, handles interleaved control frames, rejects unmasked frames (1002), RSV bits, oversized frames/messages (1009) and invalid UTF-8 (1007), answers pings, performs a close handshake with `CloseStatus`/`CloseStatusDescription`, serializes concurrent sends, exposes byte counters, and negotiates subprotocols (`ElsieResult.WebSocket(handler, "chat.v1")` → `socket.Subprotocol`). Limits and switches live on `ElsieWebSocketOptions`.

@@ -5,7 +5,7 @@ HTTP module framework for **.NET 10** (net10.0-only). Define routes in small mod
 **Why Elsie?** Tiny Sinatra-style modules, one fluent host (`ElsieApp`), no ASP.NET tax. Hold the whole request path in your head — modules → middleware → results → server — without `WebApplication` ceremony or a shared-framework dependency.
 
 ```bash
-dotnet add package Elsie          # 0.4.0-beta — host + Elsie.Core
+dotnet add package Elsie          # 0.5.0-beta — host + Elsie.Core
 ```
 
 ```csharp
@@ -338,7 +338,7 @@ In tests, set `ScanEntryAssembly = false` and register modules explicitly.
 | [Elsie.Extensions.Auth.Redis](https://www.nuget.org/packages/Elsie.Extensions.Auth.Redis) | Server-side cookie sessions over Redis (`RedisSessionStore`) |
 | [Elsie.Grpc](https://www.nuget.org/packages/Elsie.Grpc) | Native gRPC server over Elsie's HTTP/2 + HTTP/3 (ServiceBinderBase, reflection-lite) |
 
-Current version: **`0.4.0-beta`** (prerelease; APIs may still change).
+Current version: **`0.5.0-beta`** (prerelease; APIs may still change).
 
 Namespaces stay `Elsie` / `Elsie.Web` (host assembly is still `Elsie.Web.dll`). Library authors who want the host-agnostic surface only should reference **`Elsie.Core`**. Former package id **`Elsie.Web`** is retired — use **`Elsie`**.
 
