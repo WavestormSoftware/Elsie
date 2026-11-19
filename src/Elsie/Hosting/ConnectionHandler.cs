@@ -280,13 +280,16 @@ internal sealed class ConnectionHandler
                         return;
                     }
 
-                    await WebSocketUpgrade.WriteHandshakeAsync(stream, parsed.Protocol, key!, cancellationToken)
+                    var subprotocol = WebSocketUpgrade.SelectSubprotocol(
+                        parsed.Headers,
+                        response.WebSocketSubprotocols);
+                    await WebSocketUpgrade.WriteHandshakeAsync(stream, parsed.Protocol, key!, cancellationToken, subprotocol)
                         .ConfigureAwait(false);
                     _log?.Invoke($"{parsed.Method} {parsed.Path} → 101 {Stopwatch.GetElapsedTime(start).TotalMilliseconds:0}ms");
                     await parsed.Body.DisposeAsync().ConfigureAwait(false);
 
                     ElsieMetrics.WebSocketConnections.Add(1);
-                    await using var ws = new ElsieWebSocket(stream, leaveOpen: true);
+                    await using var ws = new ElsieWebSocket(stream, leaveOpen: true, subprotocol: subprotocol);
                     try
                     {
                         await response.WebSocketHandler(ws, cancellationToken).ConfigureAwait(false);

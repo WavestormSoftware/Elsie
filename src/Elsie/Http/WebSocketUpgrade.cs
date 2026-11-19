@@ -31,18 +31,55 @@ internal static class WebSocketUpgrade
         return Convert.ToBase64String(hash);
     }
 
+    /// <summary>
+    /// Pick the first server-supported subprotocol that the client offered (header order is client
+    /// preference). Returns null when the client offered nothing usable.
+    /// </summary>
+    public static string? SelectSubprotocol(
+        Dictionary<string, List<string>> requestHeaders,
+        IReadOnlyList<string> supported)
+    {
+        ArgumentNullException.ThrowIfNull(requestHeaders);
+        ArgumentNullException.ThrowIfNull(supported);
+        if (supported.Count == 0 || !requestHeaders.TryGetValue("Sec-WebSocket-Protocol", out var values))
+        {
+            return null;
+        }
+
+        foreach (var raw in values)
+        {
+            foreach (var candidate in raw.Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries))
+            {
+                foreach (var protocol in supported)
+                {
+                    if (string.Equals(candidate, protocol, StringComparison.Ordinal))
+                    {
+                        return protocol;
+                    }
+                }
+            }
+        }
+
+        return null;
+    }
+
     public static async Task WriteHandshakeAsync(
         Stream stream,
         string protocol,
         string secWebSocketKey,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        string? subprotocol = null)
     {
         var accept = ComputeAccept(secWebSocketKey);
+        var negotiated = string.IsNullOrEmpty(subprotocol)
+            ? string.Empty
+            : $"Sec-WebSocket-Protocol: {subprotocol}\r\n";
         var response =
             $"{protocol} 101 Switching Protocols\r\n" +
             "Upgrade: websocket\r\n" +
             "Connection: Upgrade\r\n" +
             $"Sec-WebSocket-Accept: {accept}\r\n" +
+            negotiated +
             "\r\n";
         var bytes = Encoding.ASCII.GetBytes(response);
         await stream.WriteAsync(bytes, cancellationToken).ConfigureAwait(false);

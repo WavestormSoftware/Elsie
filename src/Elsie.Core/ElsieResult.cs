@@ -16,7 +16,8 @@ public sealed class ElsieResult
         ReadOnlyMemory<byte>? body,
         Func<Stream, CancellationToken, Task>? bodyWriter,
         ElsieHeaders? headers,
-        Func<ElsieWebSocket, CancellationToken, Task>? webSocketHandler = null)
+        Func<ElsieWebSocket, CancellationToken, Task>? webSocketHandler = null,
+        IReadOnlyList<string>? webSocketSubprotocols = null)
     {
         StatusCode = statusCode;
         ContentType = contentType;
@@ -24,6 +25,7 @@ public sealed class ElsieResult
         BodyWriter = bodyWriter;
         _headers = headers;
         WebSocketHandler = webSocketHandler;
+        WebSocketSubprotocols = webSocketSubprotocols ?? Array.Empty<string>();
     }
 
     public int StatusCode { get; }
@@ -33,6 +35,9 @@ public sealed class ElsieResult
 
     /// <summary>When set, the host performs a WebSocket upgrade (status 101) and runs this handler.</summary>
     public Func<ElsieWebSocket, CancellationToken, Task>? WebSocketHandler { get; }
+
+    /// <summary>Subprotocols the server accepts for this upgrade, in preference order.</summary>
+    public IReadOnlyList<string> WebSocketSubprotocols { get; }
 
     public ElsieHeaders Headers => _headers ?? EmptyHeadersHolder.Instance;
 
@@ -204,13 +209,23 @@ public sealed class ElsieResult
     }
 
     /// <summary>
-    /// Accept a WebSocket upgrade. The host writes <c>101 Switching Protocols</c> then runs
+    /// Accept a WebSocket upgrade. The host writes <c>101 Switching Protocols</c> (negotiating one
+    /// of <paramref name="supportedSubprotocols"/> when the client offers it) then runs
     /// <paramref name="handler"/> on the duplex connection.
     /// </summary>
-    public static ElsieResult WebSocket(Func<ElsieWebSocket, CancellationToken, Task> handler)
+    public static ElsieResult WebSocket(
+        Func<ElsieWebSocket, CancellationToken, Task> handler,
+        params string[] supportedSubprotocols)
     {
         ArgumentNullException.ThrowIfNull(handler);
-        return new(101, contentType: null, body: null, bodyWriter: null, headers: null, webSocketHandler: handler);
+        return new(
+            101,
+            contentType: null,
+            body: null,
+            bodyWriter: null,
+            headers: null,
+            webSocketHandler: handler,
+            webSocketSubprotocols: supportedSubprotocols ?? []);
     }
 
     /// <summary>Creates a redirect response (302 by default, 301 when permanent).</summary>
@@ -278,7 +293,7 @@ public sealed class ElsieResult
         ArgumentNullException.ThrowIfNull(value);
         var headers = _headers?.Clone() ?? new ElsieHeaders();
         headers.Set(name, value);
-        return new(StatusCode, ContentType, Body, BodyWriter, headers, WebSocketHandler);
+        return new(StatusCode, ContentType, Body, BodyWriter, headers, WebSocketHandler, WebSocketSubprotocols);
     }
 
     /// <summary>Returns a copy with multiple headers set (Set semantics per key).</summary>
@@ -291,14 +306,14 @@ public sealed class ElsieResult
             bag.Set(name, value);
         }
 
-        return new(StatusCode, ContentType, Body, BodyWriter, bag, WebSocketHandler);
+        return new(StatusCode, ContentType, Body, BodyWriter, bag, WebSocketHandler, WebSocketSubprotocols);
     }
 
     public ElsieResult WithCookie(string name, string value, ElsieCookieOptions? options = null)
     {
         var headers = _headers?.Clone() ?? new ElsieHeaders();
         headers.Add("Set-Cookie", ElsieCookieFormatter.FormatSetCookie(name, value, options));
-        return new(StatusCode, ContentType, Body, BodyWriter, headers, WebSocketHandler);
+        return new(StatusCode, ContentType, Body, BodyWriter, headers, WebSocketHandler, WebSocketSubprotocols);
     }
 
     private static ElsieResult RedirectCore(int status, string location)

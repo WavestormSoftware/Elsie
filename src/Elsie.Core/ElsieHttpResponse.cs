@@ -14,7 +14,8 @@ public sealed class ElsieHttpResponse
         Func<Stream, CancellationToken, Task>? bodyWriter,
         Func<ElsieWebSocket, CancellationToken, Task>? webSocketHandler = null,
         IReadOnlyList<KeyValuePair<string, string>>? trailers = null,
-        IReadOnlyList<string>? earlyHints = null)
+        IReadOnlyList<string>? earlyHints = null,
+        IReadOnlyList<string>? webSocketSubprotocols = null)
     {
         StatusCode = statusCode;
         ContentType = contentType;
@@ -24,6 +25,7 @@ public sealed class ElsieHttpResponse
         WebSocketHandler = webSocketHandler;
         Trailers = trailers ?? Array.Empty<KeyValuePair<string, string>>();
         EarlyHints = earlyHints ?? Array.Empty<string>();
+        WebSocketSubprotocols = webSocketSubprotocols ?? Array.Empty<string>();
     }
 
     public int StatusCode { get; }
@@ -32,6 +34,9 @@ public sealed class ElsieHttpResponse
     public ReadOnlyMemory<byte>? Body { get; }
     public Func<Stream, CancellationToken, Task>? BodyWriter { get; }
     public Func<ElsieWebSocket, CancellationToken, Task>? WebSocketHandler { get; }
+
+    /// <summary>Subprotocols the endpoint accepts for a WebSocket upgrade (empty when none).</summary>
+    public IReadOnlyList<string> WebSocketSubprotocols { get; }
 
     /// <summary>Response trailers (HTTP/2 / HTTP/3 trailing HEADERS after the body).</summary>
     public IReadOnlyList<KeyValuePair<string, string>> Trailers { get; }
@@ -51,8 +56,9 @@ public sealed class ElsieHttpResponse
         Func<Stream, CancellationToken, Task>? bodyWriter = null,
         Func<ElsieWebSocket, CancellationToken, Task>? webSocketHandler = null,
         IReadOnlyList<KeyValuePair<string, string>>? trailers = null,
-        IReadOnlyList<string>? earlyHints = null) =>
-        new(statusCode, contentType, headers ?? new ElsieHeaders(), body, bodyWriter, webSocketHandler, trailers, earlyHints);
+        IReadOnlyList<string>? earlyHints = null,
+        IReadOnlyList<string>? webSocketSubprotocols = null) =>
+        new(statusCode, contentType, headers ?? new ElsieHeaders(), body, bodyWriter, webSocketHandler, trailers, earlyHints, webSocketSubprotocols);
 
     /// <summary>Construct a response directly (host transforms, compression, static files).</summary>
     public static ElsieHttpResponse Create(
@@ -116,7 +122,8 @@ public sealed class ElsieHttpResponse
                         result.BodyWriter,
                         result.WebSocketHandler,
                         outcome.Response?.Trailers,
-                        outcome.Response?.EarlyHints);
+                        outcome.Response?.EarlyHints,
+                        result.WebSocketSubprotocols);
                 }
 
             default:
