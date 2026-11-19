@@ -92,8 +92,49 @@ Repo CI runs `dotnet list package --vulnerable` and packs all package IDs. Depen
 - Full OIDC middleware (helpers + PKCE only; `PrincipalFromIdToken` requires JWT validation unless `allowUnvalidated: true`)
 - WAF / rate limit at the edge (use proxy + Elsie rate-limit middleware)
 
+## Data protection
+
+`AddElsieDataProtection()` registers `IElsieDataProtector` — AES-256-GCM with a versioned,
+purpose-bound key ring for tokens, cookies, signed state and ids:
+
+```csharp
+services.AddElsieDataProtection(o =>
+{
+    o.ApplicationName = "orders";
+    o.MasterKey = Convert.FromBase64String(config["DataProtection:Key"]!);
+});
+
+var tokens = sp.GetRequiredService<IElsieDataProtector>().ForPurpose("password-reset");
+var payload = tokens.Protect(userId);
+if (tokens.TryUnprotect(payload, out var value)) { /* trusted */ }
+```
+
+- Payloads are authenticated: tampering, truncation and foreign keys return `false` (never throw).
+- `ForPurpose(...)` derives a separate key; a reset token cannot be replayed as an email token.
+- Keys: `MasterKey` (shared 32-byte secret, best for multiple nodes), `KeyFilePath` (persisted
+  ring with automatic rotation by `KeyLifetime`, retired keys still decrypt), or an ephemeral
+  process key (tests/local only — `IsEphemeral` is true).
+- Envelope: `version | keyId | nonce | tag | ciphertext`; the version byte is authenticated.
+
+## Security headers
+
+`AddElsieSecurityHeaders(...)` adds `ElsieSecurityHeadersMiddleware`: `X-Content-Type-Options`,
+`X-Frame-Options`, `Referrer-Policy`, `Permissions-Policy`, `Cross-Origin-Opener-Policy`,
+`Cross-Origin-Resource-Policy`, optional CSP/COEP, and `Strict-Transport-Security` on HTTPS only
+(with `HstsPreload`). Every header can be disabled or replaced per option; `NoStoreErrors` adds
+`Cache-Control: no-store` to 4xx/5xx responses.
+
+## Endpoint authorization
+
+`RequireAuthorization(...)` / `AllowAnonymous()` on `Map*` endpoints and groups attach metadata.
+`AddElsieEndpointAuthorization()` (after `AddElsieAuth`) enforces it: anonymous requests are
+challenged (401 or cookie login redirect), authenticated requests must pass every named policy
+registered with `AddElsiePolicy(...)`. `AllowAnonymous()` always wins, and endpoints without the
+metadata are untouched.
+
 ## See also
 
 - [auth.md](auth.md)
+- [endpoints.md](endpoints.md)
 - [production-checklist.md](production-checklist.md)
 - [hosting-and-aot.md](hosting-and-aot.md)

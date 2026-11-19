@@ -1,3 +1,4 @@
+using System.Buffers.Binary;
 using System.Security.Cryptography;
 using System.Text;
 using Elsie.Middleware;
@@ -13,8 +14,20 @@ public sealed class ElsieAntiforgeryOptions
     public string HeaderName { get; set; } = "X-CSRF-TOKEN";
     public string FormFieldName { get; set; } = "__RequestVerificationToken";
     public bool HttpOnly { get; set; }
-    public bool Secure { get; set; }
+
+    /// <summary>
+    /// Emit <c>Secure</c> on the antiforgery cookie. Defaults to <b>true</b>; set false only for
+    /// plain-HTTP local development (the token would otherwise never be stored).
+    /// </summary>
+    public bool Secure { get; set; } = true;
+
     public ElsieSameSite SameSite { get; set; } = ElsieSameSite.Strict;
+
+    /// <summary>
+    /// How long a minted token stays valid. Default 2 hours. Tokens are also bound to the current
+    /// principal, so a token cannot be reused after a sign-in/sign-out or across users.
+    /// </summary>
+    public TimeSpan TokenLifetime { get; set; } = TimeSpan.FromHours(2);
 
     /// <summary>HMAC key; defaults to cookie TicketKey when available.</summary>
     public byte[]? SigningKey { get; set; }
@@ -38,6 +51,7 @@ public static class ElsieAntiforgeryServiceExtensions
 public sealed class ElsieAntiforgeryService
 {
     private static readonly byte[] EphemeralDevelopmentKey = RandomNumberGenerator.GetBytes(32);
+    private static readonly object TokenItemKey = new();
 
     private readonly ElsieAntiforgeryOptions _options;
     private readonly IServiceProvider _services;
@@ -51,7 +65,16 @@ public sealed class ElsieAntiforgeryService
     public string GetAndStoreToken(ElsieContext ctx)
     {
         ArgumentNullException.ThrowIfNull(ctx);
-        var token = CreateToken();
+
+        // One token per request: repeated calls (layout + partials) must not append duplicate
+        // Set-Cookie headers or mint tokens the page then mixes up.
+        if (ctx.Request.Items.TryGetValue(TokenItemKey, out var cached) && cached is string existing)
+        {
+            return existing;
+        }
+
+        var token = CreateToken(ctx);
+        ctx.Request.Items[TokenItemKey] = token;
         ctx.Response.SetCookie(_options.CookieName, token, new ElsieCookieOptions
         {
             HttpOnly = _options.HttpOnly,
@@ -67,7 +90,7 @@ public sealed class ElsieAntiforgeryService
     {
         ArgumentNullException.ThrowIfNull(ctx);
         var cookie = ctx.Request.GetCookie(_options.CookieName);
-        if (string.IsNullOrEmpty(cookie) || !VerifyFormat(cookie))
+        if (string.IsNullOrEmpty(cookie) || !VerifyFormat(cookie, ctx))
         {
             return false;
         }
@@ -84,7 +107,7 @@ public sealed class ElsieAntiforgeryService
     {
         ArgumentNullException.ThrowIfNull(ctx);
         var cookie = ctx.Request.GetCookie(_options.CookieName);
-        if (string.IsNullOrEmpty(cookie) || !VerifyFormat(cookie))
+        if (string.IsNullOrEmpty(cookie) || !VerifyFormat(cookie, ctx))
         {
             return false;
         }
@@ -146,16 +169,18 @@ public sealed class ElsieAntiforgeryService
         }
     }
 
-    private string CreateToken()
+    private string CreateToken(ElsieContext ctx)
     {
-        var nonce = RandomNumberGenerator.GetBytes(32);
-        var key = ResolveKey();
-        var mac = HMACSHA256.HashData(key, nonce);
+        // nonce(32) | issuedAtUnixSeconds(8), authenticated with HMAC over the principal binding.
+        var material = new byte[40];
+        RandomNumberGenerator.Fill(material.AsSpan(0, 32));
+        BinaryPrimitives.WriteInt64BigEndian(material.AsSpan(32), DateTimeOffset.UtcNow.ToUnixTimeSeconds());
+        var mac = ComputeMac(material, ctx);
         // Base64Url — safe in cookies and application/x-www-form-urlencoded (no '+').
-        return ToBase64Url(nonce) + "." + ToBase64Url(mac);
+        return ToBase64Url(material) + "." + ToBase64Url(mac);
     }
 
-    private bool VerifyFormat(string token)
+    private bool VerifyFormat(string token, ElsieContext ctx)
     {
         var parts = token.Split('.', 2);
         if (parts.Length != 2)
@@ -165,15 +190,45 @@ public sealed class ElsieAntiforgeryService
 
         try
         {
-            var nonce = FromBase64Url(parts[0]);
+            var material = FromBase64Url(parts[0]);
+            if (material.Length != 40)
+            {
+                return false;
+            }
+
+            var issued = BinaryPrimitives.ReadInt64BigEndian(material.AsSpan(32));
+            var now = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+            var lifetime = (long)_options.TokenLifetime.TotalSeconds;
+            if (lifetime <= 0 || issued > now + 300 || now - issued > lifetime)
+            {
+                return false;
+            }
+
             var mac = FromBase64Url(parts[1]);
-            var expected = HMACSHA256.HashData(ResolveKey(), nonce);
+            var expected = ComputeMac(material, ctx);
             return CryptographicOperations.FixedTimeEquals(mac, expected);
         }
-        catch
+        catch (Exception ex) when (ex is FormatException or ArgumentException)
         {
             return false;
         }
+    }
+
+    private byte[] ComputeMac(byte[] material, ElsieContext ctx)
+    {
+        var binding = PrincipalBinding(ctx);
+        var buffer = new byte[material.Length + binding.Length];
+        material.CopyTo(buffer, 0);
+        binding.CopyTo(buffer, material.Length);
+        return HMACSHA256.HashData(ResolveKey(), buffer);
+    }
+
+    /// <summary>Binds the token to the current principal (anonymous tokens cannot be replayed by a user).</summary>
+    private static byte[] PrincipalBinding(ElsieContext ctx)
+    {
+        var user = ctx.GetUser();
+        var name = user.Identity?.IsAuthenticated == true ? user.Identity.Name ?? string.Empty : string.Empty;
+        return SHA256.HashData(Encoding.UTF8.GetBytes($"elsie-csrf-v2|{name}"));
     }
 
     private static string ToBase64Url(byte[] data) =>
