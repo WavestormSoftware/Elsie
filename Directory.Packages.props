@@ -12,7 +12,7 @@
     <PackageVersion Include="coverlet.collector" Version="10.0.1" />
 
     <!-- Views -->
-    <PackageVersion Include="Fluid.ViewEngine" Version="2.31.0" />
+    <PackageVersion Include="Fluid.ViewEngine" Version="2.40.0" />
     <PackageVersion Include="Microsoft.Extensions.FileProviders.Physical" Version="10.0.0" />
 
     <!-- Auth JWT -->
