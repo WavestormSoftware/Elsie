@@ -21,7 +21,7 @@
 
     <!-- Redis / distributed rate limiting -->
     <PackageVersion Include="StackExchange.Redis" Version="3.3.1" />
-    <PackageVersion Include="Testcontainers" Version="4.13.0" />
+    <PackageVersion Include="Testcontainers" Version="4.17.0" />
     <!-- Transitive via Testcontainers; pinned to a patched release (GHSA-q939-rpr3-3284, GHSA-mggc-4xg6-vcxf). -->
     <PackageVersion Include="SSH.NET" Version="2026.0.1" />
 
